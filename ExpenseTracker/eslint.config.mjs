@@ -6,6 +6,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactNative from 'eslint-plugin-react-native';
 import importPlugin from 'eslint-plugin-import';
 import tseslint from 'typescript-eslint';
+import noSecrets from 'eslint-plugin-no-secrets';
 
 export default [
   // Ignore heavy/native folders
@@ -45,6 +46,7 @@ export default [
       'react-hooks': reactHooks,
       'react-native': reactNative,
       import: importPlugin,
+      'no-secrets': noSecrets,
     },
     settings: { react: { version: 'detect' } },
     rules: {
@@ -56,6 +58,14 @@ export default [
       'react-native/no-inline-styles': 'warn',
       'react-native/no-raw-text': 'off',
 
+      'no-secrets/no-secrets': [
+        'error',
+        {
+          tolerance: 4,
+          ignoreContent: ['example', 'sample'],
+        },
+      ],
+
       // --- DO NOT LAZY LOAD (enforced) ---
       // Ban dynamic import()
       'no-restricted-syntax': [
@@ -63,6 +73,12 @@ export default [
         {
           selector: 'ImportExpression',
           message: 'Dynamic import() is disallowed. Do not lazy load.',
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name='executeSql'] > :matches(TemplateLiteral, BinaryExpression)",
+          message:
+            'Use parameterised queries with placeholder bindings when calling executeSql.',
         },
       ],
       // Ban React.lazy(...)

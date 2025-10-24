@@ -1,97 +1,58 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# Personal Expense Tracker
 
-# Getting Started
+This React Native app is being built as an offline-first personal expense tracker with optional Google Drive export utilities. All code is written in TypeScript and targets Android (API 28+).
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## Environment setup
 
-## Step 1: Start Metro
+1. Install Node.js v22 (recommended via [nvm-windows](https://github.com/coreybutler/nvm-windows)) and run 
+vm use 22.19.0 to match the .nvmrc file.
+2. Enable Corepack once globally: corepack enable (also handled automatically by pnpm install).
+3. Install project dependencies with pnpm install (pnpm is pinned through packageManager in package.json).
+4. For Android development, install the Android SDK, Java 17, and configure the required environment variables as outlined in the [React Native setup guide](https://reactnative.dev/docs/set-up-your-environment).
+5. (Optional iOS development) requires macOS with Xcode and CocoaPods; follow the official React Native documentation.
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## Scripts
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+| Command | Description |
+| --- | --- |
+| pnpm start | Launch Metro bundler. |
+| pnpm android | Build and run the Android app. |
+| pnpm test | Execute Jest test suites. |
+| pnpm lint | Run ESLint across the codebase. |
+| pnpm typecheck | Run TypeScript in no-emit mode. |
+| pnpm format | Format files with Prettier. |
+| pnpm validate | Run lint, typecheck, and tests in sequence. |
 
-```sh
-# Using npm
-npm start
+## Tooling guardrails
 
-# OR using Yarn
-yarn start
-```
+- **ESLint** enforces security and offline constraints (e.g., no inline secrets, parameterised SQL requirements, no lazy loading). Use pnpm lint --fix to address issues automatically where possible.
+- **Prettier** keeps formatting consistent; run pnpm format before committing large changes.
+- **TypeScript** compilation is wired through pnpm typecheck and is part of the pre-commit pipeline.
+- **Jest** is configured for unit tests; use pnpm test --watch while developing.
 
-## Step 2: Build and run your app
+## Git workflow
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+- Branch naming: eature/<short-description>, ugfix/<ticket-or-context>, chore/<maintenance>, docs/<area>.
+- Commit messages follow the [Conventional Commits](https://www.conventionalcommits.org/) style, e.g., eat: add expense form validation or chore: update lint config.
+- Before pushing, run pnpm validate to ensure lint, typecheck, and tests are green.
 
-### Android
+## Husky & lint-staged
 
-```sh
-# Using npm
-npm run android
+- Dependencies installation triggers the prepare script (husky install) to wire Git hooks.
+- Pre-commit hook runs pnpm lint-staged, which:
+  - Lints staged TypeScript/JavaScript files with ESLint (no warnings allowed).
+  - Runs Jest on tests related to staged files.
+  - Formats staged resources with Prettier.
+- If pnpm is not on your PATH, install it via Corepack (corepack enable pnpm) before committing.
 
-# OR using Yarn
-yarn android
-```
+## Secure coding guidance
 
-### iOS
+- Never hard-code API keys or secrets. Use environment files and the native keystore/secure storage as required.
+- All SQLite interactions must use parameterised queries (executeSql with placeholders and value arrays).
+- Keep the app offline-first: avoid adding network calls outside of explicit export/auth flows.
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+## Troubleshooting
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
-```
-
-Then, and every time you update your native dependencies, run:
-
-```sh
-bundle exec pod install
-```
-
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
-
-```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
-```
-
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
-
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
-
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+- If Git hooks fail because pnpm is missing, run corepack enable pnpm and reinstall dependencies.
+- When ESLint flags potential secrets, verify and refactor them into environment-managed values.
+- For React Native environment issues, consult the official troubleshooting guide and ensure the Android emulator/device meets the target API level.

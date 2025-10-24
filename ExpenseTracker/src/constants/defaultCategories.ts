@@ -1,0 +1,20 @@
+export const DEFAULT_CATEGORIES: readonly string[] = [
+  "Essentials",
+  "Groceries",
+  "Dining",
+  "Transport",
+  "Housing",
+  "Utilities",
+  "Healthcare",
+  "Insurance",
+  "Education",
+  "Personal Care",
+  "Entertainment",
+  "Gifts",
+  "Travel",
+  "Savings",
+  "Investments",
+  "Fees",
+  "Income Adjustments",
+  "Miscellaneous"
+];
