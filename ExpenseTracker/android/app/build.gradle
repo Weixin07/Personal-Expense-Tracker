@@ -1,6 +1,29 @@
+import java.util.regex.Matcher
+import java.util.regex.Pattern
+
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+
+apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
+
+def parseRedirectUri(String uriValue) {
+    if (!uriValue) {
+        throw new GradleException("GOOGLE_OAUTH_REDIRECT_URI is not defined. Set it in your .env file or environment.")
+    }
+    Pattern pattern = Pattern.compile("^([a-zA-Z][\\w+\\-.]*):\\/\\/?([^\\/?#]*)?(\\/[^?#]*)?")
+    Matcher matcher = pattern.matcher(uriValue)
+    if (!matcher.find()) {
+        throw new GradleException("GOOGLE_OAUTH_REDIRECT_URI must be a valid URI with a scheme (received \"" + uriValue + "\").")
+    }
+    String scheme = matcher.group(1)
+    if (!scheme) {
+        throw new GradleException("GOOGLE_OAUTH_REDIRECT_URI must specify a URI scheme.")
+    }
+    String host = matcher.group(2) ?: ""
+    String path = matcher.group(3) ?: ""
+    return [scheme: scheme, host: host, path: path]
+}
 
 /**
  * This is the configuration block to customize your React Native Android app.
@@ -84,6 +107,24 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+
+        def redirectUri = null
+        if (project.hasProperty("GOOGLE_OAUTH_REDIRECT_URI")) {
+            redirectUri = project.property("GOOGLE_OAUTH_REDIRECT_URI")
+        }
+        if (!redirectUri && project.ext.has("env")) {
+            redirectUri = project.ext.env.get("GOOGLE_OAUTH_REDIRECT_URI")
+        }
+        if (!redirectUri) {
+            redirectUri = System.getenv("GOOGLE_OAUTH_REDIRECT_URI")
+        }
+        def redirectParts = parseRedirectUri(redirectUri)
+        def manifestValues = [
+            appAuthRedirectScheme: redirectParts.scheme,
+            appAuthRedirectHost  : redirectParts.host,
+            appAuthRedirectPath  : redirectParts.path
+        ]
+        manifestPlaceholders = (manifestPlaceholders ?: [:]) + manifestValues
     }
     signingConfigs {
         debug {

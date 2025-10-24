@@ -25,6 +25,7 @@ import {
   formatDateRangeLabel,
   type DateRangePreset,
 } from './homeUtils';
+import { formatDateBritish } from '../utils/date';
 
 const ITEM_HEIGHT = 72;
 const baseCurrencyDialogDescription = 'Select the currency you want to use for totals and conversions. You can change this later in Settings.';
@@ -90,7 +91,7 @@ const HomeScreen: React.FC = () => {
       return 'Not set';
     }
     const name = findCurrencyName(settings.baseCurrency);
-    return name ? `${settings.baseCurrency} • ${name}` : settings.baseCurrency;
+    return name ? `${settings.baseCurrency} (${name})` : settings.baseCurrency;
   }, [settings.baseCurrency]);
 
   const handlePresetSelect = useCallback(
@@ -146,6 +147,12 @@ const HomeScreen: React.FC = () => {
     [setBaseCurrency],
   );
 
+  const handleBaseCurrencyDismiss = useCallback(() => {
+    if (settings.baseCurrency) {
+      setBaseCurrencyDialogVisible(false);
+    }
+  }, [settings.baseCurrency]);
+
   const handleAddExpense = useCallback(() => {
     navigation.navigate('AddExpense');
   }, [navigation]);
@@ -158,7 +165,7 @@ const HomeScreen: React.FC = () => {
     ({ item }: { item: typeof filteredExpenses[number] }) => {
       const categoryName = item.categoryId ? categoriesMap.get(item.categoryId) : null;
       const descriptionParts = [
-        item.date,
+        formatDateBritish(item.date),
         categoryName ?? 'No category',
         `${item.amountNative.toFixed(2)} ${item.currencyCode}`,
       ];
@@ -166,7 +173,7 @@ const HomeScreen: React.FC = () => {
         <List.Item
           style={styles.listItem}
           title={item.description}
-          description={descriptionParts.join(' • ')}
+          description={descriptionParts.join(' | ')}
           descriptionNumberOfLines={2}
           onPress={() => navigation.navigate('AddExpense', { expenseId: item.id })}
           accessibilityLabel={`Open expense ${item.description}`}
@@ -208,7 +215,7 @@ const HomeScreen: React.FC = () => {
         <Text variant="bodyMedium">Base currency: {baseCurrencyLabel}</Text>
         <Text variant="bodyMedium">Total (base): {totalsLabel}</Text>
         <Text variant="bodyMedium">Tracked expenses: {filteredExpenses.length}</Text>
-        <Text variant="labelLarge" style={styles.metaText}>Pending exports • {pendingExports}</Text>
+        <Text variant="labelLarge" style={styles.metaText}>Pending exports: {pendingExports}</Text>
         {pendingExports > 5 ? (
           <View style={styles.queueBanner}>
             <Text variant="labelSmall">
@@ -220,7 +227,7 @@ const HomeScreen: React.FC = () => {
           </View>
         ) : null}
         <Text variant="labelSmall" style={styles.metaText}>
-          Date range • {dateRangeLabel}
+          Date range: {dateRangeLabel}
         </Text>
         {datePreset === 'custom' ? (
           <Text variant="labelSmall" style={styles.metaText}>
@@ -229,7 +236,7 @@ const HomeScreen: React.FC = () => {
         ) : null}
         {selectedCategoryName ? (
           <Text variant="labelSmall" style={styles.metaText}>
-            Category • {selectedCategoryName}
+            Category: {selectedCategoryName}
           </Text>
         ) : null}
         <Button mode="contained" onPress={handleAddExpense} style={styles.addButton}>
@@ -332,10 +339,12 @@ const HomeScreen: React.FC = () => {
       />
       <CurrencyPickerDialog
         visible={baseCurrencyDialogVisible}
-        onDismiss={() => setBaseCurrencyDialogVisible(false)}
+        onDismiss={handleBaseCurrencyDismiss}
         onSelect={handleBaseCurrencySelect}
         title="Choose base currency"
         description={baseCurrencyDialogDescription}
+        dismissable={Boolean(settings.baseCurrency)}
+        showCancelButton={Boolean(settings.baseCurrency)}
       />
       <CategoryPickerDialog
         visible={categoryDialogVisible}

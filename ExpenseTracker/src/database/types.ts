@@ -43,6 +43,7 @@ export type ExportQueueRecord = {
   id: string;
   filename: string;
   filePath: string;
+  fileUri: string | null;
   status: 'pending' | 'uploading' | 'completed' | 'failed';
   createdAt: string;
   updatedAt: string;

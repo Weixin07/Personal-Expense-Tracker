@@ -18,6 +18,8 @@ export type CurrencyPickerDialogProps = {
   title?: string;
   description?: string;
   cancelLabel?: string;
+  dismissable?: boolean;
+  showCancelButton?: boolean;
 };
 
 const currencyOptions = getCurrencyOptions();
@@ -29,6 +31,8 @@ const CurrencyPickerDialog: React.FC<CurrencyPickerDialogProps> = ({
   title = "Choose currency",
   description,
   cancelLabel = "Cancel",
+  dismissable = true,
+  showCancelButton = true,
 }) => {
   const [query, setQuery] = useState("");
 
@@ -49,6 +53,9 @@ const CurrencyPickerDialog: React.FC<CurrencyPickerDialogProps> = ({
   };
 
   const handleDismiss = () => {
+    if (!dismissable) {
+      return;
+    }
     setQuery("");
     onDismiss();
   };
@@ -58,6 +65,7 @@ const CurrencyPickerDialog: React.FC<CurrencyPickerDialogProps> = ({
       <Dialog
         visible={visible}
         onDismiss={handleDismiss}
+        dismissable={dismissable}
         accessibilityLabel={`${title} dialog`}
       >
         <Dialog.Title accessibilityRole="header">{title}</Dialog.Title>
@@ -91,11 +99,13 @@ const CurrencyPickerDialog: React.FC<CurrencyPickerDialogProps> = ({
             style={{ maxHeight: 320 }}
           />
         </Dialog.Content>
-        <Dialog.Actions>
-          <Button onPress={handleDismiss} accessibilityLabel={`${cancelLabel} currency selection`}>
-            {cancelLabel}
-          </Button>
-        </Dialog.Actions>
+        {showCancelButton ? (
+          <Dialog.Actions>
+            <Button onPress={handleDismiss} accessibilityLabel={`${cancelLabel} currency selection`}>
+              {cancelLabel}
+            </Button>
+          </Dialog.Actions>
+        ) : null}
       </Dialog>
     </Portal>
   );

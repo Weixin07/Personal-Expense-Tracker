@@ -1,38 +1,32 @@
-import RNFS from 'react-native-fs';
 import { buildExpensesCsv } from './csvBuilder';
 import type { ExpenseRecord, CategoryRecord } from '../database';
-
-const EXPORT_DIRECTORY = `${RNFS.DocumentDirectoryPath}/exports`;
-
-const ensureExportDirectory = async (): Promise<string> => {
-  const exists = await RNFS.exists(EXPORT_DIRECTORY);
-  if (!exists) {
-    await RNFS.mkdir(EXPORT_DIRECTORY);
-  }
-  return EXPORT_DIRECTORY;
-};
+import { createCsvFileInDirectory } from '../security/storageAccess';
 
 export type QueueExportPayload = {
+  directoryUri: string;
   expenses: readonly ExpenseRecord[];
   categories?: readonly CategoryRecord[];
 };
 
 export type QueueExportResult = {
   filename: string;
-  filePath: string;
+  fileUri: string;
+  filePath?: string | null;
   contentSize: number;
 };
 
 export const writeExportFile = async ({
+  directoryUri,
   expenses,
   categories = [],
 }: QueueExportPayload): Promise<QueueExportResult> => {
-  await ensureExportDirectory();
-
   const { filename, content } = buildExpensesCsv({ expenses, categories });
-  const filePath = `${EXPORT_DIRECTORY}/${filename}`;
+  const fileUri = await createCsvFileInDirectory(directoryUri, filename, content);
 
-  await RNFS.writeFile(filePath, content, 'utf8');
-
-  return { filename, filePath, contentSize: content.length };
+  return {
+    filename,
+    fileUri,
+    filePath: fileUri,
+    contentSize: content.length,
+  };
 };

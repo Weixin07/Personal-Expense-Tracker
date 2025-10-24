@@ -1,0 +1,2 @@
+#include? "../Pods/Target Support Files/Pods-ExpenseTracker/Pods-ExpenseTracker.release.xcconfig"
+#include? "../node_modules/react-native-config/ios/ReactNativeConfig.xcconfig"

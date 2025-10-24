@@ -23,6 +23,8 @@ target 'ExpenseTracker' do
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
 
+  pod 'react-native-config', :path => '../node_modules/react-native-config'
+
   post_install do |installer|
     # https://github.com/facebook/react-native/blob/main/packages/react-native/scripts/react_native_pods.rb#L197-L202
     react_native_post_install(
@@ -31,5 +33,13 @@ target 'ExpenseTracker' do
       :mac_catalyst_enabled => false,
       # :ccache_enabled => true
     )
+
+    installer.pods_project.targets.each do |target|
+      next unless target.name == 'react-native-config'
+
+      target.build_configurations.each do |configuration|
+        configuration.build_settings['ENVFILE'] = '$(PODS_ROOT)/../../.env'
+      end
+    end
   end
 end

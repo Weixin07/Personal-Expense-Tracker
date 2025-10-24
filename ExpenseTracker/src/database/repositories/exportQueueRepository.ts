@@ -5,6 +5,7 @@ export type InsertExportQueueItem = {
   id: string;
   filename: string;
   filePath: string;
+  fileUri: string | null;
   status: ExportQueueRecord['status'];
   lastError?: string | null;
 };
@@ -15,6 +16,7 @@ export type UpdateExportQueueFields = Partial<{
   driveFileId: string | null;
   uploadedAt: string | null;
   filePath: string;
+  fileUri: string | null;
   filename: string;
 }>;
 
@@ -23,6 +25,7 @@ export type UpdateExportQueueStatusOptions = Partial<{
   driveFileId: string | null;
   uploadedAt: string | null;
   filePath: string;
+  fileUri: string | null;
   filename: string;
 }>;
 
@@ -30,6 +33,7 @@ const mapRowToRecord = (row: any): ExportQueueRecord => ({
   id: row.id,
   filename: row.filename,
   filePath: row.filePath,
+  fileUri: row.fileUri ?? null,
   status: row.status,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
@@ -45,6 +49,7 @@ export const listExportQueue = async (
     `SELECT id,
             filename,
             file_path AS filePath,
+            file_uri AS fileUri,
             status,
             created_at AS createdAt,
             updated_at AS updatedAt,
@@ -71,6 +76,7 @@ export const insertExportQueueItem = async (
         id,
         filename,
         file_path,
+        file_uri,
         status,
         created_at,
         updated_at,
@@ -83,13 +89,21 @@ export const insertExportQueueItem = async (
         ?,
         ?,
         ?,
+        ?,
         (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
         NULL,
         NULL,
         ?
       )`,
-    [payload.id, payload.filename, payload.filePath, payload.status, payload.lastError ?? null],
+    [
+      payload.id,
+      payload.filename,
+      payload.filePath,
+      payload.fileUri ?? null,
+      payload.status,
+      payload.lastError ?? null,
+    ],
   );
 };
 
@@ -124,6 +138,11 @@ export const updateExportQueueItem = async (
   if (updates.filePath !== undefined) {
     fields.push('file_path = ?');
     values.push(updates.filePath);
+  }
+
+  if (Object.prototype.hasOwnProperty.call(updates, 'fileUri')) {
+    fields.push('file_uri = ?');
+    values.push(updates.fileUri ?? null);
   }
 
   if (updates.filename !== undefined) {
@@ -167,6 +186,10 @@ export const updateExportQueueStatus = async (
 
   if (options.filePath !== undefined) {
     updates.filePath = options.filePath;
+  }
+
+  if (options.fileUri !== undefined) {
+    updates.fileUri = options.fileUri;
   }
 
   if (options.filename !== undefined) {

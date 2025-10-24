@@ -1,3 +1,5 @@
+import { formatDateRangeBritish } from '../utils/date';
+
 export type DateRangePreset = 'last7Days' | 'last30Days' | 'thisMonth' | 'allTime';
 
 export type DatePresetOption = {
@@ -96,15 +98,7 @@ export const formatDateRangeLabel = (filters: { startDate?: string | null; endDa
     return 'All time';
   }
 
-  if (start && end) {
-    return `${start} – ${end}`;
-  }
-
-  if (start) {
-    return `From ${start}`;
-  }
-
-  return `Up to ${end}`;
+  return formatDateRangeBritish(start, end);
 };
 
 export const formatCurrencyAmount = (

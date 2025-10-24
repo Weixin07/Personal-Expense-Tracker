@@ -5,6 +5,7 @@ import { Button, Modal, Portal, Text, useTheme } from 'react-native-paper';
 import * as Keychain from 'react-native-keychain';
 import { writeExportFile, uploadPendingExports } from '../export';
 import type { UploadPendingExportsResult } from '../export';
+import { requestDirectorySelection, deleteFileUri } from '../security/storageAccess';
 
 import React, {
   createContext,
@@ -50,6 +51,7 @@ export type ExportQueueItem = {
   id: string;
   filename: string;
   filePath: string;
+  fileUri?: string | null;
   status: 'pending' | 'uploading' | 'completed' | 'failed';
   createdAt: string;
   updatedAt: string;
@@ -71,6 +73,7 @@ export type ExpenseDataState = {
     baseCurrency: string | null;
     biometricGateEnabled: boolean;
     driveFolderId: string | null;
+    exportDirectoryUri: string | null;
   };
   exportQueue: ExportQueueItem[];
   filters: ExpenseFilters;
@@ -112,6 +115,7 @@ export type ExpenseDataActions = {
   setBaseCurrency: (currencyCode: string | null) => Promise<void>;
   setBiometricGateEnabled: (enabled: boolean) => Promise<void>;
   setDriveFolderId: (folderId: string | null) => Promise<void>;
+  setExportDirectoryUri: (directoryUri: string | null) => Promise<void>;
   setFilters: (filters: ExpenseFilters) => void;
   clearFilters: () => void;
   clearError: () => void;
@@ -120,6 +124,7 @@ export type ExpenseDataActions = {
   removeExport: (id: string) => Promise<void>;
   clearCompletedExports: () => Promise<void>;
   uploadQueuedExports: (options?: { interactive?: boolean }) => Promise<UploadPendingExportsResult | null>;
+  unlockWithBiometrics: () => Promise<boolean>;
 };
 
 export type ExpenseDataContextValue = {
@@ -154,6 +159,7 @@ type ExpenseDataAction =
   | { type: 'settings/set-base-currency'; payload: string | null }
   | { type: 'settings/set-biometric'; payload: boolean }
   | { type: 'settings/set-drive-folder'; payload: string | null }
+  | { type: 'settings/set-export-directory'; payload: string | null }
   | { type: 'exportQueue/set-all'; payload: ExportQueueItem[] }
   | { type: 'exportQueue/add'; payload: ExportQueueItem }
   | { type: 'exportQueue/update'; payload: ExportQueueItem }
@@ -165,6 +171,7 @@ type ExpenseDataAction =
 const BASE_CURRENCY_KEY = 'base_currency';
 const BIOMETRIC_GATE_KEY = 'biometric_gate_enabled';
 const DRIVE_FOLDER_ID_KEY = 'drive_folder_id';
+const EXPORT_DIRECTORY_URI_KEY = 'export_directory_uri';
 const BIOMETRIC_TIMEOUT_MS = 5 * 60 * 1000;
 const BIOMETRIC_KEYCHAIN_SERVICE = 'expense-tracker-biometric-gate';
 
@@ -173,6 +180,7 @@ const mapExportQueueRecords = (records: readonly ExportQueueRecord[]): ExportQue
     id: record.id,
     filename: record.filename,
     filePath: record.filePath,
+    fileUri: record.fileUri ?? undefined,
     status: record.status,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
@@ -187,7 +195,31 @@ const generateExportQueueId = (): string => {
   return `exp-${timestamp}-${random}`;
 };
 
-const removeQueueFileIfExists = async (filePath: string): Promise<void> => {
+const removeQueueFileIfExists = async (location: { fileUri?: string | null; filePath?: string }): Promise<void> => {
+  const { fileUri } = location;
+  if (fileUri) {
+    if (fileUri.startsWith('content://')) {
+      await deleteFileUri(fileUri);
+      return;
+    }
+    // If the stored URI is actually a file path from legacy entries, fall through.
+    const legacyPath = fileUri;
+    try {
+      const exists = await RNFS.exists(legacyPath);
+      if (exists) {
+        await RNFS.unlink(legacyPath);
+      }
+    } catch {
+      // ignore unlink errors
+    }
+    return;
+  }
+
+  const filePath = location.filePath;
+  if (!filePath) {
+    return;
+  }
+
   try {
     const exists = await RNFS.exists(filePath);
     if (exists) {
@@ -205,6 +237,7 @@ const initialState: ExpenseDataState = {
     baseCurrency: null,
     biometricGateEnabled: false,
     driveFolderId: null,
+    exportDirectoryUri: null,
   },
   exportQueue: [],
   filters: {},
@@ -240,8 +273,10 @@ const parseSettings = (records: AppSettingRecord[]): ExpenseDataState['settings'
   const baseCurrency = records.find(setting => setting.key === BASE_CURRENCY_KEY)?.value ?? null;
   const biometricGateSetting = records.find(setting => setting.key === BIOMETRIC_GATE_KEY)?.value;
   const driveFolderId = records.find(setting => setting.key === DRIVE_FOLDER_ID_KEY)?.value ?? null;
+  const exportDirectoryUri =
+    records.find(setting => setting.key === EXPORT_DIRECTORY_URI_KEY)?.value ?? null;
   const biometricGateEnabled = biometricGateSetting === 'true';
-  return { baseCurrency, biometricGateEnabled, driveFolderId };
+  return { baseCurrency, biometricGateEnabled, driveFolderId, exportDirectoryUri };
 };
 
 const normalizeFilters = (
@@ -393,6 +428,14 @@ const expenseDataReducer = (
         settings: {
           ...state.settings,
           driveFolderId: action.payload,
+        },
+      };
+    case 'settings/set-export-directory':
+      return {
+        ...state,
+        settings: {
+          ...state.settings,
+          exportDirectoryUri: action.payload,
         },
       };
     case 'biometric/lock':
@@ -733,6 +776,46 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
     },
   );
 
+  const persistExportDirectoryUri = useCallback(
+    async (directoryUri: string | null) => {
+      await withDatabase(db => dbSetSetting(db, EXPORT_DIRECTORY_URI_KEY, directoryUri));
+      dispatch({ type: 'settings/set-export-directory', payload: directoryUri });
+    },
+    [dispatch],
+  );
+
+  const setExportDirectoryUri = useCallback<ExpenseDataActions['setExportDirectoryUri']>(
+    async directoryUri => {
+      dispatch({ type: 'operation/start' });
+      try {
+        await persistExportDirectoryUri(directoryUri);
+      } catch (error) {
+        dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
+        throw toError(error);
+      } finally {
+        dispatch({ type: 'operation/end' });
+      }
+    },
+    [persistExportDirectoryUri],
+  );
+
+  const ensureExportDirectoryUri = useCallback(async (): Promise<string> => {
+    if (state.settings.exportDirectoryUri) {
+      return state.settings.exportDirectoryUri;
+    }
+
+    const selection = await requestDirectorySelection();
+    if (!selection.ok) {
+      if (selection.cancelled) {
+        throw new Error(selection.message ?? 'Export directory selection was cancelled.');
+      }
+      throw new Error(selection.message ?? 'Unable to obtain export directory access.');
+    }
+
+    await persistExportDirectoryUri(selection.uri);
+    return selection.uri;
+  }, [persistExportDirectoryUri, state.settings.exportDirectoryUri]);
+
   const unlockWithBiometrics = useCallback<ExpenseDataActions['unlockWithBiometrics']>(async () => {
     if (!state.settings.biometricGateEnabled) {
       dispatch({ type: 'biometric/unlock' });
@@ -862,15 +945,22 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
     }
     dispatch({ type: 'operation/start' });
     try {
-      const { filename, filePath } = await writeExportFile({
+      const directoryUri = await ensureExportDirectoryUri();
+      const { filename, filePath, fileUri } = await writeExportFile({
+        directoryUri,
         expenses: state.expenses,
         categories: state.categories,
       });
+      const storedFilePath = filePath ?? fileUri;
+      if (!storedFilePath || !fileUri) {
+        throw new Error('Failed to create export file.');
+      }
       await withDatabase(db =>
         dbInsertExportQueueItem(db, {
           id: generateExportQueueId(),
           filename,
-          filePath,
+          filePath: storedFilePath,
+          fileUri,
           status: 'pending',
           lastError: null,
         }),
@@ -885,7 +975,15 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
     } finally {
       dispatch({ type: 'operation/end' });
     }
-  }, [dispatch, runDriveUpload, state.categories, state.expenses, state.isInitialised, syncExportQueue]);
+  }, [
+    dispatch,
+    ensureExportDirectoryUri,
+    runDriveUpload,
+    state.categories,
+    state.expenses,
+    state.isInitialised,
+    syncExportQueue,
+  ]);
 
   const retryExport = useCallback<ExpenseDataActions['retryExport']>(
     async id => {
@@ -895,17 +993,15 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
       }
       dispatch({ type: 'operation/start' });
       try {
-        let targetFilename = existing.filename;
-        let targetFilePath = existing.filePath;
-        const fileExists = await RNFS.exists(existing.filePath);
-
-        if (!fileExists) {
-          const regenerated = await writeExportFile({
-            expenses: state.expenses,
-            categories: state.categories,
-          });
-          targetFilename = regenerated.filename;
-          targetFilePath = regenerated.filePath;
+        const directoryUri = await ensureExportDirectoryUri();
+        const regenerated = await writeExportFile({
+          directoryUri,
+          expenses: state.expenses,
+          categories: state.categories,
+        });
+        const nextFilePath = regenerated.filePath ?? regenerated.fileUri;
+        if (!regenerated.fileUri || !nextFilePath) {
+          throw new Error('Failed to regenerate export.');
         }
 
         await withDatabase(db =>
@@ -913,14 +1009,13 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
             lastError: null,
             uploadedAt: null,
             driveFileId: null,
-            filePath: targetFilePath,
-            filename: targetFilename,
+            filePath: nextFilePath,
+            fileUri: regenerated.fileUri,
+            filename: regenerated.filename,
           }),
         );
 
-        if (!fileExists && existing.filePath !== targetFilePath) {
-          await removeQueueFileIfExists(existing.filePath);
-        }
+        await removeQueueFileIfExists({ fileUri: existing.fileUri, filePath: existing.filePath });
 
         await syncExportQueue();
         if (isOnlineRef.current) {
@@ -933,7 +1028,15 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
         dispatch({ type: 'operation/end' });
       }
     },
-    [dispatch, runDriveUpload, state.categories, state.expenses, state.exportQueue, syncExportQueue],
+    [
+      dispatch,
+      ensureExportDirectoryUri,
+      runDriveUpload,
+      state.categories,
+      state.expenses,
+      state.exportQueue,
+      syncExportQueue,
+    ],
   );
 
   const removeExport = useCallback<ExpenseDataActions['removeExport']>(
@@ -943,7 +1046,7 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
       try {
         await withDatabase(db => dbRemoveExportQueueItem(db, id));
         if (existing) {
-          await removeQueueFileIfExists(existing.filePath);
+          await removeQueueFileIfExists({ fileUri: existing.fileUri, filePath: existing.filePath });
         }
         await syncExportQueue();
       } catch (error) {
@@ -967,7 +1070,9 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
     dispatch({ type: 'operation/start' });
     try {
       await withDatabase(db => dbClearCompletedExportQueueItems(db));
-      await Promise.all(removable.map(item => removeQueueFileIfExists(item.filePath)));
+      await Promise.all(
+        removable.map(item => removeQueueFileIfExists({ fileUri: item.fileUri, filePath: item.filePath })),
+      );
       await syncExportQueue();
     } catch (error) {
       dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
@@ -1017,6 +1122,7 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
       setBaseCurrency,
       setBiometricGateEnabled,
       setDriveFolderId,
+      setExportDirectoryUri,
       setFilters,
       clearFilters,
       clearError,
@@ -1038,6 +1144,7 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
       setBaseCurrency,
       setBiometricGateEnabled,
       setDriveFolderId,
+      setExportDirectoryUri,
       setFilters,
       clearFilters,
       clearError,

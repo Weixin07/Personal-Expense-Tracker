@@ -12,6 +12,7 @@ export type RootStackParamList = {
   Settings: undefined;
   ManageCategories: undefined;
   ExportQueue: undefined;
+  DriveFolderPicker: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();

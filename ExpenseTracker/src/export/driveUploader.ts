@@ -9,6 +9,7 @@ import {
 import type { ExportQueueRecord } from '../database';
 import { ensureValidAccessToken } from '../security/googleAuth';
 import { GOOGLE_DRIVE_FOLDER_NAME } from '../security/googleConfig';
+import { readFileAsBase64 } from '../security/storageAccess';
 
 const DRIVE_FOLDER_ID_KEY = 'drive_folder_id';
 const DRIVE_FILES_ENDPOINT = 'https://www.googleapis.com/drive/v3/files';
@@ -106,7 +107,9 @@ const uploadFileToDrive = async (
   folderId: string,
   item: ExportQueueRecord,
 ): Promise<{ id: string }> => {
-  const base64Content = await RNFS.readFile(item.filePath, 'base64');
+  const base64Content = item.fileUri
+    ? await readFileAsBase64(item.fileUri)
+    : await RNFS.readFile(item.filePath, 'base64');
   const boundary = `boundary-${Date.now().toString(36)}`;
   const metadata = {
     name: item.filename,

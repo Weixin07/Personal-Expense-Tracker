@@ -13,6 +13,18 @@ export type Migration = {
 
 const MIGRATIONS: readonly Migration[] = [
   {
+    version: 4,
+    name: "export-queue-file-uri",
+    statements: [
+      {
+        sql: `ALTER TABLE export_queue ADD COLUMN file_uri TEXT NULL;`,
+      },
+      {
+        sql: `UPDATE export_queue SET file_uri = file_path WHERE file_uri IS NULL;`,
+      },
+    ],
+  },
+  {
     version: 3,
     name: "export-queue-metadata",
     statements: [

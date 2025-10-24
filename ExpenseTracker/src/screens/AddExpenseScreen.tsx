@@ -22,6 +22,7 @@ import {
   type ExpenseFormErrors,
   type ExpenseFormValues,
 } from './expenseFormUtils';
+import { formatDateBritish, parseBritishDateInput } from '../utils/date';
 
 const currencyDialogDescription = 'Choose the currency for this expense. This should match the currency on your receipt.';
 
@@ -46,6 +47,7 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
   );
 
   const [values, setValues] = useState<ExpenseFormValues>(initialFormValues);
+  const [dateInput, setDateInput] = useState<string>(formatDateBritish(initialFormValues.date));
   const [errors, setErrors] = useState<ExpenseFormErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [currencyDialogVisible, setCurrencyDialogVisible] = useState(false);
@@ -55,6 +57,7 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
 
   useEffect(() => {
     setValues(initialFormValues);
+    setDateInput(formatDateBritish(initialFormValues.date));
     setErrors({});
     setFormError(null);
   }, [initialFormValues]);
@@ -71,6 +74,15 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
   }, [values.amountNative, values.fxRateToBase]);
 
   const handleChange = (field: keyof ExpenseFormValues) => (text: string) => {\n    setValues(prev => ({ ...prev, [field]: text }));\n    const errorField = field as keyof ExpenseFormErrors;\n    if (errors[errorField]) {\n      setErrors(prev => ({ ...prev, [errorField]: undefined }));\n    }\n  };
+
+  const handleDateChange = (text: string) => {
+    setDateInput(text);
+    const iso = parseBritishDateInput(text);
+    setValues(prev => ({ ...prev, date: iso ?? '' }));
+    if (errors.date) {
+      setErrors(prev => ({ ...prev, date: undefined }));
+    }
+  };
 
   const handleCategorySelect = (categoryId: number | null) => {
     setValues(prev => ({ ...prev, categoryId }));
@@ -238,11 +250,11 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
           </HelperText>
 
           <TextInput
-            label="Date (YYYY-MM-DD)"
-            value={values.date}
-            onChangeText={handleChange('date')}
+            label="Date (DD/MM/YYYY)"
+            value={dateInput}
+            onChangeText={handleDateChange}
             mode="outlined"
-            keyboardType="number-pad"
+            keyboardType="default"
             accessibilityLabel="Expense date"
             error={Boolean(errors.date)}
           />

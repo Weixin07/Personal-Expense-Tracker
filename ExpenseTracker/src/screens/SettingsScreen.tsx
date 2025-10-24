@@ -1,8 +1,18 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Button, List, Surface, Switch, Text } from 'react-native-paper';
+import {
+  Button,
+  HelperText,
+  List,
+  Portal,
+  Surface,
+  Switch,
+  Text,
+  TextInput,
+  Dialog,
+} from 'react-native-paper';
 import CurrencyPickerDialog from '../components/CurrencyPickerDialog';
 import { findCurrencyName } from '../constants/currencyOptions';
 import { useExpenseData } from '../context/AppContext';
@@ -12,11 +22,14 @@ const SettingsScreen: React.FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const {
     state: { settings, isLoading, exportQueue },
-    actions: { setBiometricGateEnabled, setBaseCurrency, uploadQueuedExports },
+    actions: { setBiometricGateEnabled, setBaseCurrency, setDriveFolderId, uploadQueuedExports },
   } = useExpenseData();
 
   const [currencyDialogVisible, setCurrencyDialogVisible] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [driveDialogVisible, setDriveDialogVisible] = useState(false);
+  const [driveFolderValue, setDriveFolderValue] = useState(settings.driveFolderId ?? '');
+  const [savingDriveFolder, setSavingDriveFolder] = useState(false);
 
   const toggleBiometricGate = () => {
     void setBiometricGateEnabled(!settings.biometricGateEnabled);
@@ -36,6 +49,12 @@ const SettingsScreen: React.FC = () => {
 
   const baseCurrencyName = findCurrencyName(settings.baseCurrency);
   const pendingCount = exportQueue.filter(item => item.status === 'pending').length;
+  const driveFolderDescription = useMemo(() => {
+    if (settings.driveFolderId) {
+      return `Folder ID: ${settings.driveFolderId}`;
+    }
+    return 'Will be created automatically on first upload';
+  }, [settings.driveFolderId]);
 
   const handleUploadNow = async () => {
     if (isUploading) {
@@ -77,6 +96,49 @@ const SettingsScreen: React.FC = () => {
     }
   };
 
+  const openDriveFolderDialog = () => {
+    setDriveFolderValue(settings.driveFolderId ?? '');
+    setDriveDialogVisible(true);
+  };
+
+  const closeDriveFolderDialog = () => {
+    if (!savingDriveFolder) {
+      setDriveDialogVisible(false);
+    }
+  };
+
+  const submitDriveFolder = async (rawValue: string) => {
+    if (savingDriveFolder) {
+      return;
+    }
+    setDriveFolderValue(rawValue);
+    setSavingDriveFolder(true);
+    try {
+      const trimmed = rawValue.trim();
+      await setDriveFolderId(trimmed.length ? trimmed : null);
+      setDriveDialogVisible(false);
+      Alert.alert(
+        'Drive folder updated',
+        trimmed.length
+          ? 'Future exports will upload to the specified Google Drive folder.'
+          : 'The folder will be recreated on the next successful export.',
+      );
+    } catch (error) {
+      Alert.alert(
+        'Unable to update folder',
+        error instanceof Error ? error.message : 'Please try again later.',
+      );
+    } finally {
+      setSavingDriveFolder(false);
+    }
+  };
+
+  const handleSaveDriveFolder = async () => submitDriveFolder(driveFolderValue);
+
+  const handleClearDriveFolder = async () => {
+    await submitDriveFolder('');
+  };
+
   return (
     <Surface style={styles.container}>
       <List.Section>
@@ -111,14 +173,13 @@ const SettingsScreen: React.FC = () => {
         />
         <List.Item
           title="Drive backup folder"
-          description={
-            settings.driveFolderId
-              ? `Folder ID: ${settings.driveFolderId}`
-              : 'Will be created automatically on first upload'
-          }
+          description={driveFolderDescription}
           right={() => (
             <List.Icon icon={settings.driveFolderId ? 'check-circle-outline' : 'cloud-outline'} />
           )}
+          onPress={openDriveFolderDialog}
+          accessibilityRole="button"
+          accessibilityLabel="Change Drive backup folder"
         />
         <List.Item
           title="Biometric lock"
@@ -154,6 +215,50 @@ const SettingsScreen: React.FC = () => {
         title="Choose base currency"
         description="Select the currency you want to use for totals and conversions."
       />
+      <Portal>
+        <Dialog visible={driveDialogVisible} onDismiss={closeDriveFolderDialog}>
+          <Dialog.Title>Drive backup folder</Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium" style={styles.dialogBody}>
+              Enter a Google Drive folder ID to reuse an existing folder. Leave blank to let the app
+              create a new &ldquo;Expense Tracker Backups&rdquo; folder during the next export.
+            </Text>
+            <TextInput
+              label="Folder ID (optional)"
+              value={driveFolderValue}
+              onChangeText={setDriveFolderValue}
+              mode="outlined"
+              autoCapitalize="none"
+              accessibilityLabel="Google Drive folder identifier"
+              editable={!savingDriveFolder}
+            />
+            <HelperText type="info" visible>
+              This must correspond to a folder accessible to the Google account you use for exports.
+            </HelperText>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={closeDriveFolderDialog} disabled={savingDriveFolder}>
+              Cancel
+            </Button>
+            <Button
+              onPress={handleClearDriveFolder}
+              disabled={savingDriveFolder}
+              accessibilityLabel="Reset Drive folder"
+            >
+              Use default
+            </Button>
+            <Button
+              mode="contained"
+              onPress={handleSaveDriveFolder}
+              loading={savingDriveFolder}
+              disabled={savingDriveFolder}
+              accessibilityLabel="Save Drive folder"
+            >
+              Save
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </Surface>
   );
 };
@@ -169,6 +274,9 @@ const styles = StyleSheet.create({
   },
   helperText: {
     color: '#6b6b6b',
+  },
+  dialogBody: {
+    marginBottom: 12,
   },
 });
 
