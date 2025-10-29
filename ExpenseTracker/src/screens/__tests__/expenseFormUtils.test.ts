@@ -47,19 +47,24 @@ describe('expenseFormUtils', () => {
       };
       const values = getDefaultExpenseFormValues(null, categories, existing);
       expect(values.description).toBe('Lunch');
-      expect(values.baseAmount).toBe('10.00000000');
+      expect(values.baseAmount).toBe('10.00');
     });
   });
 
   describe('validateExpenseForm', () => {
     it('returns errors for invalid form', () => {
+      // Use a future date to trigger validation error
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + 10); // 10 days in future (exceeds 3-day limit)
+      const futureDateStr = futureDate.toISOString().slice(0, 10);
+
       const result = validateExpenseForm({
         description: '',
         amountNative: '0',
         currencyCode: 'BTC',
         fxRateToBase: '0',
         baseAmount: '',
-        date: '2025-02-30',
+        date: futureDateStr,
         categoryId: null,
         notes: '',
       });
@@ -68,7 +73,7 @@ describe('expenseFormUtils', () => {
         expect(result.errors.description).toBeDefined();
         expect(result.errors.amountNative).toBe('Amount must be greater than zero.');
         expect(result.errors.currencyCode).toBe('Currency code must be a valid ISO-4217 code.');
-        expect(result.errors.date).toBeDefined();
+        expect(result.errors.date).toBe('Date cannot be more than 3 days in the future.');
       }
     });
 

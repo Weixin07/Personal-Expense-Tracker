@@ -2,6 +2,7 @@ import type { SQLiteDatabase, Transaction } from "react-native-sqlite-storage";
 import { DEFAULT_CATEGORIES } from "../constants/defaultCategories";
 
 const BASE_CURRENCY_KEY = "base_currency";
+const DRIVE_FOLDER_ID_KEY = "drive_folder_id";
 
 const ensureBaseCurrencyPlaceholder = async (db: SQLiteDatabase): Promise<void> => {
   const [result] = await db.executeSql(
@@ -14,6 +15,20 @@ const ensureBaseCurrencyPlaceholder = async (db: SQLiteDatabase): Promise<void> 
   await db.executeSql(
     `INSERT INTO app_settings (key, value) VALUES (?, NULL)`,
     [BASE_CURRENCY_KEY],
+  );
+};
+
+const ensureDriveFolderIdPlaceholder = async (db: SQLiteDatabase): Promise<void> => {
+  const [result] = await db.executeSql(
+    `SELECT 1 FROM app_settings WHERE key = ? LIMIT 1`,
+    [DRIVE_FOLDER_ID_KEY],
+  );
+  if (result.rows.length > 0) {
+    return;
+  }
+  await db.executeSql(
+    `INSERT INTO app_settings (key, value) VALUES (?, NULL)`,
+    [DRIVE_FOLDER_ID_KEY],
   );
 };
 
@@ -41,5 +56,6 @@ const ensureDefaultCategories = async (db: SQLiteDatabase): Promise<void> => {
 
 export const seedInitialData = async (db: SQLiteDatabase): Promise<void> => {
   await ensureBaseCurrencyPlaceholder(db);
+  await ensureDriveFolderIdPlaceholder(db);
   await ensureDefaultCategories(db);
 };

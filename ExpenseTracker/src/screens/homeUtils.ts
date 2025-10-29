@@ -1,4 +1,5 @@
 import { formatDateRangeBritish } from '../utils/date';
+import { formatCurrencyAmount as formatCurrency } from '../utils/formatting';
 
 export type DateRangePreset = 'last7Days' | 'last30Days' | 'thisMonth' | 'allTime';
 
@@ -101,14 +102,5 @@ export const formatDateRangeLabel = (filters: { startDate?: string | null; endDa
   return formatDateRangeBritish(start, end);
 };
 
-export const formatCurrencyAmount = (
-  amount: number,
-  currencyCode: string | null,
-  fallback = '',
-): string => {
-  const formatted = amount.toFixed(2);
-  if (currencyCode) {
-    return `${formatted} ${currencyCode}`;
-  }
-  return fallback ? `${formatted} ${fallback}` : formatted;
-};
+// Re-export the centralized formatting function for backward compatibility
+export const formatCurrencyAmount = formatCurrency;

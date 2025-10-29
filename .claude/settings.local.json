@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm test:*)",
+      "Bash(pnpm test:coverage:*)",
+      "Bash(Select-String -Pattern \"FAIL|PASS|Test Suites\")",
+      "Bash(Select-Object -Last 30)",
+      "Bash(pnpm add:*)",
+      "Bash(pnpm test:performance:verbose:*)",
+      "Bash(pnpm test:performance:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

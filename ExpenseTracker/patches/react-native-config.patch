@@ -1,0 +1,13 @@
+diff --git a/package.json b/package.json
+index 723cad901c33f4f2ff2f8e41743aa0f9d591fbe4..ab1baf5d318c17036fc768409055f9dd6514ae76 100644
+--- a/package.json
++++ b/package.json
+@@ -55,7 +55,7 @@
+       "optional": true
+     }
+   },
+-  "codegenConfig": {
++  "_codegenConfig": {
+     "name": "RNCConfigModule",
+     "type": "modules",
+     "jsSrcsDir": "./src",

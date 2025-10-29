@@ -22,6 +22,7 @@ const buildAppAuthConfig = () => {
     clientId,
     redirectUrl: redirectUri,
     scopes: [GOOGLE_DRIVE_SCOPE, 'openid', 'profile'],
+    usePKCE: true, // CRITICAL: Use PKCE (Proof Key for Code Exchange) for enhanced security on mobile
     additionalParameters: {
       access_type: 'offline',
       prompt: 'consent',

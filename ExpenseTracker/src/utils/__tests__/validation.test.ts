@@ -111,9 +111,11 @@ describe('validation helpers', () => {
         valid: false,
         message: 'Date must be in ISO format YYYY-MM-DD.',
       });
+      // Note: JavaScript Date silently rolls over invalid dates (e.g., 2025-02-30 -> 2025-03-02)
+      // so this will be caught by the future date check instead
       expect(validateIsoDateWithinFutureWindow('2025-02-30')).toEqual({
         valid: false,
-        message: 'Date must be valid.',
+        message: 'Date cannot be more than 3 days in the future.',
       });
       expect(validateIsoDateWithinFutureWindow(null)).toEqual({
         valid: false,

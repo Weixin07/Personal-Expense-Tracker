@@ -11,6 +11,7 @@ import {
   List,
   Surface,
   Text,
+  useTheme,
 } from 'react-native-paper';
 import CategoryPickerDialog from '../components/CategoryPickerDialog';
 import CurrencyPickerDialog from '../components/CurrencyPickerDialog';
@@ -26,11 +27,13 @@ import {
   type DateRangePreset,
 } from './homeUtils';
 import { formatDateBritish } from '../utils/date';
+import { formatMoneyAmount } from '../utils/formatting';
 
 const ITEM_HEIGHT = 72;
 const baseCurrencyDialogDescription = 'Select the currency you want to use for totals and conversions. You can change this later in Settings.';
 
 const HomeScreen: React.FC = () => {
+  const theme = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const {
     state: { settings, exportQueue, categories, filters, isInitialised, isLoading },
@@ -43,6 +46,9 @@ const HomeScreen: React.FC = () => {
   const [baseCurrencyDialogVisible, setBaseCurrencyDialogVisible] = useState(false);
   const defaultFiltersAppliedRef = useRef(false);
 
+  // FIRST-RUN ONBOARDING: Force base currency selection on first app launch
+  // The dialog is non-dismissable (cannot tap outside or press back) until user selects a currency
+  // This ensures all expenses have a valid base currency for totals and conversions
   useEffect(() => {
     if (isInitialised && !settings.baseCurrency) {
       setBaseCurrencyDialogVisible(true);
@@ -167,7 +173,7 @@ const HomeScreen: React.FC = () => {
       const descriptionParts = [
         formatDateBritish(item.date),
         categoryName ?? 'No category',
-        `${item.amountNative.toFixed(2)} ${item.currencyCode}`,
+        `${formatMoneyAmount(item.amountNative)} ${item.currencyCode}`,
       ];
       return (
         <List.Item
@@ -217,8 +223,11 @@ const HomeScreen: React.FC = () => {
         <Text variant="bodyMedium">Tracked expenses: {filteredExpenses.length}</Text>
         <Text variant="labelLarge" style={styles.metaText}>Pending exports: {pendingExports}</Text>
         {pendingExports > 5 ? (
-          <View style={styles.queueBanner}>
-            <Text variant="labelSmall">
+          <View style={[styles.queueBanner, {
+            backgroundColor: theme.colors.errorContainer,
+            borderColor: theme.colors.error,
+          }]}>
+            <Text variant="labelSmall" style={{ color: theme.colors.onErrorContainer }}>
               There are {pendingExports} exports waiting to upload. Connect to the internet and upload them soon.
             </Text>
             <Button mode="contained-tonal" onPress={handleOpenQueue} accessibilityLabel="View export queue">
@@ -343,6 +352,8 @@ const HomeScreen: React.FC = () => {
         onSelect={handleBaseCurrencySelect}
         title="Choose base currency"
         description={baseCurrencyDialogDescription}
+        // FIRST-RUN ENFORCEMENT: Dialog is non-dismissable until base currency is set
+        // This blocks all app interaction until user completes onboarding
         dismissable={Boolean(settings.baseCurrency)}
         showCancelButton={Boolean(settings.baseCurrency)}
       />
@@ -376,6 +387,13 @@ const styles = StyleSheet.create({
   },
   metaText: {
     color: '#6b6b6b',
+  },
+  queueBanner: {
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    gap: 8,
+    marginVertical: 8,
   },
   addButton: {
     alignSelf: 'flex-start',

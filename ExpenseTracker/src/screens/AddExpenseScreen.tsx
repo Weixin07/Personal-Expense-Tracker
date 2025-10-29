@@ -23,6 +23,7 @@ import {
   type ExpenseFormValues,
 } from './expenseFormUtils';
 import { formatDateBritish, parseBritishDateInput } from '../utils/date';
+import { formatMoneyAmount } from '../utils/formatting';
 
 const currencyDialogDescription = 'Choose the currency for this expense. This should match the currency on your receipt.';
 
@@ -70,7 +71,7 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
 
   const computedBaseAmount = useMemo(() => {
     const amount = computeBaseAmount(values.amountNative, values.fxRateToBase);
-    return amount != null ? amount.toFixed(8) : '';
+    return amount != null ? formatMoneyAmount(amount) : '';
   }, [values.amountNative, values.fxRateToBase]);
 
   const handleChange = (field: keyof ExpenseFormValues) => (text: string) => {\n    setValues(prev => ({ ...prev, [field]: text }));\n    const errorField = field as keyof ExpenseFormErrors;\n    if (errors[errorField]) {\n      setErrors(prev => ({ ...prev, [errorField]: undefined }));\n    }\n  };

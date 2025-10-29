@@ -5,6 +5,7 @@ import {
   validatePositiveAmount,
   validatePositiveRate,
 } from '../utils/validation';
+import { formatMoneyAmount, formatFxRate } from '../utils/formatting';
 import type { CategoryRecord, ExpenseRecord, NewExpenseRecord, UpdateExpenseRecord } from '../database';
 
 export type ExpenseFormValues = {
@@ -62,10 +63,10 @@ export const getDefaultExpenseFormValues = (
   if (existing) {
     return {
       description: existing.description,
-      amountNative: existing.amountNative.toString(),
+      amountNative: formatMoneyAmount(existing.amountNative),
       currencyCode: existing.currencyCode,
-      fxRateToBase: existing.fxRateToBase.toString(),
-      baseAmount: existing.baseAmount.toFixed(8),
+      fxRateToBase: formatFxRate(existing.fxRateToBase),
+      baseAmount: formatMoneyAmount(existing.baseAmount),
       date: existing.date,
       categoryId: existing.categoryId ?? null,
       notes: existing.notes ?? '',

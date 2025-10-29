@@ -53,7 +53,7 @@ const escapeCell = (input: unknown): string => {
 
 const formatAmountNative = (amount: number): string => amount.toFixed(2);
 const formatFxRate = (rate: number): string => rate.toFixed(6);
-const formatBaseAmount = (amount: number): string => amount.toFixed(8);
+const formatBaseAmount = (amount: number): string => amount.toFixed(2);
 
 export const buildExpensesCsv = ({
   expenses,

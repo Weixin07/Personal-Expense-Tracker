@@ -37,7 +37,7 @@ export const parseBritishDateInput = (input: string): string | null => {
     return trimmed;
   }
 
-  const parts = trimmed.split(/[\/-\.\s]+/).filter(Boolean);
+  const parts = trimmed.split(/[/\-.\s]+/).filter(Boolean);
   if (parts.length !== 3) {
     return null;
   }
@@ -56,5 +56,20 @@ export const parseBritishDateInput = (input: string): string | null => {
   if (Number.isNaN(parsed.getTime())) {
     return null;
   }
+
+  // Strict validation: ensure the parsed date matches the input
+  // JavaScript Date constructor silently rolls over invalid dates (e.g., Feb 31 → Mar 3)
+  const parsedYear = parsed.getUTCFullYear();
+  const parsedMonth = parsed.getUTCMonth() + 1; // 0-indexed
+  const parsedDay = parsed.getUTCDate();
+
+  if (
+    parsedYear !== parseInt(year, 10) ||
+    parsedMonth !== parseInt(month, 10) ||
+    parsedDay !== parseInt(day, 10)
+  ) {
+    return null;
+  }
+
   return iso;
 };
