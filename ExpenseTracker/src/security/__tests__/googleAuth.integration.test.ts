@@ -2,7 +2,7 @@
  * Integration tests for Google OAuth authentication flow
  */
 
-import {authorize, refresh} from 'react-native-app-auth';
+import { authorize, refresh } from 'react-native-app-auth';
 import * as Keychain from 'react-native-keychain';
 import {
   ensureValidAccessToken,
@@ -14,15 +14,24 @@ import {
 // Mock implementations
 const mockAuthorize = authorize as jest.MockedFunction<typeof authorize>;
 const mockRefresh = refresh as jest.MockedFunction<typeof refresh>;
-const mockGetGenericPassword = Keychain.getGenericPassword as jest.MockedFunction<
-  typeof Keychain.getGenericPassword
->;
-const mockSetGenericPassword = Keychain.setGenericPassword as jest.MockedFunction<
-  typeof Keychain.setGenericPassword
->;
-const mockResetGenericPassword = Keychain.resetGenericPassword as jest.MockedFunction<
-  typeof Keychain.resetGenericPassword
->;
+const mockGetGenericPassword =
+  Keychain.getGenericPassword as jest.MockedFunction<
+    typeof Keychain.getGenericPassword
+  >;
+const mockSetGenericPassword =
+  Keychain.setGenericPassword as jest.MockedFunction<
+    typeof Keychain.setGenericPassword
+  >;
+const mockResetGenericPassword =
+  Keychain.resetGenericPassword as jest.MockedFunction<
+    typeof Keychain.resetGenericPassword
+  >;
+
+const keychainStorage = 'keychain' as unknown as Keychain.STORAGE_TYPE;
+const setPasswordResult = {
+  service: 'google-drive-auth',
+  storage: keychainStorage,
+};
 
 describe('Google OAuth Integration Tests', () => {
   beforeEach(() => {
@@ -33,7 +42,7 @@ describe('Google OAuth Integration Tests', () => {
     it('should return null when no stored auth state and not interactive', async () => {
       mockGetGenericPassword.mockResolvedValue(false);
 
-      const token = await ensureValidAccessToken({interactive: false});
+      const token = await ensureValidAccessToken({ interactive: false });
 
       expect(token).toBeNull();
       expect(mockAuthorize).not.toHaveBeenCalled();
@@ -42,6 +51,7 @@ describe('Google OAuth Integration Tests', () => {
     it('should trigger authorization flow when no stored auth state and interactive', async () => {
       mockGetGenericPassword.mockResolvedValue(false);
       mockAuthorize.mockResolvedValue({
+        authorizationCode: 'mock-auth-code',
         accessToken: 'new-access-token',
         accessTokenExpirationDate: new Date(Date.now() + 3600000).toISOString(),
         refreshToken: 'new-refresh-token',
@@ -49,9 +59,9 @@ describe('Google OAuth Integration Tests', () => {
         idToken: 'new-id-token',
         scopes: ['https://www.googleapis.com/auth/drive.file'],
       });
-      mockSetGenericPassword.mockResolvedValue(true);
+      mockSetGenericPassword.mockResolvedValue(setPasswordResult);
 
-      const token = await ensureValidAccessToken({interactive: true});
+      const token = await ensureValidAccessToken({ interactive: true });
 
       expect(token).toBe('new-access-token');
       expect(mockAuthorize).toHaveBeenCalledTimes(1);
@@ -68,10 +78,10 @@ describe('Google OAuth Integration Tests', () => {
           accessTokenExpirationDate: futureDate,
           refreshToken: 'refresh-token',
         }),
-        storage: 'keychain',
+        storage: keychainStorage,
       });
 
-      const token = await ensureValidAccessToken({interactive: false});
+      const token = await ensureValidAccessToken({ interactive: false });
 
       expect(token).toBe('valid-token');
       expect(mockRefresh).not.toHaveBeenCalled();
@@ -88,17 +98,18 @@ describe('Google OAuth Integration Tests', () => {
           accessTokenExpirationDate: pastDate,
           refreshToken: 'refresh-token',
         }),
-        storage: 'keychain',
+        storage: keychainStorage,
       });
       mockRefresh.mockResolvedValue({
         accessToken: 'refreshed-token',
         accessTokenExpirationDate: new Date(Date.now() + 3600000).toISOString(),
+        refreshToken: null,
         tokenType: 'Bearer',
         idToken: 'new-id-token',
       });
-      mockSetGenericPassword.mockResolvedValue(true);
+      mockSetGenericPassword.mockResolvedValue(setPasswordResult);
 
-      const token = await ensureValidAccessToken({interactive: false});
+      const token = await ensureValidAccessToken({ interactive: false });
 
       expect(token).toBe('refreshed-token');
       expect(mockRefresh).toHaveBeenCalledWith(
@@ -122,10 +133,11 @@ describe('Google OAuth Integration Tests', () => {
           accessTokenExpirationDate: pastDate,
           refreshToken: 'invalid-refresh-token',
         }),
-        storage: 'keychain',
+        storage: keychainStorage,
       });
       mockRefresh.mockRejectedValue(new Error('Invalid refresh token'));
       mockAuthorize.mockResolvedValue({
+        authorizationCode: 'mock-auth-code',
         accessToken: 'new-access-token',
         accessTokenExpirationDate: new Date(Date.now() + 3600000).toISOString(),
         refreshToken: 'new-refresh-token',
@@ -133,9 +145,9 @@ describe('Google OAuth Integration Tests', () => {
         idToken: 'new-id-token',
         scopes: ['https://www.googleapis.com/auth/drive.file'],
       });
-      mockSetGenericPassword.mockResolvedValue(true);
+      mockSetGenericPassword.mockResolvedValue(setPasswordResult);
 
-      const token = await ensureValidAccessToken({interactive: true});
+      const token = await ensureValidAccessToken({ interactive: true });
 
       expect(token).toBe('new-access-token');
       expect(mockRefresh).toHaveBeenCalledTimes(1);
@@ -152,11 +164,11 @@ describe('Google OAuth Integration Tests', () => {
           accessTokenExpirationDate: pastDate,
           refreshToken: 'invalid-refresh-token',
         }),
-        storage: 'keychain',
+        storage: keychainStorage,
       });
       mockRefresh.mockRejectedValue(new Error('Invalid refresh token'));
 
-      const token = await ensureValidAccessToken({interactive: false});
+      const token = await ensureValidAccessToken({ interactive: false });
 
       expect(token).toBeNull();
       expect(mockAuthorize).not.toHaveBeenCalled();
@@ -167,6 +179,7 @@ describe('Google OAuth Integration Tests', () => {
     it('should always trigger interactive flow when needed', async () => {
       mockGetGenericPassword.mockResolvedValue(false);
       mockAuthorize.mockResolvedValue({
+        authorizationCode: 'mock-auth-code',
         accessToken: 'interactive-token',
         accessTokenExpirationDate: new Date(Date.now() + 3600000).toISOString(),
         refreshToken: 'refresh-token',
@@ -174,7 +187,7 @@ describe('Google OAuth Integration Tests', () => {
         idToken: 'id-token',
         scopes: ['https://www.googleapis.com/auth/drive.file'],
       });
-      mockSetGenericPassword.mockResolvedValue(true);
+      mockSetGenericPassword.mockResolvedValue(setPasswordResult);
 
       const token = await ensureInteractiveAccessToken();
 
@@ -221,7 +234,7 @@ describe('Google OAuth Integration Tests', () => {
         service: 'google-drive-auth',
         username: 'google-drive',
         password: JSON.stringify(authState),
-        storage: 'keychain',
+        storage: keychainStorage,
       });
 
       const state = await getStoredAuthState();
@@ -234,7 +247,7 @@ describe('Google OAuth Integration Tests', () => {
         service: 'google-drive-auth',
         username: 'google-drive',
         password: 'invalid-json',
-        storage: 'keychain',
+        storage: keychainStorage,
       });
 
       const state = await getStoredAuthState();
@@ -247,6 +260,7 @@ describe('Google OAuth Integration Tests', () => {
     it('should include usePKCE in authorization config', async () => {
       mockGetGenericPassword.mockResolvedValue(false);
       mockAuthorize.mockResolvedValue({
+        authorizationCode: 'mock-auth-code',
         accessToken: 'pkce-token',
         accessTokenExpirationDate: new Date(Date.now() + 3600000).toISOString(),
         refreshToken: 'refresh-token',
@@ -254,15 +268,16 @@ describe('Google OAuth Integration Tests', () => {
         idToken: 'id-token',
         scopes: ['https://www.googleapis.com/auth/drive.file'],
       });
-      mockSetGenericPassword.mockResolvedValue(true);
+      mockSetGenericPassword.mockResolvedValue(setPasswordResult);
 
-      await ensureValidAccessToken({interactive: true});
+      await ensureValidAccessToken({ interactive: true });
 
       expect(mockAuthorize).toHaveBeenCalledWith(
         expect.objectContaining({
           usePKCE: true,
           serviceConfiguration: expect.objectContaining({
-            authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
+            authorizationEndpoint:
+              'https://accounts.google.com/o/oauth2/v2/auth',
             tokenEndpoint: 'https://oauth2.googleapis.com/token',
           }),
           scopes: expect.arrayContaining([

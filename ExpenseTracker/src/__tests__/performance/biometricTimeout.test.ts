@@ -19,47 +19,45 @@ describe('Performance: Biometric Lock Timeout Accuracy', () => {
 
       console.log(`⏱️  Target: ${targetDuration}ms`);
       console.log(`⏱️  Actual: ${duration.toFixed(2)}ms`);
-      console.log(`⏱️  Difference: ${Math.abs(duration - targetDuration).toFixed(2)}ms`);
+      console.log(
+        `⏱️  Difference: ${Math.abs(duration - targetDuration).toFixed(2)}ms`,
+      );
 
       // Should be within 100ms tolerance
       expect(Math.abs(duration - targetDuration)).toBeLessThan(TOLERANCE_MS);
     });
 
-    it(
-      'should measure 5-second timeout with high accuracy',
-      async () => {
-        const targetDuration = 5000; // 5 seconds
+    it('should measure 5-second timeout with high accuracy', async () => {
+      const targetDuration = 5000; // 5 seconds
 
-        const { duration } = await measureTime(async () => {
-          await wait(targetDuration);
-        });
-
-        console.log(`⏱️  Target: ${formatDuration(targetDuration)}`);
-        console.log(`⏱️  Actual: ${formatDuration(duration)}`);
-        console.log(`⏱️  Difference: ${Math.abs(duration - targetDuration).toFixed(2)}ms`);
-
-        expect(Math.abs(duration - targetDuration)).toBeLessThan(TOLERANCE_MS);
-      },
-      10000
-    ); // 10 second timeout for 5-second test
-
-    it(
-      'should measure 10-second timeout with high accuracy',
-      async () => {
-        const targetDuration = 10000; // 10 seconds
-
-        const { duration } = await measureTime(async () => {
-          await wait(targetDuration);
-        });
+      const { duration } = await measureTime(async () => {
+        await wait(targetDuration);
+      });
 
       console.log(`⏱️  Target: ${formatDuration(targetDuration)}`);
       console.log(`⏱️  Actual: ${formatDuration(duration)}`);
-        console.log(`⏱️  Difference: ${Math.abs(duration - targetDuration).toFixed(2)}ms`);
+      console.log(
+        `⏱️  Difference: ${Math.abs(duration - targetDuration).toFixed(2)}ms`,
+      );
 
-        expect(Math.abs(duration - targetDuration)).toBeLessThan(TOLERANCE_MS);
-      },
-      15000
-    ); // 15 second timeout for 10-second test
+      expect(Math.abs(duration - targetDuration)).toBeLessThan(TOLERANCE_MS);
+    }, 10000); // 10 second timeout for 5-second test
+
+    it('should measure 10-second timeout with high accuracy', async () => {
+      const targetDuration = 10000; // 10 seconds
+
+      const { duration } = await measureTime(async () => {
+        await wait(targetDuration);
+      });
+
+      console.log(`⏱️  Target: ${formatDuration(targetDuration)}`);
+      console.log(`⏱️  Actual: ${formatDuration(duration)}`);
+      console.log(
+        `⏱️  Difference: ${Math.abs(duration - targetDuration).toFixed(2)}ms`,
+      );
+
+      expect(Math.abs(duration - targetDuration)).toBeLessThan(TOLERANCE_MS);
+    }, 15000); // 15 second timeout for 10-second test
   });
 
   describe('Timeout Logic Simulation', () => {
@@ -70,7 +68,9 @@ describe('Performance: Biometric Lock Timeout Accuracy', () => {
       const elapsed = now - lastBackgroundTime;
 
       console.log(`⏱️  Elapsed Time: ${formatDuration(elapsed)}`);
-      console.log(`⏱️  Timeout Threshold: ${formatDuration(BIOMETRIC_TIMEOUT_MS)}`);
+      console.log(
+        `⏱️  Timeout Threshold: ${formatDuration(BIOMETRIC_TIMEOUT_MS)}`,
+      );
       console.log(`⏱️  Should Lock: ${elapsed >= BIOMETRIC_TIMEOUT_MS}`);
 
       expect(elapsed).toBeGreaterThanOrEqual(BIOMETRIC_TIMEOUT_MS);
@@ -84,7 +84,9 @@ describe('Performance: Biometric Lock Timeout Accuracy', () => {
       const shouldLock = elapsed >= BIOMETRIC_TIMEOUT_MS;
 
       console.log(`⏱️  Elapsed Time: ${formatDuration(elapsed)}`);
-      console.log(`⏱️  Timeout Threshold: ${formatDuration(BIOMETRIC_TIMEOUT_MS)}`);
+      console.log(
+        `⏱️  Timeout Threshold: ${formatDuration(BIOMETRIC_TIMEOUT_MS)}`,
+      );
       console.log(`⏱️  Should Lock: ${shouldLock}`);
 
       expect(shouldLock).toBe(false);
@@ -131,10 +133,12 @@ describe('Performance: Biometric Lock Timeout Accuracy', () => {
         await wait(10); // Small delay between checks
       }
 
-      console.log(`🔒 Lock decisions: ${results.map((r) => (r ? 'LOCK' : 'UNLOCK')).join(', ')}`);
+      console.log(
+        `🔒 Lock decisions: ${results.map(r => (r ? 'LOCK' : 'UNLOCK')).join(', ')}`,
+      );
 
       // All checks should produce the same result
-      const allSame = results.every((r) => r === results[0]);
+      const allSame = results.every(r => r === results[0]);
       expect(allSame).toBe(true);
     });
 
@@ -152,10 +156,10 @@ describe('Performance: Biometric Lock Timeout Accuracy', () => {
       }
 
       console.log(`🔒 Rapid checks performed: ${checks.length}`);
-      console.log(`🔒 All locked: ${checks.every((c) => c)}`);
+      console.log(`🔒 All locked: ${checks.every(c => c)}`);
 
       // All checks should indicate lock
-      expect(checks.every((c) => c)).toBe(true);
+      expect(checks.every(c => c)).toBe(true);
     });
   });
 
@@ -201,7 +205,7 @@ describe('Performance: Biometric Lock Timeout Accuracy', () => {
 
     it('should lock well past timeout (10 minutes)', () => {
       const now = Date.now();
-      const lastBackgroundTime = now - (10 * 60 * 1000); // 10 minutes
+      const lastBackgroundTime = now - 10 * 60 * 1000; // 10 minutes
 
       const elapsed = now - lastBackgroundTime;
       const shouldLock = elapsed >= BIOMETRIC_TIMEOUT_MS;
@@ -234,7 +238,7 @@ describe('Performance: Biometric Lock Timeout Accuracy', () => {
 
     it('should handle app staying in background for 6 minutes', () => {
       const backgroundTime = Date.now();
-      const foregroundTime = backgroundTime + (6 * 60 * 1000); // 6 minutes
+      const foregroundTime = backgroundTime + 6 * 60 * 1000; // 6 minutes
 
       const elapsed = foregroundTime - backgroundTime;
       const shouldLock = elapsed >= BIOMETRIC_TIMEOUT_MS;
@@ -245,6 +249,7 @@ describe('Performance: Biometric Lock Timeout Accuracy', () => {
       expect(shouldLock).toBe(true);
     });
 
+    // eslint-disable-next-line no-secrets/no-secrets
     it('should not lock if lastBackgroundTime is null (fresh start)', () => {
       const lastBackgroundTime = null;
 
@@ -278,7 +283,8 @@ describe('Performance: Biometric Lock Timeout Accuracy', () => {
         durations.push(duration);
       }
 
-      const avgDuration = durations.reduce((sum, d) => sum + d, 0) / durations.length;
+      const avgDuration =
+        durations.reduce((sum, d) => sum + d, 0) / durations.length;
       const maxDuration = Math.max(...durations);
 
       console.log(`⚡ Average check time: ${avgDuration.toFixed(4)}ms`);

@@ -1,10 +1,11 @@
-# Add project specific ProGuard rules here.
-# By default, the flags in this file are appended to flags specified
-# in /usr/local/Cellar/android-sdk/24.3.3/tools/proguard/proguard-android.txt
-# You can edit the include path and order by changing the proguardFiles
-# directive in build.gradle.
+# Project-specific ProGuard/R8 rules.
 #
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# React Native's own consumer rules ship inside the react-android AAR and keep
+# @ReactModule / @ReactMethod / @DoNotStrip members, JNI entry points, Hermes,
+# and the New Architecture (Fabric/TurboModule) codegen. Autolinked native
+# modules that rely on those annotations therefore need nothing here; list only
+# the gaps below.
 
-# Add any project specific keep options here:
+# react-native-config reads every .env value out of BuildConfig by reflection,
+# so R8 must not rename or remove that class.
+-keep class com.expensetracker.BuildConfig { *; }

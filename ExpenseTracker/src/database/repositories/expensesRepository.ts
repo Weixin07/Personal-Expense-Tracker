@@ -1,10 +1,10 @@
-import type { ResultSet, SQLiteDatabase } from "react-native-sqlite-storage";
+import type { ResultSet, SQLiteDatabase } from 'react-native-sqlite-storage';
 import type {
   ExpenseQueryFilters,
   ExpenseRecord,
   NewExpenseRecord,
   UpdateExpenseRecord,
-} from "../types";
+} from '../types';
 
 const EXPENSE_COLUMNS = `
   id,
@@ -86,13 +86,13 @@ export const createExpense = async (
 
   const insertResult = resultSet[0];
   const insertedId = insertResult.insertId;
-  if (typeof insertedId !== "number") {
-    throw new Error("Failed to determine inserted expense ID");
+  if (typeof insertedId !== 'number') {
+    throw new Error('Failed to determine inserted expense ID');
   }
 
   const expense = await getExpenseById(db, insertedId);
   if (!expense) {
-    throw new Error("Failed to load inserted expense");
+    throw new Error('Failed to load inserted expense');
   }
   return expense;
 };
@@ -133,7 +133,7 @@ export const updateExpense = async (
 
   const expense = await getExpenseById(db, id);
   if (!expense) {
-    throw new Error("Failed to load updated expense");
+    throw new Error('Failed to load updated expense');
   }
 
   return expense;
@@ -143,7 +143,9 @@ export const deleteExpense = async (
   db: SQLiteDatabase,
   id: number,
 ): Promise<void> => {
-  const resultSet = await db.executeSql('DELETE FROM expenses WHERE id = ?', [id]);
+  const resultSet = await db.executeSql('DELETE FROM expenses WHERE id = ?', [
+    id,
+  ]);
   if (resultSet[0].rowsAffected === 0) {
     throw new Error(`Expense ${id} not found`);
   }
@@ -154,6 +156,7 @@ export const getExpenseById = async (
   id: number,
 ): Promise<ExpenseRecord | null> => {
   const [result] = await db.executeSql(
+    // eslint-disable-next-line no-restricted-syntax -- EXPENSE_COLUMNS is a trusted constant column list, not user input
     `SELECT ${EXPENSE_COLUMNS} FROM expenses WHERE id = ? LIMIT 1`,
     [id],
   );
@@ -170,7 +173,7 @@ export const listExpenses = async (
   const conditions: string[] = [];
   const params: Array<number | string> = [];
 
-  if (typeof filters.categoryId === "number") {
+  if (typeof filters.categoryId === 'number') {
     conditions.push('category_id = ?');
     params.push(filters.categoryId);
   }
@@ -183,7 +186,8 @@ export const listExpenses = async (
     params.push(filters.endDate);
   }
 
-  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+  const whereClause =
+    conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
   let limitClause = '';
   if (typeof filters.limit === 'number') {
     limitClause += ' LIMIT ?';

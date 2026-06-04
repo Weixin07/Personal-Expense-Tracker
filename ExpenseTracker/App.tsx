@@ -1,7 +1,11 @@
 import React from 'react';
-import { NavigationContainer, type Theme as NavigationTheme } from '@react-navigation/native';
+import {
+  DefaultTheme as NavigationDefaultTheme,
+  NavigationContainer,
+  type Theme as NavigationTheme,
+} from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { StatusBar, useColorScheme } from 'react-native';
+import { StatusBar, StyleSheet, useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Provider as PaperProvider } from 'react-native-paper';
 import AppNavigator from './src/navigation/AppNavigator';
@@ -14,6 +18,7 @@ const App: React.FC = () => {
 
   const navigationTheme: NavigationTheme = {
     dark: colorScheme === 'dark',
+    fonts: NavigationDefaultTheme.fonts,
     colors: {
       primary: paperTheme.colors.primary,
       background: paperTheme.colors.background,
@@ -25,7 +30,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
         <PaperProvider theme={paperTheme}>
           <StatusBar
@@ -42,5 +47,9 @@ const App: React.FC = () => {
     </GestureHandlerRootView>
   );
 };
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+});
 
 export default App;

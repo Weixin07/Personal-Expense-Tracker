@@ -1,11 +1,14 @@
 import NetInfo from '@react-native-community/netinfo';
-import { AppState, type AppStateStatus } from 'react-native';
+import { AppState, type AppStateStatus, StyleSheet } from 'react-native';
 import RNFS from 'react-native-fs';
 import { Button, Modal, Portal, Text, useTheme } from 'react-native-paper';
 import * as Keychain from 'react-native-keychain';
 import { writeExportFile, uploadPendingExports } from '../export';
 import type { UploadPendingExportsResult } from '../export';
-import { requestDirectorySelection, deleteFileUri } from '../security/storageAccess';
+import {
+  requestDirectorySelection,
+  deleteFileUri,
+} from '../security/storageAccess';
 
 import React, {
   createContext,
@@ -123,7 +126,9 @@ export type ExpenseDataActions = {
   retryExport: (id: string) => Promise<void>;
   removeExport: (id: string) => Promise<void>;
   clearCompletedExports: () => Promise<void>;
-  uploadQueuedExports: (options?: { interactive?: boolean }) => Promise<UploadPendingExportsResult | null>;
+  uploadQueuedExports: (options?: {
+    interactive?: boolean;
+  }) => Promise<UploadPendingExportsResult | null>;
   unlockWithBiometrics: () => Promise<boolean>;
 };
 
@@ -175,7 +180,9 @@ const EXPORT_DIRECTORY_URI_KEY = 'export_directory_uri';
 const BIOMETRIC_TIMEOUT_MS = 5 * 60 * 1000;
 const BIOMETRIC_KEYCHAIN_SERVICE = 'expense-tracker-biometric-gate';
 
-const mapExportQueueRecords = (records: readonly ExportQueueRecord[]): ExportQueueItem[] =>
+const mapExportQueueRecords = (
+  records: readonly ExportQueueRecord[],
+): ExportQueueItem[] =>
   records.map(record => ({
     id: record.id,
     filename: record.filename,
@@ -195,7 +202,10 @@ const generateExportQueueId = (): string => {
   return `exp-${timestamp}-${random}`;
 };
 
-const removeQueueFileIfExists = async (location: { fileUri?: string | null; filePath?: string }): Promise<void> => {
+const removeQueueFileIfExists = async (location: {
+  fileUri?: string | null;
+  filePath?: string;
+}): Promise<void> => {
   const { fileUri } = location;
   if (fileUri) {
     if (fileUri.startsWith('content://')) {
@@ -250,7 +260,9 @@ const initialState: ExpenseDataState = {
   },
 };
 
-const ExpenseDataContext = createContext<ExpenseDataContextValue | undefined>(undefined);
+const ExpenseDataContext = createContext<ExpenseDataContextValue | undefined>(
+  undefined,
+);
 
 const toErrorMessage = (error: unknown): string => {
   if (error instanceof Error && error.message) {
@@ -269,14 +281,26 @@ const toError = (error: unknown): Error => {
   return new Error(toErrorMessage(error));
 };
 
-const parseSettings = (records: AppSettingRecord[]): ExpenseDataState['settings'] => {
-  const baseCurrency = records.find(setting => setting.key === BASE_CURRENCY_KEY)?.value ?? null;
-  const biometricGateSetting = records.find(setting => setting.key === BIOMETRIC_GATE_KEY)?.value;
-  const driveFolderId = records.find(setting => setting.key === DRIVE_FOLDER_ID_KEY)?.value ?? null;
+const parseSettings = (
+  records: AppSettingRecord[],
+): ExpenseDataState['settings'] => {
+  const baseCurrency =
+    records.find(setting => setting.key === BASE_CURRENCY_KEY)?.value ?? null;
+  const biometricGateSetting = records.find(
+    setting => setting.key === BIOMETRIC_GATE_KEY,
+  )?.value;
+  const driveFolderId =
+    records.find(setting => setting.key === DRIVE_FOLDER_ID_KEY)?.value ?? null;
   const exportDirectoryUri =
-    records.find(setting => setting.key === EXPORT_DIRECTORY_URI_KEY)?.value ?? null;
+    records.find(setting => setting.key === EXPORT_DIRECTORY_URI_KEY)?.value ??
+    null;
   const biometricGateEnabled = biometricGateSetting === 'true';
-  return { baseCurrency, biometricGateEnabled, driveFolderId, exportDirectoryUri };
+  return {
+    baseCurrency,
+    biometricGateEnabled,
+    driveFolderId,
+    exportDirectoryUri,
+  };
 };
 
 const normalizeFilters = (
@@ -285,13 +309,22 @@ const normalizeFilters = (
 ): ExpenseFilters => {
   const next: ExpenseFilters = { ...current, ...update };
 
-  if (Object.prototype.hasOwnProperty.call(update, 'categoryId') && update.categoryId === undefined) {
+  if (
+    Object.prototype.hasOwnProperty.call(update, 'categoryId') &&
+    update.categoryId === undefined
+  ) {
     delete next.categoryId;
   }
-  if (Object.prototype.hasOwnProperty.call(update, 'startDate') && update.startDate === undefined) {
+  if (
+    Object.prototype.hasOwnProperty.call(update, 'startDate') &&
+    update.startDate === undefined
+  ) {
     delete next.startDate;
   }
-  if (Object.prototype.hasOwnProperty.call(update, 'endDate') && update.endDate === undefined) {
+  if (
+    Object.prototype.hasOwnProperty.call(update, 'endDate') &&
+    update.endDate === undefined
+  ) {
     delete next.endDate;
   }
 
@@ -379,7 +412,9 @@ const expenseDataReducer = (
     case 'expense/delete':
       return {
         ...state,
-        expenses: state.expenses.filter(expense => expense.id !== action.payload),
+        expenses: state.expenses.filter(
+          expense => expense.id !== action.payload,
+        ),
       };
     case 'categories/set-all':
       return {
@@ -399,12 +434,16 @@ const expenseDataReducer = (
     case 'exportQueue/update':
       return {
         ...state,
-        exportQueue: state.exportQueue.map(item => (item.id === action.payload.id ? action.payload : item)),
+        exportQueue: state.exportQueue.map(item =>
+          item.id === action.payload.id ? action.payload : item,
+        ),
       };
     case 'exportQueue/remove':
       return {
         ...state,
-        exportQueue: state.exportQueue.filter(item => item.id !== action.payload),
+        exportQueue: state.exportQueue.filter(
+          item => item.id !== action.payload,
+        ),
       };
     case 'settings/set-base-currency':
       return {
@@ -467,9 +506,17 @@ const expenseDataReducer = (
   }
 };
 
+const styles = StyleSheet.create({
+  modalTitle: { marginBottom: 12 },
+  modalBody: { marginBottom: 16 },
+  modalError: { marginBottom: 16 },
+});
+
 const ensureBiometricCredential = async (): Promise<void> => {
   try {
-    await Keychain.resetGenericPassword({ service: BIOMETRIC_KEYCHAIN_SERVICE });
+    await Keychain.resetGenericPassword({
+      service: BIOMETRIC_KEYCHAIN_SERVICE,
+    });
   } catch {
     // ignore reset errors
   }
@@ -481,17 +528,25 @@ const ensureBiometricCredential = async (): Promise<void> => {
       securityLevel: Keychain.SECURITY_LEVEL.SECURE_HARDWARE,
     });
   } catch (error) {
-    await Keychain.resetGenericPassword({ service: BIOMETRIC_KEYCHAIN_SERVICE });
+    await Keychain.resetGenericPassword({
+      service: BIOMETRIC_KEYCHAIN_SERVICE,
+    });
     throw error;
   }
 };
 
-const applyFilters = (expenses: ExpenseRecord[], filters: ExpenseFilters): ExpenseRecord[] => {
+const applyFilters = (
+  expenses: ExpenseRecord[],
+  filters: ExpenseFilters,
+): ExpenseRecord[] => {
   if (!expenses.length) {
     return expenses;
   }
 
-  const hasCategoryFilter = Object.prototype.hasOwnProperty.call(filters, 'categoryId');
+  const hasCategoryFilter = Object.prototype.hasOwnProperty.call(
+    filters,
+    'categoryId',
+  );
   const { categoryId, startDate, endDate } = filters;
 
   return expenses.filter(expense => {
@@ -526,7 +581,10 @@ const calculateTotals = (expenses: ExpenseRecord[]): ExpenseTotals => {
     };
   }
 
-  const rawBaseAmount = expenses.reduce((total, expense) => total + expense.baseAmount, 0);
+  const rawBaseAmount = expenses.reduce(
+    (total, expense) => total + expense.baseAmount,
+    0,
+  );
   const baseAmount = bankersRound(rawBaseAmount, 2);
   const categoryTotals = new Map<number | null, number>();
 
@@ -536,13 +594,13 @@ const calculateTotals = (expenses: ExpenseRecord[]): ExpenseTotals => {
     categoryTotals.set(key, current + expense.baseAmount);
   });
 
-  const byCategory: TotalsByCategory[] = Array.from(categoryTotals.entries()).map(
-    ([categoryId, value]) => ({
-      categoryId,
-      rawTotal: value,
-      total: bankersRound(value, 2),
-    }),
-  );
+  const byCategory: TotalsByCategory[] = Array.from(
+    categoryTotals.entries(),
+  ).map(([categoryId, value]) => ({
+    categoryId,
+    rawTotal: value,
+    total: bankersRound(value, 2),
+  }));
 
   return {
     rawBaseAmount,
@@ -561,26 +619,32 @@ const hasActiveFilters = (filters: ExpenseFilters): boolean => {
   return false;
 };
 
-export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ children }) => {
+export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
+  children,
+}) => {
   const [state, dispatch] = useReducer(expenseDataReducer, initialState);
   const theme = useTheme();
   const lastBackgroundAtRef = useRef<number | null>(null);
 
   const syncExportQueue = useCallback(async () => {
     const records = await withDatabase(db => dbListExportQueue(db));
-    dispatch({ type: 'exportQueue/set-all', payload: mapExportQueueRecords(records) });
+    dispatch({
+      type: 'exportQueue/set-all',
+      payload: mapExportQueueRecords(records),
+    });
   }, [dispatch]);
 
   const loadFromDatabase = useCallback(async () => {
     dispatch({ type: 'load/start' });
     try {
       const snapshot = await withDatabase(async db => {
-        const [expenses, categories, settings, exportQueueRecords] = await Promise.all([
-          dbListExpenses(db),
-          dbListCategories(db),
-          dbGetAllSettings(db),
-          dbListExportQueue(db),
-        ]);
+        const [expenses, categories, settings, exportQueueRecords] =
+          await Promise.all([
+            dbListExpenses(db),
+            dbListCategories(db),
+            dbGetAllSettings(db),
+            dbListExportQueue(db),
+          ]);
         return { expenses, categories, settings, exportQueueRecords };
       });
 
@@ -616,6 +680,7 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
         dispatch({ type: 'operation/end' });
       }
     },
+    [dispatch],
   );
 
   const updateExpense = useCallback<ExpenseDataActions['updateExpense']>(
@@ -632,6 +697,7 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
         dispatch({ type: 'operation/end' });
       }
     },
+    [dispatch],
   );
 
   const deleteExpense = useCallback<ExpenseDataActions['deleteExpense']>(
@@ -647,6 +713,7 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
         dispatch({ type: 'operation/end' });
       }
     },
+    [dispatch],
   );
 
   const createCategory = useCallback<ExpenseDataActions['createCategory']>(
@@ -667,6 +734,7 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
         dispatch({ type: 'operation/end' });
       }
     },
+    [dispatch],
   );
 
   const updateCategory = useCallback<ExpenseDataActions['updateCategory']>(
@@ -687,6 +755,7 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
         dispatch({ type: 'operation/end' });
       }
     },
+    [dispatch],
   );
 
   const deleteCategory = useCallback<ExpenseDataActions['deleteCategory']>(
@@ -710,13 +779,16 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
         dispatch({ type: 'operation/end' });
       }
     },
+    [dispatch],
   );
 
   const setBaseCurrency = useCallback<ExpenseDataActions['setBaseCurrency']>(
     async currencyCode => {
       dispatch({ type: 'operation/start' });
       try {
-        await withDatabase(db => dbSetSetting(db, BASE_CURRENCY_KEY, currencyCode));
+        await withDatabase(db =>
+          dbSetSetting(db, BASE_CURRENCY_KEY, currencyCode),
+        );
         dispatch({ type: 'settings/set-base-currency', payload: currencyCode });
       } catch (error) {
         dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
@@ -725,9 +797,12 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
         dispatch({ type: 'operation/end' });
       }
     },
+    [dispatch],
   );
 
-  const setBiometricGateEnabled = useCallback<ExpenseDataActions['setBiometricGateEnabled']>(
+  const setBiometricGateEnabled = useCallback<
+    ExpenseDataActions['setBiometricGateEnabled']
+  >(
     async enabled => {
       dispatch({ type: 'operation/start' });
       try {
@@ -735,7 +810,9 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
           await ensureBiometricCredential();
         } else {
           try {
-            await Keychain.resetGenericPassword({ service: BIOMETRIC_KEYCHAIN_SERVICE });
+            await Keychain.resetGenericPassword({
+              service: BIOMETRIC_KEYCHAIN_SERVICE,
+            });
           } catch {
             // ignore reset failures
           }
@@ -744,7 +821,9 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
           dispatch({ type: 'biometric/unlock' });
           dispatch({ type: 'biometric/error', payload: null });
         }
-        await withDatabase(db => dbSetSetting(db, BIOMETRIC_GATE_KEY, enabled ? 'true' : 'false'));
+        await withDatabase(db =>
+          dbSetSetting(db, BIOMETRIC_GATE_KEY, enabled ? 'true' : 'false'),
+        );
         dispatch({ type: 'settings/set-biometric', payload: enabled });
         if (enabled) {
           lastBackgroundAtRef.current = Date.now();
@@ -759,13 +838,16 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
         dispatch({ type: 'operation/end' });
       }
     },
+    [dispatch],
   );
 
   const setDriveFolderId = useCallback<ExpenseDataActions['setDriveFolderId']>(
     async folderId => {
       dispatch({ type: 'operation/start' });
       try {
-        await withDatabase(db => dbSetSetting(db, DRIVE_FOLDER_ID_KEY, folderId));
+        await withDatabase(db =>
+          dbSetSetting(db, DRIVE_FOLDER_ID_KEY, folderId),
+        );
         dispatch({ type: 'settings/set-drive-folder', payload: folderId });
       } catch (error) {
         dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
@@ -774,17 +856,25 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
         dispatch({ type: 'operation/end' });
       }
     },
+    [dispatch],
   );
 
   const persistExportDirectoryUri = useCallback(
     async (directoryUri: string | null) => {
-      await withDatabase(db => dbSetSetting(db, EXPORT_DIRECTORY_URI_KEY, directoryUri));
-      dispatch({ type: 'settings/set-export-directory', payload: directoryUri });
+      await withDatabase(db =>
+        dbSetSetting(db, EXPORT_DIRECTORY_URI_KEY, directoryUri),
+      );
+      dispatch({
+        type: 'settings/set-export-directory',
+        payload: directoryUri,
+      });
     },
     [dispatch],
   );
 
-  const setExportDirectoryUri = useCallback<ExpenseDataActions['setExportDirectoryUri']>(
+  const setExportDirectoryUri = useCallback<
+    ExpenseDataActions['setExportDirectoryUri']
+  >(
     async directoryUri => {
       dispatch({ type: 'operation/start' });
       try {
@@ -807,16 +897,22 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
     const selection = await requestDirectorySelection();
     if (!selection.ok) {
       if (selection.cancelled) {
-        throw new Error(selection.message ?? 'Export directory selection was cancelled.');
+        throw new Error(
+          selection.message ?? 'Export directory selection was cancelled.',
+        );
       }
-      throw new Error(selection.message ?? 'Unable to obtain export directory access.');
+      throw new Error(
+        selection.message ?? 'Unable to obtain export directory access.',
+      );
     }
 
     await persistExportDirectoryUri(selection.uri);
     return selection.uri;
   }, [persistExportDirectoryUri, state.settings.exportDirectoryUri]);
 
-  const unlockWithBiometrics = useCallback<ExpenseDataActions['unlockWithBiometrics']>(async () => {
+  const unlockWithBiometrics = useCallback<
+    ExpenseDataActions['unlockWithBiometrics']
+  >(async () => {
     if (!state.settings.biometricGateEnabled) {
       dispatch({ type: 'biometric/unlock' });
       return true;
@@ -835,7 +931,10 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
         dispatch({ type: 'biometric/unlock' });
         dispatch({ type: 'biometric/error', payload: null });
       } else {
-        dispatch({ type: 'biometric/error', payload: 'Authentication cancelled. Tap Try again to retry.' });
+        dispatch({
+          type: 'biometric/error',
+          payload: 'Authentication cancelled. Tap Try again to retry.',
+        });
       }
       return success;
     } catch (error) {
@@ -863,15 +962,22 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
   const [isOnline, setIsOnline] = useState(false);
 
   const runDriveUpload = useCallback(
-    async (options: { interactive?: boolean; silent?: boolean } = {}): Promise<UploadPendingExportsResult | null> => {
+    async (
+      options: { interactive?: boolean; silent?: boolean } = {},
+    ): Promise<UploadPendingExportsResult | null> => {
       if (isUploadingExportsRef.current) {
         return null;
       }
       isUploadingExportsRef.current = true;
       try {
-        const result = await uploadPendingExports({ interactive: options.interactive ?? false });
+        const result = await uploadPendingExports({
+          interactive: options.interactive ?? false,
+        });
         if (result.updatedFolderId !== undefined) {
-          dispatch({ type: 'settings/set-drive-folder', payload: result.updatedFolderId });
+          dispatch({
+            type: 'settings/set-drive-folder',
+            payload: result.updatedFolderId,
+          });
         }
         await syncExportQueue();
         return result;
@@ -889,14 +995,22 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
     [dispatch, syncExportQueue],
   );
 
-  const uploadQueuedExports = useCallback<ExpenseDataActions['uploadQueuedExports']>(
-    async options => runDriveUpload({ interactive: options?.interactive ?? false, silent: false }),
+  const uploadQueuedExports = useCallback<
+    ExpenseDataActions['uploadQueuedExports']
+  >(
+    async options =>
+      runDriveUpload({
+        interactive: options?.interactive ?? false,
+        silent: false,
+      }),
     [runDriveUpload],
   );
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(stateInfo => {
-      const online = Boolean(stateInfo.isConnected && (stateInfo.isInternetReachable ?? true));
+      const online = Boolean(
+        stateInfo.isConnected && (stateInfo.isInternetReachable ?? true),
+      );
       isOnlineRef.current = online;
       setIsOnline(online);
     });
@@ -918,7 +1032,10 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
         lastBackgroundAtRef.current = Date.now();
       }
     };
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    const subscription = AppState.addEventListener(
+      'change',
+      handleAppStateChange,
+    );
     return () => subscription.remove();
   }, [dispatch, state.settings.biometricGateEnabled]);
 
@@ -937,9 +1054,16 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
       await unlockWithBiometrics();
       biometricPromptInFlightRef.current = false;
     })();
-  }, [state.biometric.isLocked, state.biometric.lastError, state.settings.biometricGateEnabled, unlockWithBiometrics]);
+  }, [
+    state.biometric.isLocked,
+    state.biometric.lastError,
+    state.settings.biometricGateEnabled,
+    unlockWithBiometrics,
+  ]);
 
-  const queueExport = useCallback<ExpenseDataActions['queueExport']>(async () => {
+  const queueExport = useCallback<
+    ExpenseDataActions['queueExport']
+  >(async () => {
     if (!state.isInitialised) {
       throw new Error('Data is not ready yet. Try again shortly.');
     }
@@ -1015,7 +1139,10 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
           }),
         );
 
-        await removeQueueFileIfExists({ fileUri: existing.fileUri, filePath: existing.filePath });
+        await removeQueueFileIfExists({
+          fileUri: existing.fileUri,
+          filePath: existing.filePath,
+        });
 
         await syncExportQueue();
         if (isOnlineRef.current) {
@@ -1046,7 +1173,10 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
       try {
         await withDatabase(db => dbRemoveExportQueueItem(db, id));
         if (existing) {
-          await removeQueueFileIfExists({ fileUri: existing.fileUri, filePath: existing.filePath });
+          await removeQueueFileIfExists({
+            fileUri: existing.fileUri,
+            filePath: existing.filePath,
+          });
         }
         await syncExportQueue();
       } catch (error) {
@@ -1059,7 +1189,9 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
     [dispatch, state.exportQueue, syncExportQueue],
   );
 
-  const clearCompletedExports = useCallback<ExpenseDataActions['clearCompletedExports']>(async () => {
+  const clearCompletedExports = useCallback<
+    ExpenseDataActions['clearCompletedExports']
+  >(async () => {
     const removable = state.exportQueue.filter(
       item => item.status === 'completed' || item.status === 'failed',
     );
@@ -1071,7 +1203,12 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
     try {
       await withDatabase(db => dbClearCompletedExportQueueItems(db));
       await Promise.all(
-        removable.map(item => removeQueueFileIfExists({ fileUri: item.fileUri, filePath: item.filePath })),
+        removable.map(item =>
+          removeQueueFileIfExists({
+            fileUri: item.fileUri,
+            filePath: item.filePath,
+          }),
+        ),
       );
       await syncExportQueue();
     } catch (error) {
@@ -1099,7 +1236,10 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
     [state.expenses, state.filters],
   );
 
-  const totals = useMemo(() => calculateTotals(filteredExpenses), [filteredExpenses]);
+  const totals = useMemo(
+    () => calculateTotals(filteredExpenses),
+    [filteredExpenses],
+  );
 
   const selectors = useMemo<ExpenseDataSelectors>(
     () => ({
@@ -1182,17 +1322,30 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({ childre
       {children}
       {state.settings.biometricGateEnabled && state.biometric.isLocked ? (
         <Portal>
-          <Modal visible dismissable={false} contentContainerStyle={biometricModalContainerStyle}>
-            <Text variant="titleLarge" style={{ marginBottom: 12 }}>Unlock required</Text>
-            <Text variant="bodyMedium" style={{ marginBottom: 16 }}>
-              Authenticate with biometrics or your device credentials to continue.
+          <Modal
+            visible
+            dismissable={false}
+            contentContainerStyle={biometricModalContainerStyle}
+          >
+            <Text variant="titleLarge" style={styles.modalTitle}>
+              Unlock required
+            </Text>
+            <Text variant="bodyMedium" style={styles.modalBody}>
+              Authenticate with biometrics or your device credentials to
+              continue.
             </Text>
             {state.biometric.lastError ? (
-              <Text variant="bodySmall" style={{ color: theme.colors.error, marginBottom: 16 }}>
+              <Text
+                variant="bodySmall"
+                style={[styles.modalError, { color: theme.colors.error }]}
+              >
                 {state.biometric.lastError}
               </Text>
             ) : null}
-            <Button mode="contained" onPress={() => void unlockWithBiometrics()}>
+            <Button
+              mode="contained"
+              onPress={() => void unlockWithBiometrics()}
+            >
               Try again
             </Button>
           </Modal>

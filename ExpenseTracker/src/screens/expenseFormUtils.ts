@@ -6,7 +6,12 @@ import {
   validatePositiveRate,
 } from '../utils/validation';
 import { formatMoneyAmount, formatFxRate } from '../utils/formatting';
-import type { CategoryRecord, ExpenseRecord, NewExpenseRecord, UpdateExpenseRecord } from '../database';
+import type {
+  CategoryRecord,
+  ExpenseRecord,
+  NewExpenseRecord,
+  UpdateExpenseRecord,
+} from '../database';
 
 export type ExpenseFormValues = {
   description: string;
@@ -19,7 +24,17 @@ export type ExpenseFormValues = {
   notes: string;
 };
 
-export type ExpenseFormErrors = Partial<Record<'description' | 'amountNative' | 'currencyCode' | 'fxRateToBase' | 'baseAmount' | 'date', string>> & { form?: string };
+export type ExpenseFormErrors = Partial<
+  Record<
+    | 'description'
+    | 'amountNative'
+    | 'currencyCode'
+    | 'fxRateToBase'
+    | 'baseAmount'
+    | 'date',
+    string
+  >
+> & { form?: string };
 
 export type ExpenseFormValidationResult =
   | { ok: true; value: ValidExpensePayload }
@@ -101,7 +116,9 @@ const ensureNotes = (value: string): string | null => {
   return trimmed.length ? trimmed : null;
 };
 
-export const validateExpenseForm = (values: ExpenseFormValues): ExpenseFormValidationResult => {
+export const validateExpenseForm = (
+  values: ExpenseFormValues,
+): ExpenseFormValidationResult => {
   const errors: ExpenseFormErrors = {};
 
   const description = ensureDescription(values.description);
@@ -109,12 +126,18 @@ export const validateExpenseForm = (values: ExpenseFormValues): ExpenseFormValid
     errors.description = 'Description is required.';
   }
 
-  const amountCheck = validatePositiveAmount(Number(values.amountNative), 'Amount');
+  const amountCheck = validatePositiveAmount(
+    Number(values.amountNative),
+    'Amount',
+  );
   if (!amountCheck.valid) {
     errors.amountNative = amountCheck.message;
   }
 
-  const rateCheck = validatePositiveRate(Number(values.fxRateToBase), 'FX rate');
+  const rateCheck = validatePositiveRate(
+    Number(values.fxRateToBase),
+    'FX rate',
+  );
   if (!rateCheck.valid) {
     errors.fxRateToBase = rateCheck.message;
   }
@@ -124,11 +147,16 @@ export const validateExpenseForm = (values: ExpenseFormValues): ExpenseFormValid
     errors.currencyCode = currencyCheck.message;
   }
 
-  const baseAmountNumber = computeBaseAmount(values.amountNative, values.fxRateToBase);
+  const baseAmountNumber = computeBaseAmount(
+    values.amountNative,
+    values.fxRateToBase,
+  );
   if (baseAmountNumber == null) {
     errors.baseAmount = 'Base amount could not be computed.';
   } else {
-    const baseAmountCheck = validateBaseAmountPrecision(baseAmountNumber.toFixed(8));
+    const baseAmountCheck = validateBaseAmountPrecision(
+      baseAmountNumber.toFixed(8),
+    );
     if (!baseAmountCheck.valid) {
       errors.baseAmount = baseAmountCheck.message;
     }
@@ -146,7 +174,7 @@ export const validateExpenseForm = (values: ExpenseFormValues): ExpenseFormValid
   return {
     ok: true,
     value: {
-      description,
+      description: description!,
       amountNative: Number(values.amountNative),
       currencyCode: values.currencyCode.trim().toUpperCase(),
       fxRateToBase: Number(values.fxRateToBase),
@@ -158,7 +186,9 @@ export const validateExpenseForm = (values: ExpenseFormValues): ExpenseFormValid
   };
 };
 
-export const buildCreatePayload = (value: ValidExpensePayload): NewExpenseRecord => ({
+export const buildCreatePayload = (
+  value: ValidExpensePayload,
+): NewExpenseRecord => ({
   description: value.description,
   amountNative: value.amountNative,
   currencyCode: value.currencyCode,

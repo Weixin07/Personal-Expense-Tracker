@@ -1,5 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   ActivityIndicator,
@@ -25,7 +32,8 @@ import {
 import { formatDateBritish, parseBritishDateInput } from '../utils/date';
 import { formatMoneyAmount } from '../utils/formatting';
 
-const currencyDialogDescription = 'Choose the currency for this expense. This should match the currency on your receipt.';
+const currencyDialogDescription =
+  'Choose the currency for this expense. This should match the currency on your receipt.';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AddExpense'>;
 
@@ -43,12 +51,19 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
   );
 
   const initialFormValues = useMemo(
-    () => getDefaultExpenseFormValues(settings.baseCurrency, categories, existingExpense ?? undefined),
+    () =>
+      getDefaultExpenseFormValues(
+        settings.baseCurrency,
+        categories,
+        existingExpense ?? undefined,
+      ),
     [settings.baseCurrency, categories, existingExpense],
   );
 
   const [values, setValues] = useState<ExpenseFormValues>(initialFormValues);
-  const [dateInput, setDateInput] = useState<string>(formatDateBritish(initialFormValues.date));
+  const [dateInput, setDateInput] = useState<string>(
+    formatDateBritish(initialFormValues.date),
+  );
   const [errors, setErrors] = useState<ExpenseFormErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [currencyDialogVisible, setCurrencyDialogVisible] = useState(false);
@@ -74,7 +89,13 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
     return amount != null ? formatMoneyAmount(amount) : '';
   }, [values.amountNative, values.fxRateToBase]);
 
-  const handleChange = (field: keyof ExpenseFormValues) => (text: string) => {\n    setValues(prev => ({ ...prev, [field]: text }));\n    const errorField = field as keyof ExpenseFormErrors;\n    if (errors[errorField]) {\n      setErrors(prev => ({ ...prev, [errorField]: undefined }));\n    }\n  };
+  const handleChange = (field: keyof ExpenseFormValues) => (text: string) => {
+    setValues(prev => ({ ...prev, [field]: text }));
+    const errorField = field as keyof ExpenseFormErrors;
+    if (errors[errorField]) {
+      setErrors(prev => ({ ...prev, [errorField]: undefined }));
+    }
+  };
 
   const handleDateChange = (text: string) => {
     setDateInput(text);
@@ -112,13 +133,17 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
     setSubmitting(true);
     try {
       if (existingExpense) {
-        await updateExpense(buildUpdatePayload(existingExpense.id, validation.value));
+        await updateExpense(
+          buildUpdatePayload(existingExpense.id, validation.value),
+        );
       } else {
         await createExpense(buildCreatePayload(validation.value));
       }
       navigation.goBack();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Failed to save expense.');
+      setFormError(
+        err instanceof Error ? err.message : 'Failed to save expense.',
+      );
     } finally {
       setSubmitting(false);
     }
@@ -129,37 +154,48 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
       return;
     }
 
-    Alert.alert('Delete expense', 'Are you sure you want to delete this expense?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          setDeleting(true);
-          try {
-            await deleteExpense(existingExpense.id);
-            navigation.goBack();
-          } catch (deleteErr) {
-            Alert.alert(
-              'Delete failed',
-              deleteErr instanceof Error ? deleteErr.message : 'Unable to delete expense.',
-            );
-          } finally {
-            setDeleting(false);
-          }
+    Alert.alert(
+      'Delete expense',
+      'Are you sure you want to delete this expense?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            try {
+              await deleteExpense(existingExpense.id);
+              navigation.goBack();
+            } catch (deleteErr) {
+              Alert.alert(
+                'Delete failed',
+                deleteErr instanceof Error
+                  ? deleteErr.message
+                  : 'Unable to delete expense.',
+              );
+            } finally {
+              setDeleting(false);
+            }
+          },
         },
-      },
-    ]);
+      ],
+    );
   };
 
-  const selectedCategory = categories.find(category => category.id === values.categoryId) ?? null;
+  const selectedCategory =
+    categories.find(category => category.id === values.categoryId) ?? null;
   const currencyName = findCurrencyName(values.currencyCode);
 
   if (expenseId && isInitialised && !existingExpense) {
     return (
       <View style={styles.centered}>
         <Text variant="titleLarge">Expense not found</Text>
-        <Button mode="contained" onPress={() => navigation.goBack()} style={styles.retryButton}>
+        <Button
+          mode="contained"
+          onPress={() => navigation.goBack()}
+          style={styles.retryButton}
+        >
           Go back
         </Button>
       </View>
@@ -182,7 +218,10 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
     >
-      <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.scrollContainer}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.formGroup}>
           <TextInput
             label="Description"
@@ -214,10 +253,19 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
             label="Currency"
             value={values.currencyCode}
             onPressIn={() => setCurrencyDialogVisible(true)}
-            right={<TextInput.Icon icon="menu-down" accessibilityLabel="Open currency picker" />}
+            right={
+              <TextInput.Icon
+                icon="menu-down"
+                accessibilityLabel="Open currency picker"
+              />
+            }
             mode="outlined"
             showSoftInputOnFocus={false}
-            accessibilityLabel={currencyName ? `${values.currencyCode} ${currencyName}` : 'Select currency'}
+            accessibilityLabel={
+              currencyName
+                ? `${values.currencyCode} ${currencyName}`
+                : 'Select currency'
+            }
             editable={false}
             error={Boolean(errors.currencyCode)}
           />
@@ -270,7 +318,12 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
             editable={false}
             showSoftInputOnFocus={false}
             onPressIn={() => setCategoryDialogVisible(true)}
-            right={<TextInput.Icon icon="menu-down" accessibilityLabel="Open category picker" />}
+            right={
+              <TextInput.Icon
+                icon="menu-down"
+                accessibilityLabel="Open category picker"
+              />
+            }
             accessibilityLabel="Select category"
           />
 
@@ -286,7 +339,11 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
         </View>
 
         {formError ? (
-          <Text variant="bodyMedium" style={styles.errorText} accessibilityLiveRegion="polite">
+          <Text
+            variant="bodyMedium"
+            style={styles.errorText}
+            accessibilityLiveRegion="polite"
+          >
             {formError}
           </Text>
         ) : null}
@@ -296,7 +353,9 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
           onPress={handleSubmit}
           loading={disableSubmit}
           disabled={disableSubmit}
-          accessibilityLabel={existingExpense ? 'Update expense' : 'Create expense'}
+          accessibilityLabel={
+            existingExpense ? 'Update expense' : 'Create expense'
+          }
         >
           {existingExpense ? 'Update expense' : 'Save expense'}
         </Button>

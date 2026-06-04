@@ -1,5 +1,5 @@
-import type { SQLiteDatabase } from "react-native-sqlite-storage";
-import type { ExportQueueRecord } from "../types";
+import type { SQLiteDatabase } from 'react-native-sqlite-storage';
+import type { ExportQueueRecord } from '../types';
 
 export type InsertExportQueueItem = {
   id: string;
@@ -29,7 +29,20 @@ export type UpdateExportQueueStatusOptions = Partial<{
   filename: string;
 }>;
 
-const mapRowToRecord = (row: any): ExportQueueRecord => ({
+type RawExportQueueRow = {
+  id: string;
+  filename: string;
+  filePath: string;
+  fileUri: string | null;
+  status: ExportQueueRecord['status'];
+  createdAt: string;
+  updatedAt: string;
+  uploadedAt: string | null;
+  driveFileId: string | null;
+  lastError: string | null;
+};
+
+const mapRowToRecord = (row: RawExportQueueRow): ExportQueueRecord => ({
   id: row.id,
   filename: row.filename,
   filePath: row.filePath,
@@ -62,7 +75,7 @@ export const listExportQueue = async (
 
   const items: ExportQueueRecord[] = [];
   for (let index = 0; index < result.rows.length; index += 1) {
-    items.push(mapRowToRecord(result.rows.item(index)));
+    items.push(mapRowToRecord(result.rows.item(index) as RawExportQueueRow));
   }
   return items;
 };
@@ -203,7 +216,10 @@ export const removeExportQueueItem = async (
   db: SQLiteDatabase,
   id: string,
 ): Promise<void> => {
-  const [result] = await db.executeSql('DELETE FROM export_queue WHERE id = ?', [id]);
+  const [result] = await db.executeSql(
+    'DELETE FROM export_queue WHERE id = ?',
+    [id],
+  );
   if (result.rowsAffected === 0) {
     throw new Error(`Export queue item ${id} not found`);
   }

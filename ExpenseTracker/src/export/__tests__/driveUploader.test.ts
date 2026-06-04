@@ -4,6 +4,7 @@ import * as database from '../../database';
 import * as googleAuth from '../../security/googleAuth';
 import * as storageAccess from '../../security/storageAccess';
 import RNFS from 'react-native-fs';
+import type { SQLiteDatabase } from 'react-native-sqlite-storage';
 
 jest.mock('../../database');
 jest.mock('../../security/googleAuth');
@@ -13,13 +14,13 @@ jest.mock('../../security/storageAccess');
 global.fetch = jest.fn();
 
 describe('driveUploader', () => {
-  const mockDb = {} as any;
+  const mockDb = {} as unknown as SQLiteDatabase;
 
   beforeEach(() => {
     jest.clearAllMocks();
 
     // Default mock for withDatabase
-    (database.withDatabase as jest.Mock).mockImplementation(async (callback) => {
+    (database.withDatabase as jest.Mock).mockImplementation(async callback => {
       return callback(mockDb);
     });
   });
@@ -90,9 +91,13 @@ describe('driveUploader', () => {
       ];
 
       (database.listExportQueue as jest.Mock).mockResolvedValue(pendingItems);
-      (googleAuth.ensureValidAccessToken as jest.Mock).mockResolvedValue('mock-access-token');
+      (googleAuth.ensureValidAccessToken as jest.Mock).mockResolvedValue(
+        'mock-access-token',
+      );
       (database.getSetting as jest.Mock).mockResolvedValue('mock-folder-id');
-      (storageAccess.readFileAsBase64 as jest.Mock).mockResolvedValue('base64-content');
+      (storageAccess.readFileAsBase64 as jest.Mock).mockResolvedValue(
+        'base64-content',
+      );
 
       // Mock folder exists check
       (global.fetch as jest.Mock).mockImplementation((url: string) => {
@@ -100,7 +105,8 @@ describe('driveUploader', () => {
           return Promise.resolve({
             ok: true,
             status: 200,
-            json: () => Promise.resolve({ id: 'mock-folder-id', trashed: false }),
+            json: () =>
+              Promise.resolve({ id: 'mock-folder-id', trashed: false }),
           });
         }
         // Mock upload
@@ -117,7 +123,7 @@ describe('driveUploader', () => {
         mockDb,
         'exp-1',
         'uploading',
-        { lastError: null }
+        { lastError: null },
       );
 
       expect(database.updateExportQueueStatus).toHaveBeenCalledWith(
@@ -127,7 +133,7 @@ describe('driveUploader', () => {
         expect.objectContaining({
           driveFileId: 'uploaded-file-id',
           lastError: null,
-        })
+        }),
       );
 
       expect(result).toEqual({
@@ -157,9 +163,13 @@ describe('driveUploader', () => {
       ];
 
       (database.listExportQueue as jest.Mock).mockResolvedValue(pendingItems);
-      (googleAuth.ensureValidAccessToken as jest.Mock).mockResolvedValue('mock-access-token');
+      (googleAuth.ensureValidAccessToken as jest.Mock).mockResolvedValue(
+        'mock-access-token',
+      );
       (database.getSetting as jest.Mock).mockResolvedValue('old-folder-id');
-      (storageAccess.readFileAsBase64 as jest.Mock).mockResolvedValue('base64-content');
+      (storageAccess.readFileAsBase64 as jest.Mock).mockResolvedValue(
+        'base64-content',
+      );
 
       let callCount = 0;
       (global.fetch as jest.Mock).mockImplementation((url: string) => {
@@ -189,7 +199,11 @@ describe('driveUploader', () => {
 
       const result = await uploadPendingExports({ interactive: false });
 
-      expect(database.setSetting).toHaveBeenCalledWith(mockDb, 'drive_folder_id', 'new-folder-id');
+      expect(database.setSetting).toHaveBeenCalledWith(
+        mockDb,
+        'drive_folder_id',
+        'new-folder-id',
+      );
 
       expect(result).toMatchObject({
         attempted: 1,
@@ -215,28 +229,34 @@ describe('driveUploader', () => {
       ];
 
       (database.listExportQueue as jest.Mock).mockResolvedValue(pendingItems);
-      (googleAuth.ensureValidAccessToken as jest.Mock).mockResolvedValue('mock-access-token');
+      (googleAuth.ensureValidAccessToken as jest.Mock).mockResolvedValue(
+        'mock-access-token',
+      );
       (database.getSetting as jest.Mock).mockResolvedValue('mock-folder-id');
-      (storageAccess.readFileAsBase64 as jest.Mock).mockResolvedValue('base64-content');
+      (storageAccess.readFileAsBase64 as jest.Mock).mockResolvedValue(
+        'base64-content',
+      );
 
       let callCount = 0;
-      (global.fetch as jest.Mock).mockImplementation((url: string) => {
+      (global.fetch as jest.Mock).mockImplementation(() => {
         callCount++;
         // First call: folder check
         if (callCount === 1) {
           return Promise.resolve({
             ok: true,
             status: 200,
-            json: () => Promise.resolve({ id: 'mock-folder-id', trashed: false }),
+            json: () =>
+              Promise.resolve({ id: 'mock-folder-id', trashed: false }),
           });
         }
         // Second call: upload fails
         return Promise.resolve({
           ok: false,
           status: 500,
-          json: () => Promise.resolve({
-            error: { message: 'Internal Server Error' },
-          }),
+          json: () =>
+            Promise.resolve({
+              error: { message: 'Internal Server Error' },
+            }),
         });
       });
 
@@ -248,7 +268,7 @@ describe('driveUploader', () => {
         'failed',
         expect.objectContaining({
           lastError: 'Internal Server Error',
-        })
+        }),
       );
 
       expect(result).toEqual({
@@ -290,28 +310,34 @@ describe('driveUploader', () => {
       ];
 
       (database.listExportQueue as jest.Mock).mockResolvedValue(pendingItems);
-      (googleAuth.ensureValidAccessToken as jest.Mock).mockResolvedValue('mock-access-token');
+      (googleAuth.ensureValidAccessToken as jest.Mock).mockResolvedValue(
+        'mock-access-token',
+      );
       (database.getSetting as jest.Mock).mockResolvedValue('mock-folder-id');
-      (storageAccess.readFileAsBase64 as jest.Mock).mockResolvedValue('base64-content');
+      (storageAccess.readFileAsBase64 as jest.Mock).mockResolvedValue(
+        'base64-content',
+      );
 
       let callCount = 0;
-      (global.fetch as jest.Mock).mockImplementation((url: string) => {
+      (global.fetch as jest.Mock).mockImplementation(() => {
         callCount++;
         // First call: folder check
         if (callCount === 1) {
           return Promise.resolve({
             ok: true,
             status: 200,
-            json: () => Promise.resolve({ id: 'mock-folder-id', trashed: false }),
+            json: () =>
+              Promise.resolve({ id: 'mock-folder-id', trashed: false }),
           });
         }
         // Second call: upload fails with 401
         return Promise.resolve({
           ok: false,
           status: 401,
-          json: () => Promise.resolve({
-            error: { message: 'Unauthorized' },
-          }),
+          json: () =>
+            Promise.resolve({
+              error: { message: 'Unauthorized' },
+            }),
         });
       });
 
@@ -344,26 +370,32 @@ describe('driveUploader', () => {
       ];
 
       (database.listExportQueue as jest.Mock).mockResolvedValue(pendingItems);
-      (googleAuth.ensureValidAccessToken as jest.Mock).mockResolvedValue('mock-access-token');
+      (googleAuth.ensureValidAccessToken as jest.Mock).mockResolvedValue(
+        'mock-access-token',
+      );
       (database.getSetting as jest.Mock).mockResolvedValue('mock-folder-id');
-      (storageAccess.readFileAsBase64 as jest.Mock).mockResolvedValue('base64-content');
+      (storageAccess.readFileAsBase64 as jest.Mock).mockResolvedValue(
+        'base64-content',
+      );
 
       let callCount = 0;
-      (global.fetch as jest.Mock).mockImplementation((url: string) => {
+      (global.fetch as jest.Mock).mockImplementation(() => {
         callCount++;
         if (callCount === 1) {
           return Promise.resolve({
             ok: true,
             status: 200,
-            json: () => Promise.resolve({ id: 'mock-folder-id', trashed: false }),
+            json: () =>
+              Promise.resolve({ id: 'mock-folder-id', trashed: false }),
           });
         }
         return Promise.resolve({
           ok: false,
           status: 403,
-          json: () => Promise.resolve({
-            error: { message: 'Forbidden' },
-          }),
+          json: () =>
+            Promise.resolve({
+              error: { message: 'Forbidden' },
+            }),
         });
       });
 
@@ -389,7 +421,9 @@ describe('driveUploader', () => {
       ];
 
       (database.listExportQueue as jest.Mock).mockResolvedValue(pendingItems);
-      (googleAuth.ensureValidAccessToken as jest.Mock).mockResolvedValue('mock-access-token');
+      (googleAuth.ensureValidAccessToken as jest.Mock).mockResolvedValue(
+        'mock-access-token',
+      );
       (database.getSetting as jest.Mock).mockResolvedValue('mock-folder-id');
       (RNFS.readFile as jest.Mock).mockResolvedValue('base64-content');
 
@@ -398,7 +432,8 @@ describe('driveUploader', () => {
           return Promise.resolve({
             ok: true,
             status: 200,
-            json: () => Promise.resolve({ id: 'mock-folder-id', trashed: false }),
+            json: () =>
+              Promise.resolve({ id: 'mock-folder-id', trashed: false }),
           });
         }
         return Promise.resolve({
@@ -443,9 +478,13 @@ describe('driveUploader', () => {
       ];
 
       (database.listExportQueue as jest.Mock).mockResolvedValue(pendingItems);
-      (googleAuth.ensureValidAccessToken as jest.Mock).mockResolvedValue('mock-access-token');
+      (googleAuth.ensureValidAccessToken as jest.Mock).mockResolvedValue(
+        'mock-access-token',
+      );
       (database.getSetting as jest.Mock).mockResolvedValue('mock-folder-id');
-      (storageAccess.readFileAsBase64 as jest.Mock).mockResolvedValue('base64-content');
+      (storageAccess.readFileAsBase64 as jest.Mock).mockResolvedValue(
+        'base64-content',
+      );
 
       let uploadCount = 0;
       (global.fetch as jest.Mock).mockImplementation((url: string) => {
@@ -453,7 +492,8 @@ describe('driveUploader', () => {
           return Promise.resolve({
             ok: true,
             status: 200,
-            json: () => Promise.resolve({ id: 'mock-folder-id', trashed: false }),
+            json: () =>
+              Promise.resolve({ id: 'mock-folder-id', trashed: false }),
           });
         }
         uploadCount++;
@@ -469,9 +509,10 @@ describe('driveUploader', () => {
         return Promise.resolve({
           ok: false,
           status: 500,
-          json: () => Promise.resolve({
-            error: { message: 'Server Error' },
-          }),
+          json: () =>
+            Promise.resolve({
+              error: { message: 'Server Error' },
+            }),
         });
       });
 
@@ -508,7 +549,9 @@ describe('driveUploader', () => {
 
       await uploadPendingExports({ interactive: true });
 
-      expect(googleAuth.ensureValidAccessToken).toHaveBeenCalledWith({ interactive: true });
+      expect(googleAuth.ensureValidAccessToken).toHaveBeenCalledWith({
+        interactive: true,
+      });
     });
 
     it('should default interactive to false when not specified', async () => {
@@ -532,7 +575,9 @@ describe('driveUploader', () => {
 
       await uploadPendingExports();
 
-      expect(googleAuth.ensureValidAccessToken).toHaveBeenCalledWith({ interactive: false });
+      expect(googleAuth.ensureValidAccessToken).toHaveBeenCalledWith({
+        interactive: false,
+      });
     });
 
     it('should handle upload response missing file ID', async () => {
@@ -552,18 +597,23 @@ describe('driveUploader', () => {
       ];
 
       (database.listExportQueue as jest.Mock).mockResolvedValue(pendingItems);
-      (googleAuth.ensureValidAccessToken as jest.Mock).mockResolvedValue('mock-access-token');
+      (googleAuth.ensureValidAccessToken as jest.Mock).mockResolvedValue(
+        'mock-access-token',
+      );
       (database.getSetting as jest.Mock).mockResolvedValue('mock-folder-id');
-      (storageAccess.readFileAsBase64 as jest.Mock).mockResolvedValue('base64-content');
+      (storageAccess.readFileAsBase64 as jest.Mock).mockResolvedValue(
+        'base64-content',
+      );
 
       let callCount = 0;
-      (global.fetch as jest.Mock).mockImplementation((url: string) => {
+      (global.fetch as jest.Mock).mockImplementation(() => {
         callCount++;
         if (callCount === 1) {
           return Promise.resolve({
             ok: true,
             status: 200,
-            json: () => Promise.resolve({ id: 'mock-folder-id', trashed: false }),
+            json: () =>
+              Promise.resolve({ id: 'mock-folder-id', trashed: false }),
           });
         }
         return Promise.resolve({

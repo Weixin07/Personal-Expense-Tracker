@@ -21,10 +21,10 @@ describe('expensesRepository', () => {
     it('should create an expense and return the created record', async () => {
       const newExpense: NewExpenseRecord = {
         description: 'Test expense',
-        amountNative: 100.50,
+        amountNative: 100.5,
         currencyCode: 'USD',
         fxRateToBase: 1.0,
-        baseAmount: 100.50,
+        baseAmount: 100.5,
         date: '2025-01-15',
         categoryId: 1,
         notes: 'Test notes',
@@ -43,10 +43,10 @@ describe('expensesRepository', () => {
       const mockExpense = {
         id: 42,
         description: 'Test expense',
-        amount_native: 100.50,
+        amount_native: 100.5,
         currency_code: 'USD',
         fx_rate_to_base: 1.0,
-        base_amount: 100.50,
+        base_amount: 100.5,
         date: '2025-01-15',
         category_id: 1,
         notes: 'Test notes',
@@ -75,23 +75,23 @@ describe('expensesRepository', () => {
         expect.stringContaining('INSERT INTO expenses'),
         [
           'Test expense',
-          100.50,
+          100.5,
           'USD',
           1.0,
-          100.50,
+          100.5,
           '2025-01-15',
           1,
           'Test notes',
-        ]
+        ],
       );
 
       expect(result).toEqual({
         id: 42,
         description: 'Test expense',
-        amountNative: 100.50,
+        amountNative: 100.5,
         currencyCode: 'USD',
         fxRateToBase: 1.0,
-        baseAmount: 100.50,
+        baseAmount: 100.5,
         date: '2025-01-15',
         categoryId: 1,
         notes: 'Test notes',
@@ -108,6 +108,8 @@ describe('expensesRepository', () => {
         fxRateToBase: 1.0,
         baseAmount: 50.0,
         date: '2025-01-15',
+        categoryId: null,
+        notes: null,
       };
 
       const mockInsertResult: ResultSet = {
@@ -152,7 +154,7 @@ describe('expensesRepository', () => {
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO expenses'),
-        ['Test expense', 50.0, 'USD', 1.0, 50.0, '2025-01-15', null, null]
+        ['Test expense', 50.0, 'USD', 1.0, 50.0, '2025-01-15', null, null],
       );
 
       expect(result.categoryId).toBeNull();
@@ -162,11 +164,13 @@ describe('expensesRepository', () => {
     it('should throw error if insertId is not returned', async () => {
       const newExpense: NewExpenseRecord = {
         description: 'Test expense',
-        amountNative: 100.50,
+        amountNative: 100.5,
         currencyCode: 'USD',
         fxRateToBase: 1.0,
-        baseAmount: 100.50,
+        baseAmount: 100.5,
         date: '2025-01-15',
+        categoryId: null,
+        notes: null,
       };
 
       const mockInsertResult: ResultSet = {
@@ -182,18 +186,20 @@ describe('expensesRepository', () => {
       mockDb.executeSql.mockResolvedValueOnce([mockInsertResult]);
 
       await expect(createExpense(mockDb, newExpense)).rejects.toThrow(
-        'Failed to determine inserted expense ID'
+        'Failed to determine inserted expense ID',
       );
     });
 
     it('should throw error if expense cannot be loaded after insert', async () => {
       const newExpense: NewExpenseRecord = {
         description: 'Test expense',
-        amountNative: 100.50,
+        amountNative: 100.5,
         currencyCode: 'USD',
         fxRateToBase: 1.0,
-        baseAmount: 100.50,
+        baseAmount: 100.5,
         date: '2025-01-15',
+        categoryId: null,
+        notes: null,
       };
 
       const mockInsertResult: ResultSet = {
@@ -221,7 +227,7 @@ describe('expensesRepository', () => {
         .mockResolvedValueOnce([mockSelectResult]);
 
       await expect(createExpense(mockDb, newExpense)).rejects.toThrow(
-        'Failed to load inserted expense'
+        'Failed to load inserted expense',
       );
     });
   });
@@ -292,7 +298,7 @@ describe('expensesRepository', () => {
           2,
           'Updated notes',
           42,
-        ]
+        ],
       );
 
       expect(result).toEqual({
@@ -319,6 +325,8 @@ describe('expensesRepository', () => {
         fxRateToBase: 1.1,
         baseAmount: 220.825,
         date: '2025-01-16',
+        categoryId: null,
+        notes: null,
       };
 
       const mockUpdateResult: ResultSet = {
@@ -334,7 +342,7 @@ describe('expensesRepository', () => {
       mockDb.executeSql.mockResolvedValueOnce([mockUpdateResult]);
 
       await expect(updateExpense(mockDb, updatePayload)).rejects.toThrow(
-        'Expense 999 not found'
+        'Expense 999 not found',
       );
     });
 
@@ -414,7 +422,7 @@ describe('expensesRepository', () => {
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
         'DELETE FROM expenses WHERE id = ?',
-        [42]
+        [42],
       );
     });
 
@@ -432,7 +440,7 @@ describe('expensesRepository', () => {
       mockDb.executeSql.mockResolvedValueOnce([mockDeleteResult]);
 
       await expect(deleteExpense(mockDb, 999)).rejects.toThrow(
-        'Expense 999 not found'
+        'Expense 999 not found',
       );
     });
   });
@@ -442,10 +450,10 @@ describe('expensesRepository', () => {
       const mockExpense = {
         id: 42,
         description: 'Test expense',
-        amount_native: 100.50,
+        amount_native: 100.5,
         currency_code: 'USD',
         fx_rate_to_base: 1.0,
-        base_amount: 100.50,
+        base_amount: 100.5,
         date: '2025-01-15',
         category_id: 1,
         notes: 'Test notes',
@@ -469,16 +477,16 @@ describe('expensesRepository', () => {
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
         expect.stringContaining('SELECT'),
-        [42]
+        [42],
       );
 
       expect(result).toEqual({
         id: 42,
         description: 'Test expense',
-        amountNative: 100.50,
+        amountNative: 100.5,
         currencyCode: 'USD',
         fxRateToBase: 1.0,
-        baseAmount: 100.50,
+        baseAmount: 100.5,
         date: '2025-01-15',
         categoryId: 1,
         notes: 'Test notes',
@@ -553,7 +561,7 @@ describe('expensesRepository', () => {
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
         expect.stringContaining('ORDER BY date DESC, id DESC'),
-        []
+        [],
       );
 
       expect(result).toHaveLength(2);
@@ -592,7 +600,7 @@ describe('expensesRepository', () => {
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
         expect.stringContaining('WHERE category_id = ?'),
-        [1]
+        [1],
       );
 
       expect(result).toHaveLength(1);
@@ -633,7 +641,7 @@ describe('expensesRepository', () => {
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
         expect.stringContaining('WHERE date >= ? AND date <= ?'),
-        ['2025-01-10', '2025-01-20']
+        ['2025-01-10', '2025-01-20'],
       );
 
       expect(result).toHaveLength(1);
@@ -672,7 +680,7 @@ describe('expensesRepository', () => {
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
         expect.stringContaining('LIMIT ? OFFSET ?'),
-        [10, 5]
+        [10, 5],
       );
 
       expect(result).toHaveLength(1);
@@ -713,8 +721,10 @@ describe('expensesRepository', () => {
       });
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
-        expect.stringContaining('WHERE category_id = ? AND date >= ? AND date <= ?'),
-        [1, '2025-01-10', '2025-01-20', 10]
+        expect.stringContaining(
+          'WHERE category_id = ? AND date >= ? AND date <= ?',
+        ),
+        [1, '2025-01-10', '2025-01-20', 10],
       );
 
       expect(result).toHaveLength(1);

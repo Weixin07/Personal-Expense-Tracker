@@ -13,7 +13,9 @@ jest.mock('react-native-keychain', () => ({
     WHEN_UNLOCKED: 'AccessibleWhenUnlocked',
     AFTER_FIRST_UNLOCK: 'AccessibleAfterFirstUnlock',
     ALWAYS: 'AccessibleAlways',
-    WHEN_PASSCODE_SET_THIS_DEVICE_ONLY: 'AccessibleWhenPasscodeSetThisDeviceOnly',
+    // eslint-disable-next-line no-secrets/no-secrets
+    WHEN_PASSCODE_SET_THIS_DEVICE_ONLY:
+      'AccessibleWhenPasscodeSetThisDeviceOnly',
     WHEN_UNLOCKED_THIS_DEVICE_ONLY: 'AccessibleWhenUnlockedThisDeviceOnly',
   },
   ACCESS_CONTROL: {
@@ -22,8 +24,11 @@ jest.mock('react-native-keychain', () => ({
     BIOMETRY_CURRENT_SET: 'BiometryCurrentSet',
     DEVICE_PASSCODE: 'DevicePasscode',
     APPLICATION_PASSWORD: 'ApplicationPassword',
+    // eslint-disable-next-line no-secrets/no-secrets
     BIOMETRY_ANY_OR_DEVICE_PASSCODE: 'BiometryAnyOrDevicePasscode',
-    BIOMETRY_CURRENT_SET_OR_DEVICE_PASSCODE: 'BiometryCurrentSetOrDevicePasscode',
+    // eslint-disable-next-line no-secrets/no-secrets
+    BIOMETRY_CURRENT_SET_OR_DEVICE_PASSCODE:
+      'BiometryCurrentSetOrDevicePasscode',
   },
   AUTHENTICATION_TYPE: {
     DEVICE_PASSCODE_OR_BIOMETRICS: 'AuthenticationWithBiometricsDevicePasscode',
@@ -68,7 +73,7 @@ jest.mock('react-native-app-auth', () => ({
       tokenType: 'Bearer',
       idToken: 'mock-id-token',
       scopes: ['https://www.googleapis.com/auth/drive.file'],
-    })
+    }),
   ),
   refresh: jest.fn((config, { refreshToken }) =>
     Promise.resolve({
@@ -77,7 +82,7 @@ jest.mock('react-native-app-auth', () => ({
       refreshToken: refreshToken,
       tokenType: 'Bearer',
       idToken: 'mock-id-token',
-    })
+    }),
   ),
   revoke: jest.fn(() => Promise.resolve()),
 }));
@@ -89,14 +94,16 @@ jest.mock('@react-native-community/netinfo', () => ({
       isConnected: true,
       isInternetReachable: true,
       type: 'wifi',
-    })
+    }),
   ),
   addEventListener: jest.fn(() => jest.fn()),
 }));
 
 // Mock react-native-saf-x
 jest.mock('react-native-saf-x', () => ({
-  openDocumentTree: jest.fn(() => Promise.resolve({ uri: 'content://mock/tree' })),
+  openDocumentTree: jest.fn(() =>
+    Promise.resolve({ uri: 'content://mock/tree' }),
+  ),
   createFile: jest.fn(() => Promise.resolve({ uri: 'content://mock/file' })),
   writeFile: jest.fn(() => Promise.resolve()),
   readFile: jest.fn(() => Promise.resolve('')),

@@ -3,6 +3,7 @@ import { Alert, FlatList, StyleSheet, View } from 'react-native';
 import {
   Button,
   Dialog,
+  Divider,
   HelperText,
   IconButton,
   List,
@@ -28,7 +29,10 @@ const ManageCategoriesScreen: React.FC = () => {
     const counts = new Map<number, number>();
     expenses.forEach(expense => {
       if (expense.categoryId != null) {
-        counts.set(expense.categoryId, (counts.get(expense.categoryId) ?? 0) + 1);
+        counts.set(
+          expense.categoryId,
+          (counts.get(expense.categoryId) ?? 0) + 1,
+        );
       }
     });
     return counts;
@@ -55,16 +59,19 @@ const ManageCategoriesScreen: React.FC = () => {
     setDialogVisible(true);
   };
 
-  const openEditDialog = (categoryId: number) => {
-    const category = categories.find(item => item.id === categoryId);
-    if (!category) {
-      return;
-    }
-    setEditingId(categoryId);
-    setName(category.name);
-    setError(null);
-    setDialogVisible(true);
-  };
+  const openEditDialog = useCallback(
+    (categoryId: number) => {
+      const category = categories.find(item => item.id === categoryId);
+      if (!category) {
+        return;
+      }
+      setEditingId(categoryId);
+      setName(category.name);
+      setError(null);
+      setDialogVisible(true);
+    },
+    [categories],
+  );
 
   const validateName = useCallback(
     (value: string, excludeId: number | null) => {
@@ -74,7 +81,8 @@ const ManageCategoriesScreen: React.FC = () => {
       }
       const exists = categories.some(
         category =>
-          category.id !== excludeId && category.name.trim().toLowerCase() === trimmed.toLowerCase(),
+          category.id !== excludeId &&
+          category.name.trim().toLowerCase() === trimmed.toLowerCase(),
       );
       if (exists) {
         return 'Category name must be unique.';
@@ -103,7 +111,14 @@ const ManageCategoriesScreen: React.FC = () => {
       setError(err instanceof Error ? err.message : 'Failed to save category.');
       setSubmitting(false);
     }
-  }, [createCategory, editingId, name, resetDialogState, updateCategory, validateName]);
+  }, [
+    createCategory,
+    editingId,
+    name,
+    resetDialogState,
+    updateCategory,
+    validateName,
+  ]);
 
   const handleDelete = useCallback(
     (categoryId: number) => {
@@ -121,24 +136,25 @@ const ManageCategoriesScreen: React.FC = () => {
         return;
       }
 
-      Alert.alert(
-        'Delete category',
-        `Delete "${category.name}"?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Delete',
-            style: 'destructive',
-            onPress: async () => {
-              try {
-                await deleteCategory(categoryId);
-              } catch (err) {
-                Alert.alert('Delete failed', err instanceof Error ? err.message : 'Unable to delete category.');
-              }
-            },
+      Alert.alert('Delete category', `Delete "${category.name}"?`, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteCategory(categoryId);
+            } catch (err) {
+              Alert.alert(
+                'Delete failed',
+                err instanceof Error
+                  ? err.message
+                  : 'Unable to delete category.',
+              );
+            }
           },
-        ],
-      );
+        },
+      ]);
     },
     [categories, deleteCategory, usageCount],
   );
@@ -150,7 +166,9 @@ const ManageCategoriesScreen: React.FC = () => {
         <List.Item
           title={item.name}
           titleStyle={styles.listTitle}
-          description={usage > 0 ? `${usage} expense${usage === 1 ? '' : 's'}` : 'Unused'}
+          description={
+            usage > 0 ? `${usage} expense${usage === 1 ? '' : 's'}` : 'Unused'
+          }
           descriptionStyle={styles.listDescription}
           right={() => (
             <View style={styles.actions}>
@@ -169,7 +187,7 @@ const ManageCategoriesScreen: React.FC = () => {
         />
       );
     },
-    [handleDelete, openEditDialog, sortedCategories, usageCount],
+    [handleDelete, openEditDialog, usageCount],
   );
 
   return (
@@ -182,7 +200,11 @@ const ManageCategoriesScreen: React.FC = () => {
         contentContainerStyle={styles.listContent}
         ListHeaderComponent={
           <View style={styles.header}>
-            <Button mode="contained" onPress={openCreateDialog} accessibilityLabel="Add category">
+            <Button
+              mode="contained"
+              onPress={openCreateDialog}
+              accessibilityLabel="Add category"
+            >
               Add category
             </Button>
             <Text variant="bodySmall" style={styles.helperText}>
@@ -204,7 +226,7 @@ const ManageCategoriesScreen: React.FC = () => {
       />
 
       <Portal>
-        <Dialog visible={dialogVisible} onDismiss={resetDialogState} accessibilityLabel="Category dialog">
+        <Dialog visible={dialogVisible} onDismiss={resetDialogState}>
           <Dialog.Title accessibilityRole="header">
             {editingId != null ? 'Rename category' : 'New category'}
           </Dialog.Title>
@@ -228,7 +250,10 @@ const ManageCategoriesScreen: React.FC = () => {
             </HelperText>
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={resetDialogState} accessibilityLabel="Cancel category dialog">
+            <Button
+              onPress={resetDialogState}
+              accessibilityLabel="Cancel category dialog"
+            >
               Cancel
             </Button>
             <Button
@@ -236,7 +261,9 @@ const ManageCategoriesScreen: React.FC = () => {
               onPress={handleSave}
               loading={submitting}
               disabled={submitting}
-              accessibilityLabel={editingId != null ? 'Save category name' : 'Create category'}
+              accessibilityLabel={
+                editingId != null ? 'Save category name' : 'Create category'
+              }
             >
               {editingId != null ? 'Save' : 'Create'}
             </Button>

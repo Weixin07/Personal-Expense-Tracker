@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { FlatList } from "react-native";
+import React, { useMemo, useState } from 'react';
+import { FlatList, StyleSheet } from 'react-native';
 import {
   Button,
   Dialog,
@@ -8,8 +8,11 @@ import {
   Portal,
   Searchbar,
   Text,
-} from "react-native-paper";
-import { getCurrencyOptions, type CurrencyOption } from "../constants/currencyOptions";
+} from 'react-native-paper';
+import {
+  getCurrencyOptions,
+  type CurrencyOption,
+} from '../constants/currencyOptions';
 
 export type CurrencyPickerDialogProps = {
   visible: boolean;
@@ -28,35 +31,36 @@ const CurrencyPickerDialog: React.FC<CurrencyPickerDialogProps> = ({
   visible,
   onDismiss,
   onSelect,
-  title = "Choose currency",
+  title = 'Choose currency',
   description,
-  cancelLabel = "Cancel",
+  cancelLabel = 'Cancel',
   dismissable = true,
   showCancelButton = true,
 }) => {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState('');
 
   const filteredOptions = useMemo(() => {
     if (!query) {
       return currencyOptions;
     }
     const lowerQuery = query.trim().toLowerCase();
-    return currencyOptions.filter(option =>
-      option.code.toLowerCase().includes(lowerQuery) ||
-      option.name.toLowerCase().includes(lowerQuery),
+    return currencyOptions.filter(
+      option =>
+        option.code.toLowerCase().includes(lowerQuery) ||
+        option.name.toLowerCase().includes(lowerQuery),
     );
   }, [query]);
 
   const handleSelect = (option: CurrencyOption) => {
     onSelect(option);
-    setQuery("");
+    setQuery('');
   };
 
   const handleDismiss = () => {
     if (!dismissable) {
       return;
     }
-    setQuery("");
+    setQuery('');
     onDismiss();
   };
 
@@ -66,12 +70,11 @@ const CurrencyPickerDialog: React.FC<CurrencyPickerDialogProps> = ({
         visible={visible}
         onDismiss={handleDismiss}
         dismissable={dismissable}
-        accessibilityLabel={`${title} dialog`}
       >
         <Dialog.Title accessibilityRole="header">{title}</Dialog.Title>
         <Dialog.Content>
           {description ? (
-            <Text variant="bodyMedium" style={{ marginBottom: 8 }}>
+            <Text variant="bodyMedium" style={styles.description}>
               {description}
             </Text>
           ) : null}
@@ -80,7 +83,7 @@ const CurrencyPickerDialog: React.FC<CurrencyPickerDialogProps> = ({
             value={query}
             onChangeText={setQuery}
             accessibilityLabel="Search currency"
-            style={{ marginBottom: 12 }}
+            style={styles.searchbar}
           />
           <FlatList
             data={filteredOptions}
@@ -93,15 +96,23 @@ const CurrencyPickerDialog: React.FC<CurrencyPickerDialogProps> = ({
                 onPress={() => handleSelect(item)}
                 accessibilityRole="button"
                 accessibilityLabel={`Select ${item.name}`}
-                right={() => <IconButton icon="check" accessibilityLabel={`Use ${item.code}`} />}
+                right={() => (
+                  <IconButton
+                    icon="check"
+                    accessibilityLabel={`Use ${item.code}`}
+                  />
+                )}
               />
             )}
-            style={{ maxHeight: 320 }}
+            style={styles.list}
           />
         </Dialog.Content>
         {showCancelButton ? (
           <Dialog.Actions>
-            <Button onPress={handleDismiss} accessibilityLabel={`${cancelLabel} currency selection`}>
+            <Button
+              onPress={handleDismiss}
+              accessibilityLabel={`${cancelLabel} currency selection`}
+            >
               {cancelLabel}
             </Button>
           </Dialog.Actions>
@@ -110,5 +121,11 @@ const CurrencyPickerDialog: React.FC<CurrencyPickerDialogProps> = ({
     </Portal>
   );
 };
+
+const styles = StyleSheet.create({
+  description: { marginBottom: 8 },
+  searchbar: { marginBottom: 12 },
+  list: { maxHeight: 320 },
+});
 
 export default CurrencyPickerDialog;

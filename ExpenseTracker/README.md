@@ -4,7 +4,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
 [![React Native](https://img.shields.io/badge/React%20Native-0.82-61dafb.svg)](https://reactnative.dev/)
-[![Node](https://img.shields.io/badge/Node-22.19.0-green.svg)](https://nodejs.org/)
+[![Node](https://img.shields.io/badge/Node-24.11.1-green.svg)](https://nodejs.org/)
 [![pnpm](https://img.shields.io/badge/pnpm-9.12.1-f69220.svg)](https://pnpm.io/)
 [![License](https://img.shields.io/badge/License-Personal%20Use-red.svg)]()
 
@@ -44,6 +44,7 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 ## ✨ Key Features
 
 ### 💰 Expense Management
+
 - **Full CRUD Operations**: Create, read, update, and delete expenses with comprehensive validation
 - **Multi-Currency Support**: Track expenses in any ISO-4217 currency with manual FX rates
 - **Base Currency Conversion**: Automatic conversion to your chosen base currency with preserved exchange rates
@@ -52,12 +53,14 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 - **Rich Metadata**: Add notes, select categories, and track precise amounts with proper rounding
 
 ### 📊 Data & Analytics
+
 - **Real-Time Totals**: Running total in base currency with applied filters
 - **Historical Tracking**: Browse complete expense history sorted by date (newest first)
 - **CSV Export**: Full-fidelity exports (UTF-8 BOM, RFC 4180 compliant) for analysis in Excel/Google Sheets
 - **Audit Trail**: Preserved FX rates and computed base amounts ensure stable, auditable totals
 
 ### ☁️ Google Drive Backup
+
 - **One-Click Export**: Generate and upload CSV backups to Google Drive
 - **Offline Queue**: Exports queued when offline, automatically uploaded when connection restored
 - **Auto-Folder Management**: Creates "Expense Tracker Backups" folder with persistent folder ID
@@ -65,6 +68,7 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 - **Least-Privilege Access**: `drive.file` scope only (app-created files, not full Drive access)
 
 ### 🔒 Security & Privacy
+
 - **Biometric App Lock**: Optional biometric/PIN gate after 5 minutes of inactivity
 - **Secure Token Storage**: Android Keystore for OAuth tokens with device-encrypted storage
 - **No Telemetry**: Zero analytics, crash reporting, or tracking in v1
@@ -72,6 +76,7 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 - **Secret Management**: Environment variables via `react-native-config`, never committed to VCS
 
 ### 🎨 User Experience
+
 - **Material Design 3**: Modern, accessible UI with React Native Paper
 - **Light/Dark Themes**: Automatic theme switching based on device settings
 - **British Date Format**: DD/MM/YYYY display (ISO YYYY-MM-DD storage)
@@ -85,6 +90,7 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 ### Tech Stack
 
 **Frontend (Mobile)**
+
 - **Framework**: React Native 0.82.1 (Bare CLI workflow)
 - **Language**: TypeScript 5.9.3 with strict mode
 - **UI Library**: React Native Paper 5.14.5 (Material Design 3)
@@ -92,17 +98,19 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 - **State Management**: React Context + useReducer (no Redux)
 
 **Storage & Security**
+
 - **Database**: SQLite 6.0.1 (`react-native-sqlite-storage`) with WAL mode
 - **OAuth**: `react-native-app-auth` 8.0.3 (PKCE support)
 - **Keychain**: `react-native-keychain` 9.2.0 (Android Keystore)
 - **Storage Access**: `react-native-saf-x` 2.2.3 (Scoped Storage/SAF)
 
 **Development Tools**
+
 - **Package Manager**: pnpm 9.12.1 (via Corepack)
-- **Node Version**: 22.19.0 (pinned with `.nvmrc`)
+- **Node Version**: 24.11.1 (pinned with `.nvmrc`)
 - **Linting**: ESLint 9.38 (flat config) with TypeScript, React, security plugins
-- **Formatting**: Prettier 3.4.2
-- **Testing**: Jest 29 with TypeScript support
+- **Formatting**: Prettier 3.6.2
+- **Testing**: Jest 30 with TypeScript support
 - **Git Hooks**: Husky 9.1.4 + lint-staged
 
 ### Data Model
@@ -110,6 +118,7 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 #### Tables
 
 **`expenses`** (Primary entity)
+
 ```sql
 CREATE TABLE expenses (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -128,6 +137,7 @@ CREATE TABLE expenses (
 ```
 
 **`categories`** (Expense classification)
+
 ```sql
 CREATE TABLE categories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -138,18 +148,21 @@ CREATE TABLE categories (
 ```
 
 **`app_settings`** (Key-value configuration)
+
 ```sql
 CREATE TABLE app_settings (
   key TEXT PRIMARY KEY,
   value TEXT
 );
 ```
+
 - `base_currency` - User's preferred currency (e.g., "USD", "GBP")
 - `biometric_gate_enabled` - Boolean flag for biometric lock
 - `drive_folder_id` - Google Drive backup folder ID
 - `export_directory_uri` - Android SAF directory URI for local CSV exports
 
 **`export_queue`** (Offline backup queue)
+
 ```sql
 CREATE TABLE export_queue (
   id TEXT PRIMARY KEY,
@@ -179,12 +192,12 @@ CREATE TABLE export_queue (
 
 ### Required Software
 
-1. **Node.js 22.19.0** (pinned via `.nvmrc`)
+1. **Node.js 24.11.1** (pinned via `.nvmrc`)
    - Install via [nvm-windows](https://github.com/coreybutler/nvm-windows) (Windows) or [nvm](https://github.com/nvm-sh/nvm) (macOS/Linux)
-   - Run: `nvm install 22.19.0 && nvm use 22.19.0`
+   - Run: `nvm install 24.11.1 && nvm use 24.11.1`
 
 2. **pnpm 9.12.1** (managed via Corepack)
-   - Node 22+ includes Corepack; enable with: `corepack enable`
+   - Node 24+ includes Corepack; enable with: `corepack enable`
    - pnpm version is auto-installed from `package.json` `packageManager` field
 
 3. **Android Development Environment**
@@ -224,6 +237,7 @@ pnpm install
 ```
 
 This will:
+
 - Install all npm packages (including React Native, TypeScript, ESLint, Jest)
 - Set up Git hooks via Husky
 - Apply patches from `patches/` directory
@@ -289,6 +303,7 @@ const clientId = Config.GOOGLE_OAUTH_CLIENT_ID;
 ```
 
 **Important Notes:**
+
 - Variables are embedded in the APK at build time
 - Changing `.env` requires rebuilding the app
 - Debug and release builds can use different `.env` files (configured in `android/app/build.gradle`)
@@ -323,11 +338,13 @@ To enable Google Drive backup functionality, you must create OAuth 2.0 credentia
 ### Step 4: Obtain SHA-1 Fingerprint
 
 **For Debug Builds:**
+
 ```bash
 keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android
 ```
 
 **For Release Builds:**
+
 ```bash
 # First, generate a release keystore (if you don't have one)
 keytool -genkey -v -keystore expense-tracker-release.keystore -alias expense-tracker -keyalg RSA -keysize 2048 -validity 10000
@@ -355,7 +372,7 @@ Copy the **SHA-1** value and paste it into Google Cloud Console.
 
 ### Troubleshooting OAuth
 
-See [BUILDING.md - Troubleshooting PKCE Issues](./BUILDING.md#troubleshooting-pkce-issues) for common OAuth errors and solutions.
+See [DEPLOY.md - Troubleshooting PKCE Issues](./DEPLOY.md#troubleshooting-pkce-issues) for common OAuth errors and solutions.
 
 ---
 
@@ -363,19 +380,20 @@ See [BUILDING.md - Troubleshooting PKCE Issues](./BUILDING.md#troubleshooting-pk
 
 ### Available Scripts
 
-| Command | Description |
-|---------|-------------|
-| `pnpm start` | Start Metro bundler (keep running during development) |
-| `pnpm android` | Build and run Android app in debug mode |
-| `pnpm test` | Run Jest test suites |
-| `pnpm test:watch` | Run tests in watch mode (re-run on file changes) |
-| `pnpm test:coverage` | Generate test coverage report |
-| `pnpm lint` | Run ESLint to check code quality |
-| `pnpm lint:fix` | Auto-fix ESLint issues where possible |
-| `pnpm typecheck` | Run TypeScript compiler in check mode (no emit) |
-| `pnpm format` | Format code with Prettier |
-| `pnpm validate` | Run lint, typecheck, and tests (CI-style validation) |
-| `pnpm build:android:release` | Build release APK (see [BUILDING.md](./BUILDING.md)) |
+| Command                      | Description                                                                   |
+| ---------------------------- | ----------------------------------------------------------------------------- |
+| `pnpm start`                 | Start Metro bundler (keep running during development)                         |
+| `pnpm android`               | Build and run Android app in debug mode                                       |
+| `pnpm test`                  | Run Jest test suites                                                          |
+| `pnpm test:watch`            | Run tests in watch mode (re-run on file changes)                              |
+| `pnpm test:coverage`         | Generate test coverage report                                                 |
+| `pnpm lint`                  | Run ESLint to check code quality                                              |
+| `pnpm lint:fix`              | Auto-fix ESLint issues where possible                                         |
+| `pnpm typecheck`             | Run TypeScript compiler in check mode (no emit)                               |
+| `pnpm format`                | Format code with Prettier                                                     |
+| `pnpm validate`              | Run lint, typecheck, and tests (CI-style validation)                          |
+| `pnpm build:android:release` | Build release APK (see [DEPLOY.md](./DEPLOY.md))                              |
+| `pnpm build:android:bundle`  | Build release App Bundle (.aab) for Play Store (see [DEPLOY.md](./DEPLOY.md)) |
 
 ### Git Workflow
 
@@ -401,6 +419,7 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/):
 **Types**: `feat`, `fix`, `chore`, `docs`, `style`, `refactor`, `test`, `perf`
 
 **Examples:**
+
 ```
 feat: add expense search functionality
 fix: correct date validation for leap years
@@ -418,6 +437,7 @@ When you commit, the following checks run automatically:
 3. **Prettier**: Formats staged files
 
 To bypass hooks (not recommended):
+
 ```bash
 git commit --no-verify
 ```
@@ -481,7 +501,21 @@ pnpm test --testNamePattern="should format CSV"
 ### Test Coverage Goals
 
 - **Target**: >80% line coverage
-- **Current**: ~20% (see [Priority Tasks](#priority-tasks) for coverage plan)
+- **Current**: ~38% overall; 95%+ on business logic (repositories, migrations, CSV export, utils, Google auth)
+
+### Performance Tests
+
+A performance suite validates large-dataset behaviour (10k expenses), CSV export speed, and biometric-timeout accuracy. Run it with:
+
+```bash
+pnpm test src/__tests__/performance/
+```
+
+### Known Limitations
+
+- **No CI** — `pnpm validate` (lint + typecheck + tests) is not enforced on push; nothing prevents a regression from re-breaking the build.
+- **0% coverage** on `AppContext`, screen components, and navigation (their business logic is extracted and tested separately).
+- **No real-device performance testing** — performance is validated algorithmically, not on physical hardware.
 
 ### Test Categories
 
@@ -515,28 +549,35 @@ describe('validateCurrencyCode', () => {
 
 ## 📦 Building for Release
 
-See **[BUILDING.md](./BUILDING.md)** for comprehensive instructions on:
+See **[DEPLOY.md](./DEPLOY.md)** for comprehensive instructions on:
 
 - Generating release keystores
 - Configuring signing credentials
-- Building production APKs
+- Building production APKs and App Bundles (.aab)
 - Installing on devices
 - OAuth 2.0 PKCE setup and verification
+
+Release builds run R8 (code shrinking + obfuscation) and resource shrinking, so
+the first build is slower and native crash stack traces are obfuscated — retain
+the per-build `mapping.txt` to deobfuscate them (see DEPLOY.md).
 
 ### Quick Release Build
 
 ```bash
-# Set release signing environment variables (see BUILDING.md)
+# Set release signing environment variables (see DEPLOY.md)
 export RELEASE_STORE_FILE=./expense-tracker-release.keystore
 export RELEASE_STORE_PASSWORD=your-password
 export RELEASE_KEY_ALIAS=expense-tracker
 export RELEASE_KEY_PASSWORD=your-password
 
-# Build release APK
+# Build a release APK (sideload)
 pnpm build:android:release
+# ...or a release App Bundle for the Play Store
+pnpm build:android:bundle
 ```
 
-Output: `android/app/build/outputs/apk/release/app-release.apk`
+Output: `android/app/build/outputs/apk/release/app-release.apk` (APK) or
+`android/app/build/outputs/bundle/release/app-release.aab` (App Bundle).
 
 ---
 
@@ -589,7 +630,6 @@ ExpenseTracker/
 │   │   └── __tests__/          # Screen tests
 │   ├── security/               # Authentication and storage
 │   │   ├── googleAuth.ts       # OAuth 2.0 with PKCE
-│   │   ├── AppLock.tsx         # Biometric lock modal
 │   │   ├── storageAccess.ts    # Android SAF (Scoped Storage)
 │   │   └── __tests__/          # Security tests
 │   ├── theme/                  # Material Design theming
@@ -610,7 +650,7 @@ ExpenseTracker/
 ├── .env.example                # Environment template (committed)
 ├── .eslintrc.js                # ESLint flat config
 ├── .gitignore                  # Git ignore rules
-├── .nvmrc                      # Node version (22.19.0)
+├── .nvmrc                      # Node version (24.11.1)
 ├── .prettierrc.js              # Prettier config
 ├── babel.config.js             # Babel transformer
 ├── jest.config.js              # Jest test configuration
@@ -619,7 +659,7 @@ ExpenseTracker/
 ├── package.json                # npm dependencies and scripts
 ├── pnpm-lock.yaml              # pnpm lockfile
 ├── tsconfig.json               # TypeScript configuration
-├── BUILDING.md                 # Release build guide
+├── DEPLOY.md                   # Deployment & release build guide
 └── README.md                   # This file
 ```
 
@@ -632,13 +672,15 @@ ExpenseTracker/
 This app prioritizes **local security** (device protection) over **network security** (since it's offline-first).
 
 **Protected Assets:**
+
 1. **Expense data** (SQLite database)
 2. **OAuth tokens** (Google Drive access)
 3. **User privacy** (no telemetry, no tracking)
 
 **Threat Vectors:**
+
 1. **Physical device access** → Mitigated by biometric lock + Android device encryption
-2. **APK reverse engineering** → Mitigated by no embedded secrets (OAuth PKCE, environment vars)
+2. **APK reverse engineering** → Mitigated by no embedded secrets (OAuth PKCE, environment vars); R8 obfuscation of release builds raises the bar but is defence-in-depth, not a boundary
 3. **SQL injection** → Mitigated by parameterized queries (ESLint-enforced)
 4. **Token theft** → Mitigated by Android Keystore (hardware-backed encryption)
 5. **Man-in-the-middle** → Mitigated by HTTPS-only APIs, certificate pinning (future enhancement)
@@ -648,11 +690,13 @@ This app prioritizes **local security** (device protection) over **network secur
 #### 1. OAuth 2.0 with PKCE (Proof Key for Code Exchange)
 
 **Why PKCE?**
+
 - Mobile apps cannot securely store client secrets (APKs can be decompiled)
 - PKCE replaces static secrets with dynamic, per-request code verifiers
 - Google enforces PKCE for Android OAuth clients
 
 **How it works:**
+
 1. App generates random `code_verifier` (43-128 chars)
 2. App computes `code_challenge = SHA256(code_verifier)` (base64-URL encoded)
 3. Authorization request includes `code_challenge` + `code_challenge_method=S256`
@@ -663,18 +707,21 @@ This app prioritizes **local security** (device protection) over **network secur
 **Implementation:** `src/security/googleAuth.ts` sets `usePKCE: true` in `react-native-app-auth` config.
 
 **Resources:**
+
 - [RFC 7636: PKCE Specification](https://datatracker.ietf.org/doc/html/rfc7636)
 - [Google OAuth for Mobile Apps](https://developers.google.com/identity/protocols/oauth2/native-app)
 
 #### 2. Android Keystore (Secure Token Storage)
 
 **Token Storage:**
+
 - OAuth tokens stored via `react-native-keychain`
 - Service name: `google-drive-auth`
 - Accessibility: `WHEN_UNLOCKED_THIS_DEVICE_ONLY`
 - Security level: `SECURE_HARDWARE` (if available)
 
 **Keystore Properties:**
+
 - Hardware-backed encryption (on supported devices)
 - Keys never leave Secure Element / Trusted Execution Environment (TEE)
 - Auto-deleted on app uninstall
@@ -682,25 +729,29 @@ This app prioritizes **local security** (device protection) over **network secur
 #### 3. Biometric App Lock
 
 **Flow:**
+
 1. User enables biometric lock in Settings
 2. App tracks foreground/background state
 3. After 5 minutes in background, app locks
 4. User must authenticate with biometric/PIN to unlock
 5. Modal blocks UI until authentication succeeds
 
-**Implementation:** `src/security/AppLock.tsx` + `AppContext.tsx`
+**Implementation:** `src/context/AppContext.tsx` (Modal-in-Provider + AppState listener + Keychain via `react-native-keychain`)
 
 **Biometric Storage:**
+
 - Service name: `expense-tracker-biometric-gate`
 - Access control: `BIOMETRY_CURRENT_SET` (invalidates on new biometric enrollment)
 
 #### 4. Parameterized SQL Queries
 
 **Enforcement:**
+
 - Custom ESLint rule detects `executeSql` calls with template literals or string concatenation
 - All queries must use `?` placeholders and value arrays
 
 **Example:**
+
 ```typescript
 // ❌ WRONG (ESLint error)
 db.executeSql(`SELECT * FROM expenses WHERE id = ${id}`);
@@ -712,6 +763,7 @@ db.executeSql('SELECT * FROM expenses WHERE id = ?', [id]);
 #### 5. Secret Detection
 
 **ESLint Plugin:** `eslint-plugin-no-secrets`
+
 - Scans code for high-entropy strings (potential API keys, tokens)
 - Tolerance: 4 (flags strings with >4 shannon entropy)
 - Fails CI build on detection
@@ -719,11 +771,13 @@ db.executeSql('SELECT * FROM expenses WHERE id = ?', [id]);
 #### 6. No Dynamic Code Loading
 
 **ESLint Rules:**
+
 - Bans `ImportExpression` (dynamic `import()`)
 - Bans `React.lazy` (code splitting)
 - Bans `require()` with non-static strings
 
 **Rationale:**
+
 - Reduces attack surface (no remote code execution)
 - Simplifies security audits (all code is static)
 - Improves app startup time (no lazy loading overhead)
@@ -749,6 +803,7 @@ db.executeSql('SELECT * FROM expenses WHERE id = ?', [id]);
 **Error:** `Unable to resolve module ...`
 
 **Solution:**
+
 ```bash
 # Clear Metro cache
 pnpm start --reset-cache
@@ -768,7 +823,9 @@ pnpm install
 **Error:** `SDK location not found`
 
 **Solution:**
+
 - Set `ANDROID_HOME` environment variable:
+
   ```bash
   # Windows
   setx ANDROID_HOME "C:\Users\<YourUsername>\AppData\Local\Android\Sdk"
@@ -780,7 +837,8 @@ pnpm install
 **Error:** `Execution failed for task ':app:validateSigningRelease'`
 
 **Solution:**
-- Ensure release signing environment variables are set (see [BUILDING.md](./BUILDING.md))
+
+- Ensure release signing environment variables are set (see [DEPLOY.md](./DEPLOY.md))
 - Or build debug APK instead: `pnpm android`
 
 ---
@@ -790,6 +848,7 @@ pnpm install
 **Error:** `DEVELOPER_ERROR` or `invalid_client`
 
 **Solution:**
+
 - Verify `GOOGLE_OAUTH_CLIENT_ID` in `.env` matches Google Cloud Console client ID
 - Ensure OAuth client type is **"Android"** (not "Web")
 - Check SHA-1 fingerprint is added to OAuth client
@@ -798,6 +857,7 @@ pnpm install
 **Error:** `Redirect URI mismatch`
 
 **Solution:**
+
 - Verify `GOOGLE_OAUTH_REDIRECT_URI` format: `com.expensetracker:/oauth2redirect/google`
 - Check `android/app/build.gradle` correctly parses redirect URI
 - Ensure `AndroidManifest.xml` has correct intent filter (should be auto-generated)
@@ -809,6 +869,7 @@ pnpm install
 **Error:** `no such table: expenses`
 
 **Solution:**
+
 - Database migrations may have failed
 - Clear app data:
   ```bash
@@ -819,6 +880,7 @@ pnpm install
 **Error:** `UNIQUE constraint failed: categories.name`
 
 **Solution:**
+
 - Attempting to create duplicate category
 - Check existing categories before insertion
 
@@ -829,6 +891,7 @@ pnpm install
 **Error:** `Cannot find module ...` or type errors
 
 **Solution:**
+
 ```bash
 # Rebuild TypeScript
 pnpm typecheck
@@ -846,12 +909,14 @@ pnpm typecheck
 **Error:** `Potential secret found`
 
 **Solution:**
+
 - Move the value to `.env` and access via `react-native-config`
 - If it's a false positive (e.g., test data), add `// eslint-disable-next-line no-secrets/no-secrets`
 
 **Error:** `Import and export declarations are not supported yet`
 
 **Solution:**
+
 - Ensure file extension is `.ts` or `.tsx` (not `.js`)
 - Check `babel.config.js` includes TypeScript preset
 
@@ -862,6 +927,7 @@ pnpm typecheck
 **Error:** `pnpm: command not found` in pre-commit hook
 
 **Solution:**
+
 ```bash
 # Enable Corepack globally
 corepack enable
@@ -875,18 +941,21 @@ pnpm install
 ### Debug Tools
 
 **React Native Debugger:**
+
 ```bash
 # Enable remote JS debugging
 # In app: Shake device → "Debug" → "Open Debugger"
 ```
 
 **Android Logcat:**
+
 ```bash
 # Filter logs for Expense Tracker
 adb logcat | grep -i "expensetracker\|ReactNative"
 ```
 
 **Database Inspection:**
+
 ```bash
 # Pull database from device
 adb pull /data/data/com.expensetracker/databases/expense_tracker.db
@@ -896,6 +965,7 @@ sqlite3 expense_tracker.db
 ```
 
 **Network Inspection:**
+
 - Use Charles Proxy or mitmproxy to inspect HTTPS traffic (requires certificate installation)
 
 ---
@@ -923,6 +993,7 @@ This project is for personal use and is not licensed for redistribution, commerc
 For issues, questions, or feature requests, please open an issue in the repository's issue tracker.
 
 **Useful Links:**
+
 - [React Native Troubleshooting](https://reactnative.dev/docs/troubleshooting)
 - [Android Developer Guides](https://developer.android.com/guide)
 - [Google OAuth Documentation](https://developers.google.com/identity/protocols/oauth2)

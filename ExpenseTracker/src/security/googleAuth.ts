@@ -1,4 +1,10 @@
-import { authorize, refresh, type AuthorizeResult, type RefreshResult } from 'react-native-app-auth';
+import {
+  authorize,
+  refresh,
+  type AuthConfiguration,
+  type AuthorizeResult,
+  type RefreshResult,
+} from 'react-native-app-auth';
 import * as Keychain from 'react-native-keychain';
 import { getGoogleOAuthConfig, GOOGLE_DRIVE_SCOPE } from './googleConfig';
 
@@ -12,7 +18,7 @@ export type GoogleAuthState = {
   refreshToken?: string;
 };
 
-const buildAppAuthConfig = () => {
+const buildAppAuthConfig = (): AuthConfiguration => {
   const { clientId, redirectUri } = getGoogleOAuthConfig();
   return {
     serviceConfiguration: {
@@ -27,7 +33,7 @@ const buildAppAuthConfig = () => {
       access_type: 'offline',
       prompt: 'consent',
     },
-  } as const;
+  };
 };
 
 const readStoredAuthState = async (): Promise<GoogleAuthState | null> => {
@@ -73,7 +79,9 @@ const authorizeInteractive = async (): Promise<GoogleAuthState> => {
   return nextState;
 };
 
-const refreshAccessToken = async (state: GoogleAuthState): Promise<GoogleAuthState | null> => {
+const refreshAccessToken = async (
+  state: GoogleAuthState,
+): Promise<GoogleAuthState | null> => {
   if (!state.refreshToken) {
     return null;
   }
@@ -107,7 +115,7 @@ export const ensureValidAccessToken = async (
     try {
       const refreshed = await refreshAccessToken(authState);
       authState = refreshed ?? authState;
-    } catch (error) {
+    } catch {
       if (!interactive) {
         return null;
       }

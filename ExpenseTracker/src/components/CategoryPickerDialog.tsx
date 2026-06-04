@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from "react";
-import { FlatList } from "react-native";
-import { Button, Dialog, List, Portal, Searchbar } from "react-native-paper";
-import type { CategoryRecord } from "../database";
+import React, { useMemo, useState } from 'react';
+import { FlatList, StyleSheet } from 'react-native';
+import { Button, Dialog, List, Portal, Searchbar } from 'react-native-paper';
+import type { CategoryRecord } from '../database';
 
 type CategoryOption = { id: number | null; name: string };
 
@@ -15,7 +15,10 @@ export type CategoryPickerDialogProps = {
 
 const buildOptions = (categories: CategoryRecord[]): CategoryOption[] => {
   const sorted = [...categories].sort((a, b) => a.name.localeCompare(b.name));
-  return [{ id: null, name: 'No category' }, ...sorted.map(category => ({ id: category.id, name: category.name }))];
+  return [
+    { id: null, name: 'No category' },
+    ...sorted.map(category => ({ id: category.id, name: category.name })),
+  ];
 };
 
 const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
@@ -25,7 +28,7 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
   onSelect,
   onDismiss,
 }) => {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState('');
 
   const options = useMemo(() => buildOptions(categories), [categories]);
 
@@ -39,22 +42,18 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
 
   const handleSelect = (categoryId: number | null) => {
     onSelect(categoryId);
-    setQuery("");
+    setQuery('');
     onDismiss();
   };
 
   const handleDismiss = () => {
-    setQuery("");
+    setQuery('');
     onDismiss();
   };
 
   return (
     <Portal>
-      <Dialog
-        visible={visible}
-        onDismiss={handleDismiss}
-        accessibilityLabel="Category selection dialog"
-      >
+      <Dialog visible={visible} onDismiss={handleDismiss}>
         <Dialog.Title accessibilityRole="header">Choose category</Dialog.Title>
         <Dialog.Content>
           <Searchbar
@@ -62,7 +61,7 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
             value={query}
             onChangeText={setQuery}
             accessibilityLabel="Search category"
-            style={{ marginBottom: 12 }}
+            style={styles.searchbar}
           />
           <FlatList
             data={filteredOptions}
@@ -75,17 +74,18 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
                 accessibilityRole="button"
                 accessibilityLabel={`Select ${item.name}`}
                 right={() =>
-                  selectedId === item.id ? (
-                    <List.Icon icon="check" accessibilityLabel="Selected category" />
-                  ) : null
+                  selectedId === item.id ? <List.Icon icon="check" /> : null
                 }
               />
             )}
-            style={{ maxHeight: 300 }}
+            style={styles.list}
           />
         </Dialog.Content>
         <Dialog.Actions>
-          <Button onPress={handleDismiss} accessibilityLabel="Cancel category selection">
+          <Button
+            onPress={handleDismiss}
+            accessibilityLabel="Cancel category selection"
+          >
             Cancel
           </Button>
         </Dialog.Actions>
@@ -93,5 +93,10 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
     </Portal>
   );
 };
+
+const styles = StyleSheet.create({
+  searchbar: { marginBottom: 12 },
+  list: { maxHeight: 300 },
+});
 
 export default CategoryPickerDialog;

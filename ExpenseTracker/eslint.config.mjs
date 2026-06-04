@@ -76,7 +76,7 @@ export default [
         },
         {
           selector:
-            "CallExpression[callee.property.name='executeSql'] > :matches(TemplateLiteral, BinaryExpression)",
+            "CallExpression[callee.property.name='executeSql'] > :matches(TemplateLiteral[expressions.length > 0], BinaryExpression)",
           message:
             'Use parameterised queries with placeholder bindings when calling executeSql.',
         },
@@ -111,6 +111,16 @@ export default [
       '@typescript-eslint/no-require-imports': 'off',
       // Only forbid truly dynamic requires; static literal requires are fine here
       'import/no-dynamic-require': 'off',
+    },
+  },
+
+  // Test, setup, and helper files run under Jest
+  {
+    files: ['**/__tests__/**', '**/*.test.{js,jsx,ts,tsx}', 'jest.setup.js'],
+    languageOptions: {
+      globals: {
+        ...globals.jest,
+      },
     },
   },
 ];

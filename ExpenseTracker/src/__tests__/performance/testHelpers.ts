@@ -24,7 +24,7 @@ export type PerformanceThresholds = {
  * Measure execution time of a function
  */
 export const measureTime = async <T>(
-  fn: () => T | Promise<T>
+  fn: () => T | Promise<T>,
 ): Promise<{ result: T; duration: number }> => {
   const start = performance.now();
   const result = await fn();
@@ -36,9 +36,12 @@ export const measureTime = async <T>(
  * Measure memory usage (if available)
  */
 export const measureMemory = (): { used: number } | null => {
-  if (typeof performance !== 'undefined' && (performance as any).memory) {
+  const perf = performance as typeof performance & {
+    memory?: { usedJSHeapSize: number };
+  };
+  if (typeof performance !== 'undefined' && perf.memory) {
     return {
-      used: (performance as any).memory.usedJSHeapSize,
+      used: perf.memory.usedJSHeapSize,
     };
   }
   return null;
@@ -48,7 +51,7 @@ export const measureMemory = (): { used: number } | null => {
  * Measure both time and memory for a function
  */
 export const measurePerformance = async <T>(
-  fn: () => T | Promise<T>
+  fn: () => T | Promise<T>,
 ): Promise<{ result: T; metrics: PerformanceMetrics }> => {
   const memoryBefore = measureMemory();
   const { result, duration } = await measureTime(fn);
@@ -74,7 +77,7 @@ export const measurePerformance = async <T>(
  */
 export const benchmark = async <T>(
   fn: () => T | Promise<T>,
-  iterations: number = 100
+  iterations: number = 100,
 ): Promise<{
   results: T[];
   metrics: PerformanceMetrics & {
@@ -118,12 +121,12 @@ export const benchmark = async <T>(
 export const assertPerformance = (
   metrics: PerformanceMetrics,
   thresholds: PerformanceThresholds,
-  description: string = 'Performance test'
+  description: string = 'Performance test',
 ): void => {
   if (thresholds.maxDuration !== undefined) {
     if (metrics.duration > thresholds.maxDuration) {
       throw new Error(
-        `${description}: Duration ${metrics.duration.toFixed(2)}ms exceeds threshold ${thresholds.maxDuration}ms`
+        `${description}: Duration ${metrics.duration.toFixed(2)}ms exceeds threshold ${thresholds.maxDuration}ms`,
       );
     }
   }
@@ -131,16 +134,20 @@ export const assertPerformance = (
   if (thresholds.maxMemoryDelta !== undefined && metrics.memory) {
     if (metrics.memory.delta > thresholds.maxMemoryDelta) {
       throw new Error(
-        `${description}: Memory delta ${formatBytes(metrics.memory.delta)} exceeds threshold ${formatBytes(thresholds.maxMemoryDelta)}`
+        `${description}: Memory delta ${formatBytes(metrics.memory.delta)} exceeds threshold ${formatBytes(thresholds.maxMemoryDelta)}`,
       );
     }
   }
 
-  if (thresholds.minIterationsPerSecond !== undefined && metrics.iterations && metrics.duration) {
+  if (
+    thresholds.minIterationsPerSecond !== undefined &&
+    metrics.iterations &&
+    metrics.duration
+  ) {
     const iterationsPerSecond = (metrics.iterations / metrics.duration) * 1000;
     if (iterationsPerSecond < thresholds.minIterationsPerSecond) {
       throw new Error(
-        `${description}: ${iterationsPerSecond.toFixed(2)} iterations/sec is below threshold ${thresholds.minIterationsPerSecond}`
+        `${description}: ${iterationsPerSecond.toFixed(2)} iterations/sec is below threshold ${thresholds.minIterationsPerSecond}`,
       );
     }
   }
@@ -174,7 +181,14 @@ export const formatDuration = (ms: number): string => {
  * Generate mock expense data for performance testing
  */
 export const generateMockExpenses = (count: number) => {
-  const categories = ['Food', 'Transport', 'Entertainment', 'Shopping', 'Bills', 'Healthcare'];
+  const categories = [
+    'Food',
+    'Transport',
+    'Entertainment',
+    'Shopping',
+    'Bills',
+    'Healthcare',
+  ];
   const currencies = ['USD', 'EUR', 'GBP', 'JPY'];
   const descriptions = [
     'Grocery shopping',
@@ -200,7 +214,8 @@ export const generateMockExpenses = (count: number) => {
 
     expenses.push({
       id: i + 1,
-      description: descriptions[Math.floor(Math.random() * descriptions.length)],
+      description:
+        descriptions[Math.floor(Math.random() * descriptions.length)],
       amountNative: parseFloat(amount.toFixed(2)),
       currencyCode: currency,
       fxRateToBase: parseFloat(fxRate.toFixed(6)),
@@ -221,12 +236,42 @@ export const generateMockExpenses = (count: number) => {
  */
 export const generateMockCategories = () => {
   return [
-    { id: 1, name: 'Food', createdAt: '2020-01-01T00:00:00.000Z', updatedAt: '2020-01-01T00:00:00.000Z' },
-    { id: 2, name: 'Transport', createdAt: '2020-01-01T00:00:00.000Z', updatedAt: '2020-01-01T00:00:00.000Z' },
-    { id: 3, name: 'Entertainment', createdAt: '2020-01-01T00:00:00.000Z', updatedAt: '2020-01-01T00:00:00.000Z' },
-    { id: 4, name: 'Shopping', createdAt: '2020-01-01T00:00:00.000Z', updatedAt: '2020-01-01T00:00:00.000Z' },
-    { id: 5, name: 'Bills', createdAt: '2020-01-01T00:00:00.000Z', updatedAt: '2020-01-01T00:00:00.000Z' },
-    { id: 6, name: 'Healthcare', createdAt: '2020-01-01T00:00:00.000Z', updatedAt: '2020-01-01T00:00:00.000Z' },
+    {
+      id: 1,
+      name: 'Food',
+      createdAt: '2020-01-01T00:00:00.000Z',
+      updatedAt: '2020-01-01T00:00:00.000Z',
+    },
+    {
+      id: 2,
+      name: 'Transport',
+      createdAt: '2020-01-01T00:00:00.000Z',
+      updatedAt: '2020-01-01T00:00:00.000Z',
+    },
+    {
+      id: 3,
+      name: 'Entertainment',
+      createdAt: '2020-01-01T00:00:00.000Z',
+      updatedAt: '2020-01-01T00:00:00.000Z',
+    },
+    {
+      id: 4,
+      name: 'Shopping',
+      createdAt: '2020-01-01T00:00:00.000Z',
+      updatedAt: '2020-01-01T00:00:00.000Z',
+    },
+    {
+      id: 5,
+      name: 'Bills',
+      createdAt: '2020-01-01T00:00:00.000Z',
+      updatedAt: '2020-01-01T00:00:00.000Z',
+    },
+    {
+      id: 6,
+      name: 'Healthcare',
+      createdAt: '2020-01-01T00:00:00.000Z',
+      updatedAt: '2020-01-01T00:00:00.000Z',
+    },
   ];
 };
 
@@ -234,7 +279,7 @@ export const generateMockCategories = () => {
  * Wait for a specified duration
  */
 export const wait = (ms: number): Promise<void> => {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise(resolve => setTimeout(resolve, ms));
 };
 
 /**
@@ -243,12 +288,12 @@ export const wait = (ms: number): Promise<void> => {
 export const withTimeout = async <T>(
   fn: () => Promise<T>,
   timeoutMs: number,
-  errorMessage: string = 'Operation timed out'
+  errorMessage: string = 'Operation timed out',
 ): Promise<T> => {
   return Promise.race([
     fn(),
     new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(errorMessage)), timeoutMs)
+      setTimeout(() => reject(new Error(errorMessage)), timeoutMs),
     ),
   ]);
 };

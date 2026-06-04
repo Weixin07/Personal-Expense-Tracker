@@ -42,8 +42,13 @@ export const parseBritishDateInput = (input: string): string | null => {
     return null;
   }
 
-  let [day, month, year] = parts;
-  if (!/^\d{1,2}$/.test(day) || !/^\d{1,2}$/.test(month) || !/^\d{2,4}$/.test(year)) {
+  const [day, month] = parts;
+  let year = parts[2];
+  if (
+    !/^\d{1,2}$/.test(day) ||
+    !/^\d{1,2}$/.test(month) ||
+    !/^\d{2,4}$/.test(year)
+  ) {
     return null;
   }
 

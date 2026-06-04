@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { FlatList, RefreshControl, StyleSheet, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -30,20 +36,30 @@ import { formatDateBritish } from '../utils/date';
 import { formatMoneyAmount } from '../utils/formatting';
 
 const ITEM_HEIGHT = 72;
-const baseCurrencyDialogDescription = 'Select the currency you want to use for totals and conversions. You can change this later in Settings.';
+const baseCurrencyDialogDescription =
+  'Select the currency you want to use for totals and conversions. You can change this later in Settings.';
 
 const HomeScreen: React.FC = () => {
   const theme = useTheme();
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const {
-    state: { settings, exportQueue, categories, filters, isInitialised, isLoading },
+    state: {
+      settings,
+      exportQueue,
+      categories,
+      filters,
+      isInitialised,
+      isLoading,
+    },
     selectors: { filteredExpenses, totals, hasActiveFilters },
     actions: { refresh, setFilters, setBaseCurrency },
   } = useExpenseData();
 
   const [refreshing, setRefreshing] = useState(false);
   const [categoryDialogVisible, setCategoryDialogVisible] = useState(false);
-  const [baseCurrencyDialogVisible, setBaseCurrencyDialogVisible] = useState(false);
+  const [baseCurrencyDialogVisible, setBaseCurrencyDialogVisible] =
+    useState(false);
   const defaultFiltersAppliedRef = useRef(false);
 
   // FIRST-RUN ONBOARDING: Force base currency selection on first app launch
@@ -68,10 +84,19 @@ const HomeScreen: React.FC = () => {
       }
       defaultFiltersAppliedRef.current = true;
     }
-  }, [filters.startDate, filters.endDate, filters.categoryId, isInitialised, setFilters]);
+  }, [
+    filters.startDate,
+    filters.endDate,
+    filters.categoryId,
+    isInitialised,
+    setFilters,
+  ]);
 
   const datePreset = useMemo(() => detectPreset(filters), [filters]);
-  const dateRangeLabel = useMemo(() => formatDateRangeLabel(filters), [filters]);
+  const dateRangeLabel = useMemo(
+    () => formatDateRangeLabel(filters),
+    [filters],
+  );
   const categoryFilterId = filters.categoryId ?? null;
 
   const categoriesMap = useMemo(() => {
@@ -83,7 +108,8 @@ const HomeScreen: React.FC = () => {
   }, [categories]);
 
   const totalsLabel = useMemo(
-    () => formatCurrencyAmount(totals.baseAmount, settings.baseCurrency, 'base'),
+    () =>
+      formatCurrencyAmount(totals.baseAmount, settings.baseCurrency, 'base'),
     [totals.baseAmount, settings.baseCurrency],
   );
 
@@ -168,8 +194,10 @@ const HomeScreen: React.FC = () => {
   }, [navigation]);
 
   const renderExpenseItem = useCallback(
-    ({ item }: { item: typeof filteredExpenses[number] }) => {
-      const categoryName = item.categoryId ? categoriesMap.get(item.categoryId) : null;
+    ({ item }: { item: (typeof filteredExpenses)[number] }) => {
+      const categoryName = item.categoryId
+        ? categoriesMap.get(item.categoryId)
+        : null;
       const descriptionParts = [
         formatDateBritish(item.date),
         categoryName ?? 'No category',
@@ -181,12 +209,18 @@ const HomeScreen: React.FC = () => {
           title={item.description}
           description={descriptionParts.join(' | ')}
           descriptionNumberOfLines={2}
-          onPress={() => navigation.navigate('AddExpense', { expenseId: item.id })}
+          onPress={() =>
+            navigation.navigate('AddExpense', { expenseId: item.id })
+          }
           accessibilityLabel={`Open expense ${item.description}`}
           right={() => (
             <View style={styles.amountContainer}>
               <Text style={styles.listAmount}>
-                {formatCurrencyAmount(item.baseAmount, settings.baseCurrency, 'base')}
+                {formatCurrencyAmount(
+                  item.baseAmount,
+                  settings.baseCurrency,
+                  'base',
+                )}
               </Text>
             </View>
           )}
@@ -196,16 +230,25 @@ const HomeScreen: React.FC = () => {
     [categoriesMap, navigation, settings.baseCurrency],
   );
 
-  const keyExtractor = useCallback((item: typeof filteredExpenses[number]) => item.id.toString(), []);
+  const keyExtractor = useCallback(
+    (item: (typeof filteredExpenses)[number]) => item.id.toString(),
+    [],
+  );
   const ItemSeparator = useCallback(() => <Divider />, []);
   const getItemLayout = useCallback(
-    (_: unknown, index: number) => ({ length: ITEM_HEIGHT, offset: ITEM_HEIGHT * index, index }),
+    (_: unknown, index: number) => ({
+      length: ITEM_HEIGHT,
+      offset: ITEM_HEIGHT * index,
+      index,
+    }),
     [],
   );
 
   const listHeader = useMemo(() => {
     const selectedCategoryName =
-      categoryFilterId !== null ? categoriesMap.get(categoryFilterId) ?? 'Unknown category' : null;
+      categoryFilterId !== null
+        ? (categoriesMap.get(categoryFilterId) ?? 'Unknown category')
+        : null;
 
     return (
       <View style={styles.listHeader}>
@@ -220,17 +263,34 @@ const HomeScreen: React.FC = () => {
         </View>
         <Text variant="bodyMedium">Base currency: {baseCurrencyLabel}</Text>
         <Text variant="bodyMedium">Total (base): {totalsLabel}</Text>
-        <Text variant="bodyMedium">Tracked expenses: {filteredExpenses.length}</Text>
-        <Text variant="labelLarge" style={styles.metaText}>Pending exports: {pendingExports}</Text>
+        <Text variant="bodyMedium">
+          Tracked expenses: {filteredExpenses.length}
+        </Text>
+        <Text variant="labelLarge" style={styles.metaText}>
+          Pending exports: {pendingExports}
+        </Text>
         {pendingExports > 5 ? (
-          <View style={[styles.queueBanner, {
-            backgroundColor: theme.colors.errorContainer,
-            borderColor: theme.colors.error,
-          }]}>
-            <Text variant="labelSmall" style={{ color: theme.colors.onErrorContainer }}>
-              There are {pendingExports} exports waiting to upload. Connect to the internet and upload them soon.
+          <View
+            style={[
+              styles.queueBanner,
+              {
+                backgroundColor: theme.colors.errorContainer,
+                borderColor: theme.colors.error,
+              },
+            ]}
+          >
+            <Text
+              variant="labelSmall"
+              style={{ color: theme.colors.onErrorContainer }}
+            >
+              There are {pendingExports} exports waiting to upload. Connect to
+              the internet and upload them soon.
             </Text>
-            <Button mode="contained-tonal" onPress={handleOpenQueue} accessibilityLabel="View export queue">
+            <Button
+              mode="contained-tonal"
+              onPress={handleOpenQueue}
+              accessibilityLabel="View export queue"
+            >
               View export queue
             </Button>
           </View>
@@ -248,7 +308,11 @@ const HomeScreen: React.FC = () => {
             Category: {selectedCategoryName}
           </Text>
         ) : null}
-        <Button mode="contained" onPress={handleAddExpense} style={styles.addButton}>
+        <Button
+          mode="contained"
+          onPress={handleAddExpense}
+          style={styles.addButton}
+        >
           Add expense
         </Button>
 
@@ -268,7 +332,9 @@ const HomeScreen: React.FC = () => {
             <Chip
               selected={categoryFilterId !== null}
               onPress={() => setCategoryDialogVisible(true)}
-              onClose={categoryFilterId !== null ? handleClearCategory : undefined}
+              onClose={
+                categoryFilterId !== null ? handleClearCategory : undefined
+              }
               accessibilityLabel="Filter by category"
             >
               {categoryFilterId !== null
@@ -276,7 +342,10 @@ const HomeScreen: React.FC = () => {
                 : 'Category'}
             </Chip>
             {hasActiveFilters ? (
-              <Chip onPress={handleResetFilters} accessibilityLabel="Reset filters">
+              <Chip
+                onPress={handleResetFilters}
+                accessibilityLabel="Reset filters"
+              >
                 Reset
               </Chip>
             ) : null}
@@ -286,6 +355,9 @@ const HomeScreen: React.FC = () => {
     );
   }, [
     baseCurrencyLabel,
+    theme.colors.error,
+    theme.colors.errorContainer,
+    theme.colors.onErrorContainer,
     categoriesMap,
     categoryFilterId,
     datePreset,
@@ -337,7 +409,9 @@ const HomeScreen: React.FC = () => {
         ListHeaderComponent={listHeader}
         ListEmptyComponent={listEmptyComponent}
         ListFooterComponent={<View style={styles.listFooter} />}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
         contentContainerStyle={styles.listContentContainer}
         initialNumToRender={20}
         windowSize={10}

@@ -9,19 +9,18 @@ import {
   formatDuration,
   formatBytes,
   generateMockExpenses,
-  generateMockCategories,
 } from './testHelpers';
-import type { ExpenseRecord, CategoryRecord } from '../../database/types';
+import type { ExpenseRecord } from '../../database/types';
 
 describe('Performance: Large Dataset (10k expenses)', () => {
   const EXPENSE_COUNT = 10000;
   let mockExpenses: ExpenseRecord[];
-  let mockCategories: CategoryRecord[];
 
   beforeAll(() => {
-    console.log(`\n📊 Generating ${EXPENSE_COUNT} mock expenses for testing...`);
+    console.log(
+      `\n📊 Generating ${EXPENSE_COUNT} mock expenses for testing...`,
+    );
     mockExpenses = generateMockExpenses(EXPENSE_COUNT) as ExpenseRecord[];
-    mockCategories = generateMockCategories();
     console.log(`✅ Generated ${mockExpenses.length} expenses\n`);
   });
 
@@ -39,18 +38,16 @@ describe('Performance: Large Dataset (10k expenses)', () => {
 
       expect(result.length).toBe(EXPENSE_COUNT);
 
-      assertPerformance(
-        metrics,
-        { maxDuration: 500 },
-        'Loading 10k expenses'
-      );
+      assertPerformance(metrics, { maxDuration: 500 }, 'Loading 10k expenses');
     });
 
     it('should filter 10k expenses by category in under 100ms', async () => {
       const targetCategoryId = 1;
 
       const { result, metrics } = await measurePerformance(() => {
-        return mockExpenses.filter((expense) => expense.categoryId === targetCategoryId);
+        return mockExpenses.filter(
+          expense => expense.categoryId === targetCategoryId,
+        );
       });
 
       console.log(`⏱️  Filter Time: ${formatDuration(metrics.duration)}`);
@@ -59,7 +56,7 @@ describe('Performance: Large Dataset (10k expenses)', () => {
       assertPerformance(
         metrics,
         { maxDuration: 100 },
-        'Filtering 10k expenses by category'
+        'Filtering 10k expenses by category',
       );
     });
 
@@ -69,7 +66,7 @@ describe('Performance: Large Dataset (10k expenses)', () => {
 
       const { result, metrics } = await measurePerformance(() => {
         return mockExpenses.filter(
-          (expense) => expense.date >= startDate && expense.date <= endDate
+          expense => expense.date >= startDate && expense.date <= endDate,
         );
       });
 
@@ -79,7 +76,7 @@ describe('Performance: Large Dataset (10k expenses)', () => {
       assertPerformance(
         metrics,
         { maxDuration: 100 },
-        'Filtering 10k expenses by date range'
+        'Filtering 10k expenses by date range',
       );
     });
 
@@ -99,7 +96,7 @@ describe('Performance: Large Dataset (10k expenses)', () => {
       assertPerformance(
         metrics,
         { maxDuration: 200 },
-        'Sorting 10k expenses by date'
+        'Sorting 10k expenses by date',
       );
     });
   });
@@ -107,7 +104,10 @@ describe('Performance: Large Dataset (10k expenses)', () => {
   describe('Calculation Performance', () => {
     it('should calculate total for 10k expenses in under 50ms', async () => {
       const { result, metrics } = await measurePerformance(() => {
-        return mockExpenses.reduce((sum, expense) => sum + expense.baseAmount, 0);
+        return mockExpenses.reduce(
+          (sum, expense) => sum + expense.baseAmount,
+          0,
+        );
       });
 
       console.log(`⏱️  Calculation Time: ${formatDuration(metrics.duration)}`);
@@ -116,14 +116,14 @@ describe('Performance: Large Dataset (10k expenses)', () => {
       assertPerformance(
         metrics,
         { maxDuration: 50 },
-        'Calculating total for 10k expenses'
+        'Calculating total for 10k expenses',
       );
     });
 
     it('should group 10k expenses by category in under 100ms', async () => {
       const { result, metrics } = await measurePerformance(() => {
         const grouped = new Map<number | null, number>();
-        mockExpenses.forEach((expense) => {
+        mockExpenses.forEach(expense => {
           const current = grouped.get(expense.categoryId ?? null) ?? 0;
           grouped.set(expense.categoryId ?? null, current + expense.baseAmount);
         });
@@ -136,14 +136,14 @@ describe('Performance: Large Dataset (10k expenses)', () => {
       assertPerformance(
         metrics,
         { maxDuration: 100 },
-        'Grouping 10k expenses by category'
+        'Grouping 10k expenses by category',
       );
     });
 
     it('should group 10k expenses by month in under 100ms', async () => {
       const { result, metrics } = await measurePerformance(() => {
         const grouped = new Map<string, number>();
-        mockExpenses.forEach((expense) => {
+        mockExpenses.forEach(expense => {
           const month = expense.date.slice(0, 7); // YYYY-MM
           const current = grouped.get(month) ?? 0;
           grouped.set(month, current + expense.baseAmount);
@@ -151,13 +151,15 @@ describe('Performance: Large Dataset (10k expenses)', () => {
         return grouped;
       });
 
-      console.log(`⏱️  Monthly Grouping Time: ${formatDuration(metrics.duration)}`);
+      console.log(
+        `⏱️  Monthly Grouping Time: ${formatDuration(metrics.duration)}`,
+      );
       console.log(`📅 Months: ${result.size}`);
 
       assertPerformance(
         metrics,
         { maxDuration: 100 },
-        'Grouping 10k expenses by month'
+        'Grouping 10k expenses by month',
       );
     });
   });
@@ -167,8 +169,8 @@ describe('Performance: Large Dataset (10k expenses)', () => {
       const searchTerm = 'grocery';
 
       const { result, metrics } = await measurePerformance(() => {
-        return mockExpenses.filter((expense) =>
-          expense.description.toLowerCase().includes(searchTerm.toLowerCase())
+        return mockExpenses.filter(expense =>
+          expense.description.toLowerCase().includes(searchTerm.toLowerCase()),
         );
       });
 
@@ -178,7 +180,7 @@ describe('Performance: Large Dataset (10k expenses)', () => {
       assertPerformance(
         metrics,
         { maxDuration: 100 },
-        'Searching 10k expenses by description'
+        'Searching 10k expenses by description',
       );
     });
 
@@ -193,22 +195,24 @@ describe('Performance: Large Dataset (10k expenses)', () => {
 
       const { result, metrics } = await measurePerformance(() => {
         return mockExpenses.filter(
-          (expense) =>
+          expense =>
             expense.categoryId === filters.categoryId &&
             expense.date >= filters.startDate &&
             expense.date <= filters.endDate &&
             expense.baseAmount >= filters.minAmount &&
-            expense.baseAmount <= filters.maxAmount
+            expense.baseAmount <= filters.maxAmount,
         );
       });
 
-      console.log(`⏱️  Complex Search Time: ${formatDuration(metrics.duration)}`);
+      console.log(
+        `⏱️  Complex Search Time: ${formatDuration(metrics.duration)}`,
+      );
       console.log(`🔍 Found: ${result.length} matches`);
 
       assertPerformance(
         metrics,
         { maxDuration: 150 },
-        'Complex multi-filter search on 10k expenses'
+        'Complex multi-filter search on 10k expenses',
       );
     });
   });
@@ -237,7 +241,7 @@ describe('Performance: Large Dataset (10k expenses)', () => {
       assertPerformance(
         metrics,
         { maxDuration: 250 }, // Account for sorting overhead
-        'Paginating 10k expenses (first page)'
+        'Paginating 10k expenses (first page)',
       );
     });
 
@@ -255,14 +259,16 @@ describe('Performance: Large Dataset (10k expenses)', () => {
         return sorted.slice(page * pageSize, (page + 1) * pageSize);
       });
 
-      console.log(`⏱️  Pagination Time (page ${page}): ${formatDuration(metrics.duration)}`);
+      console.log(
+        `⏱️  Pagination Time (page ${page}): ${formatDuration(metrics.duration)}`,
+      );
 
       expect(result.length).toBe(pageSize);
 
       assertPerformance(
         metrics,
         { maxDuration: 250 },
-        'Paginating 10k expenses (middle page)'
+        'Paginating 10k expenses (middle page)',
       );
     });
   });
@@ -275,7 +281,7 @@ describe('Performance: Large Dataset (10k expenses)', () => {
       for (let i = 0; i < iterations; i++) {
         const { metrics } = await measurePerformance(() => {
           // Simulate typical operations
-          const filtered = mockExpenses.filter((e) => e.categoryId === 1);
+          const filtered = mockExpenses.filter(e => e.categoryId === 1);
           const total = filtered.reduce((sum, e) => sum + e.baseAmount, 0);
           return total;
         });
@@ -286,7 +292,8 @@ describe('Performance: Large Dataset (10k expenses)', () => {
       }
 
       if (results.length > 0) {
-        const avgMemoryDelta = results.reduce((sum, delta) => sum + delta, 0) / results.length;
+        const avgMemoryDelta =
+          results.reduce((sum, delta) => sum + delta, 0) / results.length;
         console.log(`💾 Average Memory Delta: ${formatBytes(avgMemoryDelta)}`);
 
         // Memory delta should not grow significantly with repeated operations
@@ -300,10 +307,12 @@ describe('Performance: Large Dataset (10k expenses)', () => {
     it('should handle complete workflow (filter + sort + paginate) in under 300ms', async () => {
       const { result, metrics } = await measurePerformance(() => {
         // 1. Filter by category
-        const filtered = mockExpenses.filter((e) => e.categoryId === 1);
+        const filtered = mockExpenses.filter(e => e.categoryId === 1);
 
         // 2. Sort by date
-        const sorted = [...filtered].sort((a, b) => b.date.localeCompare(a.date));
+        const sorted = [...filtered].sort((a, b) =>
+          b.date.localeCompare(a.date),
+        );
 
         // 3. Paginate (first page)
         const pageSize = 50;
@@ -315,13 +324,17 @@ describe('Performance: Large Dataset (10k expenses)', () => {
         return { paginated, total };
       });
 
-      console.log(`⏱️  Complete Workflow Time: ${formatDuration(metrics.duration)}`);
-      console.log(`📄 Results: ${result.paginated.length} expenses, Total: $${result.total.toFixed(2)}`);
+      console.log(
+        `⏱️  Complete Workflow Time: ${formatDuration(metrics.duration)}`,
+      );
+      console.log(
+        `📄 Results: ${result.paginated.length} expenses, Total: $${result.total.toFixed(2)}`,
+      );
 
       assertPerformance(
         metrics,
         { maxDuration: 300 },
-        'Complete workflow (filter + sort + paginate)'
+        'Complete workflow (filter + sort + paginate)',
       );
     });
   });
