@@ -63,7 +63,9 @@
       "Read(//c/c/Users/faith/Documents/Codes/Personal-Expense-Tracker/Personal-Expense-Tracker/ExpenseTracker/doc-temp/**)",
       "Read(//c/c/Users/faith/Documents/Codes/Personal-Expense-Tracker/Personal-Expense-Tracker/**)",
       "Bash(findstr \"^??\")",
-      "Bash(findstr -i \"AppLock\")"
+      "Bash(findstr -i \"AppLock\")",
+      "Bash(pnpm --version)",
+      "Bash(pnpm install *)"
     ],
     "deny": [],
     "ask": []
