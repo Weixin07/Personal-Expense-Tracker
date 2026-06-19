@@ -17,6 +17,7 @@ import {
 } from 'react-native-paper';
 import CategoryPickerDialog from '../components/CategoryPickerDialog';
 import CurrencyPickerDialog from '../components/CurrencyPickerDialog';
+import SelectField from '../components/SelectField';
 import { findCurrencyName } from '../constants/currencyOptions';
 import { useExpenseData } from '../context/AppContext';
 import type { RootStackParamList } from '../navigation/AppNavigator';
@@ -249,24 +250,16 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
             {errors.amountNative}
           </HelperText>
 
-          <TextInput
+          <SelectField
             label="Currency"
             value={values.currencyCode}
-            onPressIn={() => setCurrencyDialogVisible(true)}
-            right={
-              <TextInput.Icon
-                icon="menu-down"
-                accessibilityLabel="Open currency picker"
-              />
-            }
-            mode="outlined"
-            showSoftInputOnFocus={false}
+            onPress={() => setCurrencyDialogVisible(true)}
             accessibilityLabel={
               currencyName
                 ? `${values.currencyCode} ${currencyName}`
                 : 'Select currency'
             }
-            editable={false}
+            accessibilityHint="Opens the currency picker"
             error={Boolean(errors.currencyCode)}
           />
           <HelperText type="error" visible={Boolean(errors.currencyCode)}>
@@ -311,20 +304,12 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
             {errors.date}
           </HelperText>
 
-          <TextInput
+          <SelectField
             label="Category"
             value={selectedCategory ? selectedCategory.name : 'No category'}
-            mode="outlined"
-            editable={false}
-            showSoftInputOnFocus={false}
-            onPressIn={() => setCategoryDialogVisible(true)}
-            right={
-              <TextInput.Icon
-                icon="menu-down"
-                accessibilityLabel="Open category picker"
-              />
-            }
+            onPress={() => setCategoryDialogVisible(true)}
             accessibilityLabel="Select category"
+            accessibilityHint="Opens the category picker"
           />
 
           <TextInput

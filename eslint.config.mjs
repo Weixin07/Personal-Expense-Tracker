@@ -80,6 +80,12 @@ export default [
           message:
             'Use parameterised queries with placeholder bindings when calling executeSql.',
         },
+        {
+          selector:
+            "JSXOpeningElement[name.name='TextInput']:has(JSXAttribute[name.name='editable'] Literal[value=false]):has(JSXAttribute[name.name=/^onPress/])",
+          message:
+            'A non-editable TextInput (editable={false}) does not receive touch events on Android, so its onPress* handler never fires. Use the SelectField component for tap-to-open fields.',
+        },
       ],
       // Ban React.lazy(...)
       'no-restricted-properties': [

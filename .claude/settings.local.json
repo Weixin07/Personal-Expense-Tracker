@@ -124,7 +124,9 @@
       "PowerShell($ks = \"C:\\\\PET\\\\android\\\\app\\\\expense-tracker-release.keystore\")",
       "PowerShell(Get-Process *)",
       "Bash(wc -l android/app/proguard-rules.pro)",
-      "Bash(cat android/app/proguard-rules.pro)"
+      "Bash(cat android/app/proguard-rules.pro)",
+      "Bash(cp /tmp/antipattern.tsx C:/PET/src/__antipattern_probe.tsx)",
+      "Bash(pnpm exec *)"
     ],
     "deny": [],
     "ask": []

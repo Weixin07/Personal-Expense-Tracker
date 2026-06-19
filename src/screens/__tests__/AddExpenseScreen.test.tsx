@@ -63,14 +63,8 @@ const renderScreen = (
   return { navigation, value };
 };
 
-// The currency and category fields are non-editable TextInputs that open their
-// dialog via onPressIn. @testing-library/react-native suppresses press events on
-// editable={false} TextInputs, so the handler is invoked directly here.
 const openPickerField = (label: string) => {
-  const field = screen.getByLabelText(label);
-  act(() => {
-    (field.props as { onPressIn: () => void }).onPressIn();
-  });
+  fireEvent.press(screen.getByLabelText(label));
 };
 
 beforeEach(() => {
