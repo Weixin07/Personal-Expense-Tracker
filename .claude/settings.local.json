@@ -126,7 +126,16 @@
       "Bash(wc -l android/app/proguard-rules.pro)",
       "Bash(cat android/app/proguard-rules.pro)",
       "Bash(cp /tmp/antipattern.tsx C:/PET/src/__antipattern_probe.tsx)",
-      "Bash(pnpm exec *)"
+      "Bash(pnpm exec *)",
+      "Bash(ls src/navigation/__tests__)",
+      "Bash(grep -rln \"RootStackParamList\\\\|navigator\\\\|reachab\\\\|route\" src/**/__tests__)",
+      "PowerShell(npx jest src/navigation/__tests__/navigationGraph.test.ts 2>&1 | Select-Object -Last 40)",
+      "PowerShell(npx jest 2>&1 | Select-Object -Last 30)",
+      "Bash(git --no-pager diff --stat)",
+      "Bash(git --no-pager diff)",
+      "Bash(git --no-pager status --porcelain)",
+      "Bash(git --no-pager log --oneline -1 -- eslint.config.mjs)",
+      "Bash(git --no-pager log -6 --format='%H%n%B%n---')"
     ],
     "deny": [],
     "ask": []

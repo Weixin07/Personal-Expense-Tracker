@@ -50,7 +50,6 @@ export default [
     },
     settings: { react: { version: 'detect' } },
     rules: {
-      // Keep your existing good defaults
       ...reactPlugin.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,
       'react/react-in-jsx-scope': 'off',
@@ -67,7 +66,6 @@ export default [
       ],
 
       // --- DO NOT LAZY LOAD (enforced) ---
-      // Ban dynamic import()
       'no-restricted-syntax': [
         'error',
         {
@@ -87,7 +85,6 @@ export default [
             'A non-editable TextInput (editable={false}) does not receive touch events on Android, so its onPress* handler never fires. Use the SelectField component for tap-to-open fields.',
         },
       ],
-      // Ban React.lazy(...)
       'no-restricted-properties': [
         'error',
         {
@@ -96,7 +93,6 @@ export default [
           message: 'React.lazy is disallowed. Do not lazy load.',
         },
       ],
-      // Ban require() with variable paths (dynamic require)
       'import/no-dynamic-require': 'error',
     },
   },

@@ -1,5 +1,6 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { IconButton } from 'react-native-paper';
 import AddExpenseScreen from '../screens/AddExpenseScreen';
 import ExportQueueScreen from '../screens/ExportQueueScreen';
 import HomeScreen from '../screens/HomeScreen';
@@ -12,7 +13,6 @@ export type RootStackParamList = {
   Settings: undefined;
   ManageCategories: undefined;
   ExportQueue: undefined;
-  DriveFolderPicker: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -23,7 +23,16 @@ const AppNavigator: React.FC = () => {
       <Stack.Screen
         name="Home"
         component={HomeScreen}
-        options={{ title: 'Expenses' }}
+        options={({ navigation }) => ({
+          title: 'Expenses',
+          headerRight: () => (
+            <IconButton
+              icon="cog"
+              onPress={() => navigation.navigate('Settings')}
+              accessibilityLabel="Open settings"
+            />
+          ),
+        })}
       />
       <Stack.Screen
         name="AddExpense"
