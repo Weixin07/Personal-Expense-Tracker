@@ -1,0 +1,221 @@
+name: Release build
+
+# Exercises a signed `assembleRelease` (R8 + resource shrinking) so Gradle/R8
+# regressions surface in CI before a local release build. The fast JS-only gate
+# lives in validate.yml.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The signing credentials are repository secrets, which the `secrets` context
+  # cannot expose to a job-level `if:`. This gate reads them inside a step (where
+  # the context is available) and publishes a boolean the build job can branch on,
+  # so secret-less contexts (e.g. forks) skip the build cleanly instead of failing.
+  check-secrets:
+    runs-on: ubuntu-latest
+    outputs:
+      has_secrets: ${{ steps.check.outputs.has_secrets }}
+    steps:
+      - id: check
+        env:
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+        run: |
+          if [ -n "$RELEASE_STORE_PASSWORD" ]; then
+            echo "has_secrets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_secrets=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Release signing secrets are not configured; skipping the release build."
+          fi
+
+  release-build:
+    needs: check-secrets
+    if: needs.check-secrets.outputs.has_secrets == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android SDK packages
+        run: |
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
+
+      - name: Locate pnpm store
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # OAuth values are build-time config (not secrets) embedded by react-native-config.
+      # Defaults keep the Gradle configuration phase from failing when the optional
+      # secrets are unset; the keystore passwords are NEVER written to disk (env only).
+      - name: Write build-time OAuth config
+        run: |
+          {
+            echo "GOOGLE_OAUTH_CLIENT_ID=${{ secrets.GOOGLE_OAUTH_CLIENT_ID || 'ci-placeholder.apps.googleusercontent.com' }}"
+            echo "GOOGLE_OAUTH_REDIRECT_URI=${{ secrets.GOOGLE_OAUTH_REDIRECT_URI || 'com.expensetracker:/oauth2redirect/google' }}"
+            echo "GOOGLE_DRIVE_UPLOAD_SCOPE=${{ secrets.GOOGLE_DRIVE_UPLOAD_SCOPE || 'https://www.googleapis.com/auth/drive.file' }}"
+          } > .env
+
+      - name: Decode release keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+
+      - name: Assemble release (signed, R8 + resource shrinking)
+        working-directory: android
+        env:
+          RELEASE_STORE_FILE: ${{ runner.temp }}/release.keystore
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          GOOGLE_OAUTH_REDIRECT_URI: ${{ secrets.GOOGLE_OAUTH_REDIRECT_URI || 'com.expensetracker:/oauth2redirect/google' }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-${{ github.ref_name }}
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      # The R8 mapping is the only way to deobfuscate this build's native crash
+      # traces and lives under the gitignored build/ tree, so it must be retained here.
+      - name: Upload R8 mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapping-${{ github.ref_name }}
+          path: android/app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: error
+
+  # Windows is the only OS with a 260-char MAX_PATH; the NDK/CMake/ninja toolchain
+  # enforces it regardless of the registry long-path flag. The ubuntu build above
+  # cannot reproduce it, so this leg compiles the native codegen tree on a real
+  # Windows runner to catch path-length regressions before a release. No signing or
+  # artifact upload: it only needs to reach (and pass) the native C++ build.
+  #
+  # The runner's default workspace (D:\a\<repo>\<repo>) is itself too deep, so the
+  # checkout is relocated to a short root (C:\p) and deps are installed there. A
+  # `subst` drive would NOT work: CMake canonicalizes paths back to the physical
+  # location, so the move must be a real copy. At checkout there is no node_modules
+  # yet, so the copy is just source (fast); pnpm install rebuilds deps at C:\p.
+  release-build-windows:
+    needs: check-secrets
+    if: needs.check-secrets.outputs.has_secrets == 'true'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Relocate checkout to a short path
+        shell: bash
+        run: |
+          mkdir -p /c/p
+          cp -r "$GITHUB_WORKSPACE"/. /c/p/
+
+      - name: Enable Corepack
+        shell: bash
+        run: corepack enable
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android SDK packages
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
+
+      - name: Locate pnpm store
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ${{ runner.os }}-pnpm-
+
+      - name: Install dependencies (at short path)
+        shell: bash
+        run: cd /c/p && pnpm install --frozen-lockfile
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Write build-time OAuth config
+        shell: bash
+        run: |
+          cd /c/p
+          {
+            echo "GOOGLE_OAUTH_CLIENT_ID=${{ secrets.GOOGLE_OAUTH_CLIENT_ID || 'ci-placeholder.apps.googleusercontent.com' }}"
+            echo "GOOGLE_OAUTH_REDIRECT_URI=${{ secrets.GOOGLE_OAUTH_REDIRECT_URI || 'com.expensetracker:/oauth2redirect/google' }}"
+            echo "GOOGLE_DRIVE_UPLOAD_SCOPE=${{ secrets.GOOGLE_DRIVE_UPLOAD_SCOPE || 'https://www.googleapis.com/auth/drive.file' }}"
+          } > .env
+
+      - name: Decode release keystore
+        shell: bash
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+
+      - name: Assemble release (Windows path-length regression check)
+        shell: bash
+        env:
+          RELEASE_STORE_FILE: ${{ runner.temp }}/release.keystore
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          GOOGLE_OAUTH_REDIRECT_URI: ${{ secrets.GOOGLE_OAUTH_REDIRECT_URI || 'com.expensetracker:/oauth2redirect/google' }}
+        run: cd /c/p/android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a

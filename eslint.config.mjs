@@ -116,7 +116,7 @@ export default [
 
   // Test, setup, and helper files run under Jest
   {
-    files: ['**/__tests__/**', '**/*.test.{js,jsx,ts,tsx}', 'jest.setup.js'],
+    files: ['**/__tests__/**', '**/*.test.{js,jsx,ts,tsx}', 'jest.setup*.js'],
     languageOptions: {
       globals: {
         ...globals.jest,

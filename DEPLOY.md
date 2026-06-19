@@ -37,6 +37,40 @@ cd <project-root>
 pnpm install
 ```
 
+### Windows build prerequisites (path length)
+
+Windows caps a full path at 260 characters (`MAX_PATH`), and the NDK/CMake/ninja
+toolchain enforces it even when the OS long-path flag is enabled. React Native's New
+Architecture build puts long paths below the repo root — codegen C++ sources under
+`node_modules` (~210 chars) and object files under `android/app/.cxx/...` (~246 chars,
+even after CMake auto-shortens them). The object tree binds first, so **the repo root
+must be at most ~10 characters** (e.g. `C:\pet`). A checkout under
+`C:\Users\<you>\Documents\...` overflows and the native build fails with
+`ninja: error: ... Filename longer than 260 characters`.
+
+> **A `subst` virtual drive does _not_ help.** CMake canonicalizes the per-library
+> paths back to the physical location, so the toolchain still sees the long path
+> (verified: building from a `subst` drive reproduces the failure). You must
+> **physically** relocate the checkout.
+
+```powershell
+git config --global core.longpaths true      # relax Git's own limit (deep pnpm paths)
+
+# Move the checkout to a short root, reinstall deps, and clear stale native caches.
+Move-Item "<project-root>" C:\pet
+cd C:\pet
+pnpm install
+Remove-Item -Recurse -Force android\app\.cxx, android\app\build -ErrorAction SilentlyContinue
+```
+
+The Gradle build fails fast with an actionable message (stating the exact maximum
+length) if the repo path is still too long — see Troubleshooting.
+
+> **Alternative if you need a longer repo path:** relocate only the native build
+> output (the `.cxx` tree) to a short directory so the object paths no longer sit under
+> the repo root. The repo can then live anywhere ≤ ~49 chars (the codegen-source
+> limit), but the simplest reliable fix remains a short checkout root.
+
 ---
 
 ## Step 1: Environment configuration
@@ -134,10 +168,13 @@ Get-Content android\app\release-signing.env | ForEach-Object {
 }
 ```
 
-> **CI note:** a future release job must inject these as masked secrets — typically a
-> base64-encoded keystore decoded at job start — never committed and never placed in `.env`.
-> It must also run R8 (the release build does this by default) and retain each build's
-> `mapping.txt` as an artifact keyed to `versionCode` (see [Step 5](#retaining-the-r8-mapping-file-deobfuscation)).
+> **CI note:** the `.github/workflows/release-build.yml` workflow exercises a signed
+> `assembleRelease` (`workflow_dispatch` or a pushed `v*` tag). Set these four values plus
+> `GOOGLE_OAUTH_REDIRECT_URI` as repository **secrets** (the keystore as `RELEASE_KEYSTORE_BASE64`,
+> a base64 of the file); the workflow decodes the keystore to a runner-only path and never
+> writes the passwords to `.env`. When the secrets are absent (e.g. a fork), the build job
+> skips instead of failing. It runs R8 by default and uploads `app-release.apk` and
+> `mapping.txt` as artifacts (see [Step 5](#retaining-the-r8-mapping-file-deobfuscation)).
 
 ---
 
@@ -150,8 +187,13 @@ described below.
 
 Choose the artifact for your distribution channel:
 
-- **Sideload → APK** (`pnpm build:android:release` → `assembleRelease`)
-- **Play Store → App Bundle** (`pnpm build:android:bundle` → `bundleRelease`)
+- **Sideload → APK** (`pnpm build:android:release` → `assembleRelease`, **`arm64-v8a` only**)
+- **All ABIs → APK** (`pnpm build:android:release:all` → every ABI; needed for x86 emulators or a universal sideload)
+- **Play Store → App Bundle** (`pnpm build:android:bundle` → `bundleRelease`, all ABIs)
+
+> `build:android:release` builds only `arm64-v8a` (matching CI) for a fast loop on a
+> physical 64-bit device. Use `build:android:release:all` for a fat APK; bundles always
+> contain every ABI.
 
 ```powershell
 cd <project-root>
@@ -313,6 +355,13 @@ PKCE is enabled in `src/security/googleAuth.ts` via `usePKCE: true` in the
 [System.Environment]::SetEnvironmentVariable("ANDROID_HOME", "<your-android-sdk-path>", "User")
 # Restart PowerShell
 ```
+
+### Build fails: "Repository path '…' is too long for Windows MAX_PATH" (or `ninja: ... Filename longer than 260 characters`)
+
+The repo is checked out too deep for the New Architecture native build. A `subst` drive
+does not help (paths are canonicalized) — physically relocate the repo to a short root,
+reinstall deps, and clear stale native caches. See
+[Windows build prerequisites](#windows-build-prerequisites-path-length).
 
 ### Build fails: "Release signing credentials are missing" (or `:app:validateSigningRelease` fails)
 

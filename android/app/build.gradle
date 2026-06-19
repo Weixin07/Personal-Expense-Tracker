@@ -9,16 +9,16 @@ apply from: project(':react-native-config').projectDir.getPath() + '/dotenv.grad
 
 def parseRedirectUri(String uriValue) {
     if (!uriValue) {
-        throw new GradleException('GOOGLE_OAUTH_REDIRECT_URI is not defined. Set it in your .env file or environment.')
+        throw new IllegalStateException('GOOGLE_OAUTH_REDIRECT_URI is not defined. Set it in your .env file or environment.')
     }
     Pattern pattern = Pattern.compile('^([a-zA-Z][\\w+\\-.]*):\\/\\/?([^\\/?#]*)?(\\/[^?#]*)?')
     Matcher matcher = pattern.matcher(uriValue)
     if (!matcher.find()) {
-        throw new GradleException('GOOGLE_OAUTH_REDIRECT_URI must be a valid URI with a scheme (received \"' + uriValue + '\").')
+        throw new IllegalStateException('GOOGLE_OAUTH_REDIRECT_URI must be a valid URI with a scheme (received \"' + uriValue + '\").')
     }
     String scheme = matcher.group(1)
     if (!scheme) {
-        throw new GradleException('GOOGLE_OAUTH_REDIRECT_URI must specify a URI scheme.')
+        throw new IllegalStateException('GOOGLE_OAUTH_REDIRECT_URI must specify a URI scheme.')
     }
     String host = matcher.group(2) ?: ''
     String path = matcher.group(3) ?: ''
@@ -140,10 +140,61 @@ gradle.taskGraph.whenReady { graph ->
     }
     def releaseSigningConfigured = android.signingConfigs.release.storeFile != null
     if (buildingRelease && !releaseSigningConfigured) {
-        throw new GradleException(
+        throw new IllegalStateException(
             'Release signing credentials are missing. Set RELEASE_STORE_FILE, ' +
             'RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS and RELEASE_KEY_PASSWORD ' +
             '(see DEPLOY.md). Refusing to sign a release build with debug keys.')
+    }
+}
+
+/**
+ * Fail fast on Windows when the repository sits too deep for MAX_PATH (260).
+ *
+ * New Architecture native builds put two long paths below the repo root:
+ *   - codegen C++ sources under node_modules (~210 chars; the longest is
+ *     VectorIconsMaterialDesignIconsJSI-generated.cpp), and
+ *   - object files under android/app/.cxx/<buildType>/<hash>/<abi>/ (~246 chars
+ *     even after CMake's automatic object-name shortening — the binding limit).
+ * Once the repo root pushes either past 260, ninja aborts mid-compile with an
+ * opaque "Filename longer than 260 characters". The object tree binds first, so
+ * the budget below is keyed to it. Checked only for real native builds, so IDE
+ * Gradle sync and `clean` are unaffected.
+ *
+ * Two Windows-specific subtleties make this the right place and form for the check:
+ *   - A `subst` virtual drive does NOT help: CMake canonicalizes the per-library
+ *     paths to the physical location, so the toolchain still sees the long path.
+ *   - The JVM's canonicalPath does NOT resolve `subst` (only native code does), so
+ *     this guard cannot detect a subst drive masking a deep checkout; it catches a
+ *     deep PHYSICAL checkout. The windows-latest CI leg exercises the real path end
+ *     to end. canonicalPath is still used so junctions/symlinks resolve correctly.
+ */
+gradle.taskGraph.whenReady { graph ->
+    if (!org.gradle.internal.os.OperatingSystem.current().isWindows()) {
+        return
+    }
+    def buildsNativeCode = graph.allTasks.any { task ->
+        task.name.startsWith('assemble') || task.name.startsWith('bundle')
+    }
+    if (!buildsNativeCode) {
+        return
+    }
+    def repoRootFile = rootProject.projectDir.parentFile
+    def repoRoot
+    try {
+        repoRoot = repoRootFile.canonicalPath
+    } catch (IOException ignored) {
+        repoRoot = repoRootFile.absolutePath
+    }
+    def longestArtifactBelowRoot = 246
+    def safetyMargin = 4
+    if (repoRoot.length() + longestArtifactBelowRoot + safetyMargin > 260) {
+        def maxRoot = 260 - longestArtifactBelowRoot - safetyMargin
+        throw new IllegalStateException(
+            "Repository path '${repoRoot}' (${repoRoot.length()} chars) is too long for " +
+            "Windows MAX_PATH (260): New Architecture native builds need a repo root of at " +
+            "most ${maxRoot} chars. A 'subst' drive does NOT help (CMake canonicalizes paths). " +
+            "Physically relocate the repository to a short path such as C:\\pet " +
+            '(see DEPLOY.md > Windows build prerequisites).')
     }
 }
 

@@ -223,7 +223,7 @@ CREATE TABLE export_queue (
 
 ```bash
 git clone <repository-url>
-cd Personal-Expense-Tracker
+cd PET
 ```
 
 ### 2. Install Node Dependencies
@@ -500,8 +500,8 @@ pnpm test --testNamePattern="should format CSV"
 
 ### Test Coverage Goals
 
-- **Target**: >80% line coverage
-- **Current**: ~38% overall; 95%+ on business logic (repositories, migrations, CSV export, utils, Google auth)
+- **Target**: >80% line coverage, enforced in CI
+- **Current**: ~94% overall; ~95% across business logic (repositories, migrations, CSV export, utils, Google auth). Thresholds are enforced — `pnpm validate` runs `test:coverage` and `jest.config.js` fails the build if coverage regresses.
 
 ### Performance Tests
 
@@ -513,8 +513,8 @@ pnpm test src/__tests__/performance/
 
 ### Known Limitations
 
-- **No CI** — `pnpm validate` (lint + typecheck + tests) is not enforced on push; nothing prevents a regression from re-breaking the build.
-- **0% coverage** on `AppContext`, screen components, and navigation (their business logic is extracted and tested separately).
+- **CI** — `.github/workflows/validate.yml` runs `pnpm validate` (lint + typecheck + tests) on every push/PR; `.github/workflows/release-build.yml` exercises a signed `assembleRelease` on demand or on a `v*` tag (skipped until release signing secrets are configured). On-device release smoke testing remains manual (see `DEPLOY.md`).
+- **Navigation and theme are excluded from coverage** by design (`jest.config.js` `collectCoverageFrom`) — they are declarative wiring with no unit-testable branches. All logic-bearing layers (context, screens, repositories, export, security, utils) are covered under enforced thresholds.
 - **No real-device performance testing** — performance is validated algorithmically, not on physical hardware.
 
 ### Test Categories
@@ -522,7 +522,7 @@ pnpm test src/__tests__/performance/
 1. **Unit Tests**: Pure functions (validation, formatting, math)
 2. **Repository Tests**: Database operations (CRUD, queries)
 3. **Integration Tests**: Multi-layer flows (CSV export, OAuth)
-4. **Component Tests**: React component behavior (planned)
+4. **Component Tests**: React component behavior (CategoryPickerDialog, CurrencyPickerDialog, all screens)
 
 ### Writing Tests
 
@@ -584,7 +584,7 @@ Output: `android/app/build/outputs/apk/release/app-release.apk` (APK) or
 ## 📁 Project Structure
 
 ```
-Personal-Expense-Tracker/
+PET/
 ├── android/                    # Android native code
 │   ├── app/
 │   │   ├── build.gradle        # App-level Gradle config (signing, OAuth redirect)

@@ -1,0 +1,819 @@
+> Task :gradle-plugin:settings-plugin:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :gradle-plugin:shared:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :gradle-plugin:shared:compileKotlin UP-TO-DATE
+> Task :gradle-plugin:shared:compileJava NO-SOURCE
+> Task :gradle-plugin:shared:processResources NO-SOURCE
+> Task :gradle-plugin:shared:classes UP-TO-DATE
+> Task :gradle-plugin:shared:jar UP-TO-DATE
+> Task :gradle-plugin:settings-plugin:compileKotlin UP-TO-DATE
+> Task :gradle-plugin:settings-plugin:compileJava NO-SOURCE
+> Task :gradle-plugin:settings-plugin:pluginDescriptors UP-TO-DATE
+> Task :gradle-plugin:settings-plugin:processResources UP-TO-DATE
+> Task :gradle-plugin:settings-plugin:classes UP-TO-DATE
+> Task :gradle-plugin:settings-plugin:jar UP-TO-DATE
+> Task :gradle-plugin:react-native-gradle-plugin:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :gradle-plugin:react-native-gradle-plugin:compileKotlin UP-TO-DATE
+> Task :gradle-plugin:react-native-gradle-plugin:compileJava NO-SOURCE
+> Task :gradle-plugin:react-native-gradle-plugin:pluginDescriptors UP-TO-DATE
+> Task :gradle-plugin:react-native-gradle-plugin:processResources UP-TO-DATE
+> Task :gradle-plugin:react-native-gradle-plugin:classes UP-TO-DATE
+> Task :gradle-plugin:react-native-gradle-plugin:jar UP-TO-DATE
+
+> Configure project :app
+Reading env from: .env
+
+> Task :app:generateAutolinkingNewArchitectureFiles UP-TO-DATE
+> Task :app:generateAutolinkingPackageList UP-TO-DATE
+> Task :app:generateCodegenSchemaFromJavaScript SKIPPED
+> Task :app:generateCodegenArtifactsFromSchema SKIPPED
+> Task :app:generateReactNativeEntryPoint UP-TO-DATE
+> Task :react-native-app-auth:preBuild UP-TO-DATE
+> Task :react-native-community_netinfo:preBuild UP-TO-DATE
+> Task :react-native-config:preBuild UP-TO-DATE
+> Task :react-native-fs:preBuild UP-TO-DATE
+> Task :react-native-gesture-handler:generateCodegenSchemaFromJavaScript
+> Task :react-native-gesture-handler:generateCodegenArtifactsFromSchema
+> Task :react-native-gesture-handler:preBuild
+> Task :react-native-keychain:generateCodegenSchemaFromJavaScript UP-TO-DATE
+> Task :react-native-keychain:generateCodegenArtifactsFromSchema UP-TO-DATE
+> Task :react-native-keychain:preBuild UP-TO-DATE
+> Task :react-native-saf-x:preBuild UP-TO-DATE
+> Task :react-native-safe-area-context:generateCodegenSchemaFromJavaScript
+> Task :react-native-safe-area-context:generateCodegenArtifactsFromSchema
+> Task :react-native-safe-area-context:preBuild
+> Task :react-native-screens:generateCodegenSchemaFromJavaScript
+> Task :react-native-screens:generateCodegenArtifactsFromSchema
+> Task :react-native-screens:preBuild
+> Task :react-native-sqlite-storage:preBuild UP-TO-DATE
+
+> Task :react-native-vector-icons_material-design-icons:copyFonts
+(RNVI:material-design-icons) Copying font C:\PET\node_modules\@react-native-vector-icons\material-design-icons\fonts\MaterialDesignIcons.ttf
+
+> Task :react-native-vector-icons_material-design-icons:generateCodegenSchemaFromJavaScript
+No modules to process in combine-js-to-schema-cli. If this is unexpected, please check if you set up your NativeComponent correctly. See combine-js-to-schema.js for how codegen finds modules.
+
+> Task :react-native-vector-icons_material-design-icons:generateCodegenArtifactsFromSchema
+> Task :react-native-vector-icons_material-design-icons:preBuild
+> Task :app:preBuild
+> Task :app:preReleaseBuild
+> Task :app:configureCMakeRelWithDebInfo[arm64-v8a]
+> Task :app:buildCMakeRelWithDebInfo[arm64-v8a]
+
+> Task :app:configureCMakeRelWithDebInfo[armeabi-v7a]
+C/C++: CMake Warning in C:/PET/node_modules/@react-native-vector-icons/material-design-icons/android/build/generated/source/codegen/jni/CMakeLists.txt:
+C/C++:   The object file directory
+C/C++:     C:/PET/android/app/.cxx/RelWithDebInfo/4g4fl515/armeabi-v7a/VectorIconsMaterialDesignIcons_autolinked_build/CMakeFiles/react_codegen_VectorIconsMaterialDesignIcons.dir/./
+C/C++:   has 170 characters.  The maximum full path to an object file is 250
+C/C++:   characters (see CMAKE_OBJECT_PATH_MAX).  Object file
+C/C++:     react/renderer/components/VectorIconsMaterialDesignIcons/VectorIconsMaterialDesignIconsJSI-generated.cpp.o
+C/C++:   cannot be safely placed under this directory.  The build may not work
+C/C++:   correctly.
+
+> Task :app:buildCMakeRelWithDebInfo[armeabi-v7a]
+> Task :app:configureCMakeRelWithDebInfo[x86]
+> Task :app:buildCMakeRelWithDebInfo[x86]
+> Task :app:configureCMakeRelWithDebInfo[x86_64]
+> Task :app:buildCMakeRelWithDebInfo[x86_64]
+> Task :app:mergeReleaseJniLibFolders UP-TO-DATE
+> Task :react-native-app-auth:preReleaseBuild UP-TO-DATE
+> Task :react-native-app-auth:mergeReleaseJniLibFolders
+> Task :react-native-app-auth:mergeReleaseNativeLibs NO-SOURCE
+> Task :react-native-community_netinfo:preReleaseBuild UP-TO-DATE
+> Task :react-native-app-auth:copyReleaseJniLibsProjectOnly
+> Task :react-native-community_netinfo:mergeReleaseJniLibFolders
+> Task :react-native-community_netinfo:mergeReleaseNativeLibs NO-SOURCE
+> Task :react-native-config:preReleaseBuild UP-TO-DATE
+> Task :react-native-community_netinfo:copyReleaseJniLibsProjectOnly
+> Task :react-native-config:mergeReleaseJniLibFolders UP-TO-DATE
+> Task :react-native-config:mergeReleaseNativeLibs NO-SOURCE
+> Task :react-native-config:copyReleaseJniLibsProjectOnly UP-TO-DATE
+> Task :react-native-fs:preReleaseBuild UP-TO-DATE
+> Task :react-native-fs:mergeReleaseJniLibFolders
+> Task :react-native-fs:mergeReleaseNativeLibs NO-SOURCE
+> Task :react-native-gesture-handler:preReleaseBuild
+> Task :react-native-fs:copyReleaseJniLibsProjectOnly
+> Task :react-native-gesture-handler:configureCMakeRelWithDebInfo[arm64-v8a]
+> Task :react-native-gesture-handler:buildCMakeRelWithDebInfo[arm64-v8a]
+> Task :react-native-gesture-handler:configureCMakeRelWithDebInfo[armeabi-v7a]
+> Task :react-native-gesture-handler:buildCMakeRelWithDebInfo[armeabi-v7a]
+> Task :react-native-gesture-handler:configureCMakeRelWithDebInfo[x86]
+> Task :react-native-gesture-handler:buildCMakeRelWithDebInfo[x86]
+> Task :react-native-gesture-handler:configureCMakeRelWithDebInfo[x86_64]
+> Task :react-native-gesture-handler:buildCMakeRelWithDebInfo[x86_64]
+> Task :react-native-gesture-handler:mergeReleaseJniLibFolders
+> Task :react-native-keychain:preReleaseBuild UP-TO-DATE
+> Task :react-native-keychain:mergeReleaseJniLibFolders UP-TO-DATE
+> Task :react-native-keychain:mergeReleaseNativeLibs NO-SOURCE
+> Task :react-native-keychain:copyReleaseJniLibsProjectOnly UP-TO-DATE
+> Task :react-native-saf-x:preReleaseBuild UP-TO-DATE
+> Task :react-native-saf-x:mergeReleaseJniLibFolders
+> Task :react-native-saf-x:mergeReleaseNativeLibs NO-SOURCE
+> Task :react-native-safe-area-context:preReleaseBuild
+> Task :react-native-saf-x:copyReleaseJniLibsProjectOnly
+> Task :react-native-safe-area-context:mergeReleaseJniLibFolders
+> Task :react-native-safe-area-context:mergeReleaseNativeLibs NO-SOURCE
+> Task :react-native-gesture-handler:mergeReleaseNativeLibs
+> Task :react-native-safe-area-context:copyReleaseJniLibsProjectOnly
+> Task :react-native-screens:preReleaseBuild
+> Task :react-native-gesture-handler:copyReleaseJniLibsProjectOnly
+> Task :react-native-screens:configureCMakeRelWithDebInfo[arm64-v8a]
+> Task :react-native-screens:buildCMakeRelWithDebInfo[arm64-v8a]
+> Task :react-native-screens:configureCMakeRelWithDebInfo[armeabi-v7a]
+> Task :react-native-screens:buildCMakeRelWithDebInfo[armeabi-v7a]
+> Task :react-native-screens:configureCMakeRelWithDebInfo[x86]
+> Task :react-native-screens:buildCMakeRelWithDebInfo[x86]
+> Task :react-native-screens:configureCMakeRelWithDebInfo[x86_64]
+> Task :react-native-screens:buildCMakeRelWithDebInfo[x86_64]
+> Task :react-native-screens:mergeReleaseJniLibFolders
+> Task :react-native-sqlite-storage:preReleaseBuild UP-TO-DATE
+> Task :react-native-sqlite-storage:mergeReleaseJniLibFolders
+> Task :react-native-sqlite-storage:mergeReleaseNativeLibs NO-SOURCE
+> Task :react-native-vector-icons_material-design-icons:preReleaseBuild
+> Task :react-native-sqlite-storage:copyReleaseJniLibsProjectOnly
+> Task :react-native-vector-icons_material-design-icons:mergeReleaseJniLibFolders
+> Task :react-native-vector-icons_material-design-icons:mergeReleaseNativeLibs NO-SOURCE
+> Task :react-native-vector-icons_material-design-icons:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :react-native-vector-icons_material-design-icons:copyReleaseJniLibsProjectOnly
+> Task :react-native-screens:mergeReleaseNativeLibs
+> Task :react-native-vector-icons_material-design-icons:generateReleaseBuildConfig
+> Task :react-native-vector-icons_material-design-icons:generateReleaseResValues
+> Task :react-native-vector-icons_material-design-icons:generateReleaseResources
+> Task :react-native-screens:copyReleaseJniLibsProjectOnly
+> Task :react-native-vector-icons_material-design-icons:packageReleaseResources
+> Task :react-native-gesture-handler:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :react-native-vector-icons_material-design-icons:javaPreCompileRelease
+> Task :react-native-vector-icons_material-design-icons:parseReleaseLocalResources
+> Task :react-native-gesture-handler:generateReleaseBuildConfig
+> Task :react-native-gesture-handler:generateReleaseResValues
+> Task :react-native-gesture-handler:generateReleaseResources
+> Task :react-native-vector-icons_material-design-icons:generateReleaseRFile
+> Task :react-native-gesture-handler:packageReleaseResources
+> Task :react-native-keychain:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :react-native-gesture-handler:parseReleaseLocalResources
+> Task :react-native-gesture-handler:javaPreCompileRelease
+> Task :react-native-keychain:generateReleaseBuildConfig UP-TO-DATE
+> Task :react-native-keychain:generateReleaseResValues UP-TO-DATE
+> Task :react-native-keychain:generateReleaseResources UP-TO-DATE
+> Task :react-native-keychain:packageReleaseResources UP-TO-DATE
+> Task :react-native-keychain:parseReleaseLocalResources UP-TO-DATE
+> Task :react-native-keychain:generateReleaseRFile UP-TO-DATE
+> Task :react-native-gesture-handler:generateReleaseRFile
+> Task :react-native-keychain:compileReleaseKotlin UP-TO-DATE
+> Task :react-native-keychain:javaPreCompileRelease UP-TO-DATE
+> Task :react-native-keychain:compileReleaseJavaWithJavac UP-TO-DATE
+> Task :react-native-keychain:mergeReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :react-native-keychain:exportReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-safe-area-context:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :react-native-safe-area-context:generateReleaseBuildConfig
+> Task :react-native-safe-area-context:generateReleaseResValues
+> Task :react-native-safe-area-context:generateReleaseResources
+> Task :app:mergeReleaseNativeLibs
+> Task :react-native-safe-area-context:packageReleaseResources
+> Task :react-native-safe-area-context:parseReleaseLocalResources
+> Task :react-native-safe-area-context:javaPreCompileRelease
+> Task :react-native-screens:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :react-native-screens:generateReleaseBuildConfig
+> Task :app:stripReleaseDebugSymbols
+> Task :react-native-safe-area-context:generateReleaseRFile
+> Task :react-native-screens:generateReleaseResValues
+> Task :react-native-screens:generateReleaseResources
+> Task :app:extractReleaseNativeSymbolTables
+> Task :react-native-screens:packageReleaseResources
+> Task :react-native-screens:javaPreCompileRelease
+> Task :react-native-community_netinfo:generateReleaseBuildConfig
+> Task :react-native-screens:parseReleaseLocalResources
+> Task :react-native-community_netinfo:generateReleaseResValues
+> Task :react-native-community_netinfo:generateReleaseResources
+> Task :react-native-screens:generateReleaseRFile
+> Task :react-native-community_netinfo:packageReleaseResources
+> Task :react-native-community_netinfo:parseReleaseLocalResources
+> Task :react-native-community_netinfo:javaPreCompileRelease
+> Task :react-native-app-auth:generateReleaseBuildConfig
+> Task :react-native-app-auth:generateReleaseResValues
+> Task :react-native-community_netinfo:generateReleaseRFile
+> Task :react-native-app-auth:generateReleaseResources
+> Task :app:mergeReleaseNativeDebugMetadata
+
+> Task :react-native-community_netinfo:compileReleaseJavaWithJavac
+C:\PET\node_modules\@react-native-community\netinfo\android\src\main\java\com\reactnativecommunity\netinfo\NetInfoModule.java:47: warning: [removal] onCatalystInstanceDestroy() in NativeModule has been deprecated and marked for removal
+    public void onCatalystInstanceDestroy() {
+                ^
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+1 warning
+
+> Task :react-native-community_netinfo:mergeReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :react-native-community_netinfo:exportReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-app-auth:packageReleaseResources
+> Task :react-native-app-auth:parseReleaseLocalResources
+> Task :react-native-app-auth:javaPreCompileRelease
+> Task :react-native-config:generateReleaseBuildConfig UP-TO-DATE
+> Task :react-native-config:generateReleaseResValues UP-TO-DATE
+> Task :react-native-config:generateReleaseResources UP-TO-DATE
+> Task :react-native-config:packageReleaseResources UP-TO-DATE
+> Task :react-native-config:parseReleaseLocalResources UP-TO-DATE
+> Task :react-native-config:generateReleaseRFile UP-TO-DATE
+> Task :react-native-config:javaPreCompileRelease UP-TO-DATE
+> Task :react-native-app-auth:generateReleaseRFile
+> Task :react-native-config:compileReleaseJavaWithJavac UP-TO-DATE
+
+> Task :react-native-app-auth:compileReleaseJavaWithJavac
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+
+> Task :react-native-app-auth:mergeReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :react-native-app-auth:exportReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-config:mergeReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :react-native-config:exportReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-fs:generateReleaseBuildConfig
+> Task :react-native-fs:generateReleaseResValues
+> Task :react-native-fs:generateReleaseResources
+> Task :react-native-fs:packageReleaseResources
+> Task :react-native-fs:parseReleaseLocalResources
+> Task :react-native-fs:javaPreCompileRelease
+> Task :react-native-saf-x:generateReleaseBuildConfig
+> Task :react-native-saf-x:generateReleaseResValues
+> Task :react-native-fs:generateReleaseRFile
+> Task :react-native-saf-x:generateReleaseResources
+
+> Task :react-native-fs:compileReleaseJavaWithJavac
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+
+> Task :react-native-fs:mergeReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :react-native-fs:exportReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-saf-x:packageReleaseResources
+> Task :react-native-saf-x:parseReleaseLocalResources
+> Task :react-native-saf-x:javaPreCompileRelease
+> Task :react-native-sqlite-storage:generateReleaseBuildConfig
+> Task :react-native-sqlite-storage:generateReleaseResValues
+> Task :react-native-saf-x:generateReleaseRFile
+> Task :react-native-sqlite-storage:generateReleaseResources
+
+> Task :react-native-saf-x:compileReleaseJavaWithJavac
+Note: C:\PET\node_modules\react-native-saf-x\android\src\main\java\com\reactnativesafx\SafXPackage.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+
+> Task :react-native-saf-x:mergeReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :react-native-saf-x:exportReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-sqlite-storage:packageReleaseResources
+> Task :react-native-sqlite-storage:parseReleaseLocalResources
+> Task :react-native-sqlite-storage:javaPreCompileRelease
+> Task :app:buildKotlinToolingMetadata UP-TO-DATE
+> Task :app:checkReleaseDuplicateClasses UP-TO-DATE
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:generateReleaseBuildConfig UP-TO-DATE
+> Task :react-native-config:writeReleaseAarMetadata UP-TO-DATE
+> Task :react-native-app-auth:writeReleaseAarMetadata
+> Task :react-native-community_netinfo:writeReleaseAarMetadata
+> Task :react-native-sqlite-storage:generateReleaseRFile
+> Task :react-native-fs:writeReleaseAarMetadata
+> Task :react-native-gesture-handler:writeReleaseAarMetadata
+
+> Task :react-native-sqlite-storage:compileReleaseJavaWithJavac
+Note: C:\PET\node_modules\react-native-sqlite-storage\platforms\android\src\main\java\org\pgsqlite\SQLitePluginPackage.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+
+> Task :react-native-sqlite-storage:mergeReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :react-native-sqlite-storage:exportReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-keychain:writeReleaseAarMetadata UP-TO-DATE
+> Task :react-native-saf-x:writeReleaseAarMetadata
+> Task :react-native-safe-area-context:writeReleaseAarMetadata
+> Task :react-native-screens:writeReleaseAarMetadata
+> Task :react-native-sqlite-storage:writeReleaseAarMetadata
+> Task :react-native-vector-icons_material-design-icons:writeReleaseAarMetadata
+
+> Task :react-native-vector-icons_material-design-icons:compileReleaseKotlin
+w: file:///C:/PET/node_modules/@react-native-vector-icons/material-design-icons/android/src/main/java/VectorIconsMaterialDesignIconsPackage.kt:3:8 'class TurboReactPackage : BaseReactPackage' is deprecated. Use BaseReactPackage instead.
+w: file:///C:/PET/node_modules/@react-native-vector-icons/material-design-icons/android/src/main/java/VectorIconsMaterialDesignIconsPackage.kt:8:47 'class TurboReactPackage : BaseReactPackage' is deprecated. Use BaseReactPackage instead.
+
+> Task :react-native-safe-area-context:compileReleaseKotlin
+w: file:///C:/PET/node_modules/react-native-safe-area-context/android/src/main/java/com/th3rdwave/safeareacontext/SafeAreaView.kt:9:8 'class UIManagerModule : ReactContextBaseJavaModule, OnBatchCompleteListener, LifecycleEventListener, UIManager' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-safe-area-context/android/src/main/java/com/th3rdwave/safeareacontext/SafeAreaView.kt:50:54 'class UIManagerModule : ReactContextBaseJavaModule, OnBatchCompleteListener, LifecycleEventListener, UIManager' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-safe-area-context/android/src/main/java/com/th3rdwave/safeareacontext/SafeAreaView.kt:59:23 'val uiImplementation: UIImplementation!' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-safe-area-context/android/src/main/java/com/th3rdwave/safeareacontext/SafeAreaViewShadowNode.kt:9:32 'class LayoutShadowNode : ReactShadowNodeImpl' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-safe-area-context/android/src/main/java/com/th3rdwave/safeareacontext/SafeAreaViewShadowNode.kt:110:61 'class NativeViewHierarchyOptimizer : Any' is deprecated. Deprecated in Java.
+
+> Task :app:createBundleReleaseJsAndAssets
+warn Package react-native-sqlite-storage contains invalid configuration: "dependency.platforms.ios.project" is not allowed. Please verify it's properly linked using "npx react-native config" command and contact the package maintainers about this.
+
+                        ▒▒▓▓▓▓▒▒
+                     ▒▓▓▓▒▒░░▒▒▓▓▓▒
+                  ▒▓▓▓▓░░░▒▒▒▒░░░▓▓▓▓▒
+                 ▓▓▒▒▒▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▓▓
+                 ▓▓░░░░░▒▓▓▓▓▓▓▒░░░░░▓▓
+                 ▓▓░░▓▓▒░░░▒▒░░░▒▓▒░░▓▓
+                 ▓▓░░▓▓▓▓▓▒▒▒▒▓▓▓▓▒░░▓▓
+                 ▓▓░░▓▓▓▓▓▓▓▓▓▓▓▓▓▒░░▓▓
+                 ▓▓▒░░▒▒▓▓▓▓▓▓▓▓▒░░░▒▓▓
+                  ▒▓▓▓▒░░░▒▓▓▒░░░▒▓▓▓▒
+                     ▒▓▓▓▒░░░░▒▓▓▓▒
+                        ▒▒▓▓▓▓▒▒
+
+
+ WARN  the transform cache was reset.
+                Welcome to Metro v0.83.1
+              Fast - Scalable - Integrated
+
+
+
+> Task :react-native-gesture-handler:compileReleaseKotlin
+w: file:///C:/PET/node_modules/react-native-gesture-handler/android/src/main/java/com/swmansion/gesturehandler/react/Extensions.kt:7:8 'class UIManagerModule : ReactContextBaseJavaModule, OnBatchCompleteListener, LifecycleEventListener, UIManager' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-gesture-handler/android/src/main/java/com/swmansion/gesturehandler/react/Extensions.kt:12:29 'class UIManagerModule : ReactContextBaseJavaModule, OnBatchCompleteListener, LifecycleEventListener, UIManager' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-gesture-handler/android/src/main/java/com/swmansion/gesturehandler/react/Extensions.kt:13:32 'class UIManagerModule : ReactContextBaseJavaModule, OnBatchCompleteListener, LifecycleEventListener, UIManager' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-gesture-handler/android/src/main/java/com/swmansion/gesturehandler/react/RNGestureHandlerRootView.kt:41:43 The corresponding parameter in the supertype 'ReactViewGroup' is named 'ev'. This may cause problems when calling this function with named arguments.
+
+> Task :react-native-screens:compileReleaseKotlin
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/RNScreensPackage.kt:58:9 The corresponding parameter in the supertype 'BaseReactPackage' is named 'name'. This may cause problems when calling this function with named arguments.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/RNScreensPackage.kt:59:9 The corresponding parameter in the supertype 'BaseReactPackage' is named 'reactContext'. This may cause problems when calling this function with named arguments.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/RNScreensPackage.kt:72:17 'constructor(name: String, className: String, canOverrideExistingModule: Boolean, needsEagerInit: Boolean, hasConstants: Boolean, isCxxModule: Boolean, isTurboModule: Boolean): ReactModuleInfo' is deprecated. This constructor is deprecated and will be removed in the future. Use ReactModuleInfo(String, String, boolean, boolean, boolean, boolean)].
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/Screen.kt:23:8 'class UIManagerModule : ReactContextBaseJavaModule, OnBatchCompleteListener, LifecycleEventListener, UIManager' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/Screen.kt:49:77 Unchecked cast of '(CoordinatorLayout.Behavior<View!>?..CoordinatorLayout.Behavior<*>?)' to 'BottomSheetBehavior<Screen>'.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/Screen.kt:229:42 'class UIManagerModule : ReactContextBaseJavaModule, OnBatchCompleteListener, LifecycleEventListener, UIManager' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenContainerViewManager.kt:6:8 'class LayoutShadowNode : ReactShadowNodeImpl' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenContainerViewManager.kt:56:78 'class LayoutShadowNode : ReactShadowNodeImpl' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackFragment.kt:218:31 'var targetElevation: Float' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackFragment.kt:221:13 'fun setHasOptionsMenu(p0: Boolean): Unit' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackFragment.kt:398:18 This declaration overrides a deprecated member but is not marked as deprecated itself. Add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackFragment.kt:405:22 'fun onPrepareOptionsMenu(p0: Menu): Unit' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackFragment.kt:408:18 This declaration overrides a deprecated member but is not marked as deprecated itself. Add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackFragment.kt:413:22 'fun onCreateOptionsMenu(p0: Menu, p1: MenuInflater): Unit' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackHeaderConfig.kt:428:18 'val reactNativeHost: ReactNativeHost' is deprecated. You should not use ReactNativeHost directly in the New Architecture. Use ReactHost instead.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackHeaderConfigShadowNode.kt:4:8 'class LayoutShadowNode : ReactShadowNodeImpl' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackHeaderConfigShadowNode.kt:10:5 'class LayoutShadowNode : ReactShadowNodeImpl' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackHeaderConfigViewManager.kt:9:8 'class LayoutShadowNode : ReactShadowNodeImpl' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackHeaderConfigViewManager.kt:37:78 'class LayoutShadowNode : ReactShadowNodeImpl' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackViewManager.kt:6:8 'class LayoutShadowNode : ReactShadowNodeImpl' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackViewManager.kt:65:78 'class LayoutShadowNode : ReactShadowNodeImpl' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:48:42 'fun replaceSystemWindowInsets(p0: Int, p1: Int, p2: Int, p3: Int): WindowInsetsCompat' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:49:39 'val systemWindowInsetLeft: Int' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:51:39 'val systemWindowInsetRight: Int' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:52:39 'val systemWindowInsetBottom: Int' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreensShadowNode.kt:4:8 'class LayoutShadowNode : ReactShadowNodeImpl' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreensShadowNode.kt:5:8 'class NativeViewHierarchyManager : Any' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreensShadowNode.kt:6:8 'class NativeViewHierarchyOptimizer : Any' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreensShadowNode.kt:7:8 'class UIManagerModule : ReactContextBaseJavaModule, OnBatchCompleteListener, LifecycleEventListener, UIManager' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreensShadowNode.kt:11:5 'class LayoutShadowNode : ReactShadowNodeImpl' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreensShadowNode.kt:12:63 'class NativeViewHierarchyOptimizer : Any' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreensShadowNode.kt:14:34 'class UIManagerModule : ReactContextBaseJavaModule, OnBatchCompleteListener, LifecycleEventListener, UIManager' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreensShadowNode.kt:14:106 'class NativeViewHierarchyManager : Any' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:7:8 'object ReactFeatureFlags : Any' is deprecated. Use com.facebook.react.internal.featureflags.ReactNativeFeatureFlags instead.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:25:13 'object ReactFeatureFlags : Any' is deprecated. Use com.facebook.react.internal.featureflags.ReactNativeFeatureFlags instead.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:32:9 The corresponding parameter in the supertype 'ReactViewGroup' is named 'left'. This may cause problems when calling this function with named arguments.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:33:9 The corresponding parameter in the supertype 'ReactViewGroup' is named 'top'. This may cause problems when calling this function with named arguments.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:34:9 The corresponding parameter in the supertype 'ReactViewGroup' is named 'right'. This may cause problems when calling this function with named arguments.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:35:9 The corresponding parameter in the supertype 'ReactViewGroup' is named 'bottom'. This may cause problems when calling this function with named arguments.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:71:9 The corresponding parameter in the supertype 'RootView' is named 'childView'. This may cause problems when calling this function with named arguments.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:72:9 The corresponding parameter in the supertype 'RootView' is named 'ev'. This may cause problems when calling this function with named arguments.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:79:46 The corresponding parameter in the supertype 'RootView' is named 'ev'. This may cause problems when calling this function with named arguments.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:83:9 The corresponding parameter in the supertype 'RootView' is named 'childView'. This may cause problems when calling this function with named arguments.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:84:9 The corresponding parameter in the supertype 'RootView' is named 'ev'. This may cause problems when calling this function with named arguments.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/BottomSheetDialogRootView.kt:95:34 The corresponding parameter in the supertype 'RootView' is named 't'. This may cause problems when calling this function with named arguments.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/DimmingView.kt:63:9 The corresponding parameter in the supertype 'ReactCompoundView' is named 'touchX'. This may cause problems when calling this function with named arguments.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/DimmingView.kt:64:9 The corresponding parameter in the supertype 'ReactCompoundView' is named 'touchY'. This may cause problems when calling this function with named arguments.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/DimmingView.kt:68:9 The corresponding parameter in the supertype 'ReactCompoundViewGroup' is named 'touchX'. This may cause problems when calling this function with named arguments.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/bottomsheet/DimmingView.kt:69:9 The corresponding parameter in the supertype 'ReactCompoundViewGroup' is named 'touchY'. This may cause problems when calling this function with named arguments.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/gamma/tabs/TabsHostViewManager.kt:37:9 The corresponding parameter in the supertype 'TabsHostViewManager' is named 'view'. This may cause problems when calling this function with named arguments.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/safearea/SafeAreaView.kt:18:8 'class UIManagerModule : ReactContextBaseJavaModule, OnBatchCompleteListener, LifecycleEventListener, UIManager' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/safearea/SafeAreaView.kt:176:58 'class UIManagerModule : ReactContextBaseJavaModule, OnBatchCompleteListener, LifecycleEventListener, UIManager' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/safearea/SafeAreaView.kt:183:31 'val uiImplementation: UIImplementation!' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/safearea/paper/SafeAreaViewShadowNode.kt:7:8 'class LayoutShadowNode : ReactShadowNodeImpl' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/safearea/paper/SafeAreaViewShadowNode.kt:8:8 'class NativeViewHierarchyOptimizer : Any' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/safearea/paper/SafeAreaViewShadowNode.kt:14:32 'class LayoutShadowNode : ReactShadowNodeImpl' is deprecated. Deprecated in Java.
+w: file:///C:/PET/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/safearea/paper/SafeAreaViewShadowNode.kt:83:63 'class NativeViewHierarchyOptimizer : Any' is deprecated. Deprecated in Java.
+
+> Task :app:createBundleReleaseJsAndAssets
+LOG:Writing bundle output to: android\app\build\generated\assets\react\release\index.android.bundle
+LOG:Writing sourcemap output to: android\app\build\intermediates\sourcemaps\react\release\index.android.bundle.packager.map
+LOG:Done writing bundle output
+LOG:Done writing sourcemap output
+Copying 21 asset files
+Done copying assets
+
+> Task :react-native-vector-icons_material-design-icons:compileReleaseJavaWithJavac
+> Task :react-native-vector-icons_material-design-icons:mergeReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :react-native-vector-icons_material-design-icons:exportReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-gesture-handler:compileReleaseJavaWithJavac
+> Task :react-native-gesture-handler:mergeReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :react-native-gesture-handler:exportReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-safe-area-context:compileReleaseJavaWithJavac
+> Task :react-native-safe-area-context:mergeReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :react-native-safe-area-context:exportReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-screens:compileReleaseJavaWithJavac
+> Task :react-native-screens:mergeReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :react-native-screens:exportReleaseConsumerProguardFiles UP-TO-DATE
+> Task :app:checkReleaseAarMetadata UP-TO-DATE
+> Task :app:generateReleaseResValues UP-TO-DATE
+> Task :app:mapReleaseSourceSetPaths UP-TO-DATE
+> Task :app:generateReleaseResources UP-TO-DATE
+> Task :app:packageReleaseResources
+> Task :app:createReleaseCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksRelease UP-TO-DATE
+> Task :react-native-app-auth:extractDeepLinksRelease
+> Task :app:parseReleaseLocalResources
+> Task :react-native-community_netinfo:extractDeepLinksRelease
+> Task :react-native-config:extractDeepLinksRelease UP-TO-DATE
+> Task :react-native-config:processReleaseManifest UP-TO-DATE
+> Task :react-native-fs:extractDeepLinksRelease
+
+> Task :react-native-app-auth:processReleaseManifest
+package="com.rnappauth" found in source AndroidManifest.xml: C:\PET\node_modules\react-native-app-auth\android\src\main\AndroidManifest.xml.
+Setting the namespace via the package attribute in the source AndroidManifest.xml is no longer supported, and the value is ignored.
+Recommendation: remove package="com.rnappauth" from the source AndroidManifest.xml: C:\PET\node_modules\react-native-app-auth\android\src\main\AndroidManifest.xml.
+
+> Task :react-native-community_netinfo:processReleaseManifest
+package="com.reactnativecommunity.netinfo" found in source AndroidManifest.xml: C:\PET\node_modules\@react-native-community\netinfo\android\src\main\AndroidManifest.xml.
+Setting the namespace via the package attribute in the source AndroidManifest.xml is no longer supported, and the value is ignored.
+Recommendation: remove package="com.reactnativecommunity.netinfo" from the source AndroidManifest.xml: C:\PET\node_modules\@react-native-community\netinfo\android\src\main\AndroidManifest.xml.
+
+> Task :react-native-gesture-handler:extractDeepLinksRelease
+> Task :react-native-keychain:extractDeepLinksRelease UP-TO-DATE
+> Task :react-native-keychain:processReleaseManifest UP-TO-DATE
+
+> Task :react-native-fs:processReleaseManifest
+package="com.rnfs" found in source AndroidManifest.xml: C:\PET\node_modules\react-native-fs\android\src\main\AndroidManifest.xml.
+Setting the namespace via the package attribute in the source AndroidManifest.xml is no longer supported, and the value is ignored.
+Recommendation: remove package="com.rnfs" from the source AndroidManifest.xml: C:\PET\node_modules\react-native-fs\android\src\main\AndroidManifest.xml.
+
+> Task :react-native-saf-x:extractDeepLinksRelease
+> Task :react-native-gesture-handler:processReleaseManifest
+> Task :react-native-safe-area-context:extractDeepLinksRelease
+
+> Task :react-native-saf-x:processReleaseManifest
+package="com.reactnativesafx" found in source AndroidManifest.xml: C:\PET\node_modules\react-native-saf-x\android\src\main\AndroidManifest.xml.
+Setting the namespace via the package attribute in the source AndroidManifest.xml is no longer supported, and the value is ignored.
+Recommendation: remove package="com.reactnativesafx" from the source AndroidManifest.xml: C:\PET\node_modules\react-native-saf-x\android\src\main\AndroidManifest.xml.
+
+> Task :react-native-screens:extractDeepLinksRelease
+
+> Task :react-native-safe-area-context:processReleaseManifest
+package="com.th3rdwave.safeareacontext" found in source AndroidManifest.xml: C:\PET\node_modules\react-native-safe-area-context\android\src\main\AndroidManifest.xml.
+Setting the namespace via the package attribute in the source AndroidManifest.xml is no longer supported, and the value is ignored.
+Recommendation: remove package="com.th3rdwave.safeareacontext" from the source AndroidManifest.xml: C:\PET\node_modules\react-native-safe-area-context\android\src\main\AndroidManifest.xml.
+
+> Task :react-native-sqlite-storage:extractDeepLinksRelease
+> Task :react-native-vector-icons_material-design-icons:extractDeepLinksRelease
+> Task :react-native-screens:processReleaseManifest
+
+> Task :react-native-sqlite-storage:processReleaseManifest
+package="org.pgsqlite" found in source AndroidManifest.xml: C:\PET\node_modules\react-native-sqlite-storage\platforms\android\src\main\AndroidManifest.xml.
+Setting the namespace via the package attribute in the source AndroidManifest.xml is no longer supported, and the value is ignored.
+Recommendation: remove package="org.pgsqlite" from the source AndroidManifest.xml: C:\PET\node_modules\react-native-sqlite-storage\platforms\android\src\main\AndroidManifest.xml.
+
+> Task :react-native-config:bundleLibCompileToJarRelease UP-TO-DATE
+> Task :react-native-keychain:bundleLibCompileToJarRelease UP-TO-DATE
+> Task :react-native-vector-icons_material-design-icons:processReleaseManifest
+> Task :app:processReleaseMainManifest UP-TO-DATE
+> Task :app:processReleaseManifest UP-TO-DATE
+> Task :app:processReleaseManifestForPackage UP-TO-DATE
+> Task :react-native-community_netinfo:bundleLibCompileToJarRelease
+> Task :react-native-app-auth:bundleLibCompileToJarRelease
+> Task :react-native-fs:bundleLibCompileToJarRelease
+> Task :app:javaPreCompileRelease UP-TO-DATE
+> Task :react-native-saf-x:bundleLibCompileToJarRelease
+> Task :react-native-app-auth:prepareReleaseArtProfile UP-TO-DATE
+> Task :react-native-community_netinfo:prepareReleaseArtProfile UP-TO-DATE
+> Task :react-native-config:prepareReleaseArtProfile UP-TO-DATE
+> Task :react-native-fs:prepareReleaseArtProfile UP-TO-DATE
+> Task :react-native-sqlite-storage:bundleLibCompileToJarRelease
+> Task :react-native-safe-area-context:bundleLibCompileToJarRelease
+> Task :react-native-gesture-handler:prepareReleaseArtProfile UP-TO-DATE
+> Task :react-native-keychain:prepareReleaseArtProfile UP-TO-DATE
+> Task :react-native-saf-x:prepareReleaseArtProfile UP-TO-DATE
+> Task :react-native-vector-icons_material-design-icons:bundleLibCompileToJarRelease
+> Task :react-native-gesture-handler:bundleLibCompileToJarRelease
+> Task :react-native-screens:bundleLibCompileToJarRelease
+> Task :react-native-safe-area-context:prepareReleaseArtProfile UP-TO-DATE
+> Task :react-native-screens:prepareReleaseArtProfile UP-TO-DATE
+> Task :react-native-sqlite-storage:prepareReleaseArtProfile UP-TO-DATE
+> Task :react-native-vector-icons_material-design-icons:prepareReleaseArtProfile UP-TO-DATE
+> Task :app:mergeReleaseArtProfile UP-TO-DATE
+> Task :react-native-config:bundleLibRuntimeToJarRelease UP-TO-DATE
+> Task :react-native-keychain:bundleLibRuntimeToJarRelease UP-TO-DATE
+> Task :react-native-app-auth:bundleLibRuntimeToJarRelease
+> Task :react-native-community_netinfo:bundleLibRuntimeToJarRelease
+> Task :react-native-fs:bundleLibRuntimeToJarRelease
+> Task :app:extractProguardFiles UP-TO-DATE
+> Task :react-native-app-auth:processReleaseJavaRes NO-SOURCE
+> Task :react-native-community_netinfo:processReleaseJavaRes NO-SOURCE
+> Task :react-native-config:processReleaseJavaRes NO-SOURCE
+> Task :react-native-fs:processReleaseJavaRes NO-SOURCE
+> Task :react-native-saf-x:bundleLibRuntimeToJarRelease
+> Task :react-native-sqlite-storage:bundleLibRuntimeToJarRelease
+> Task :react-native-safe-area-context:bundleLibRuntimeToJarRelease
+> Task :react-native-vector-icons_material-design-icons:bundleLibRuntimeToJarRelease
+> Task :react-native-gesture-handler:bundleLibRuntimeToJarRelease
+> Task :react-native-gesture-handler:processReleaseJavaRes
+> Task :react-native-keychain:processReleaseJavaRes UP-TO-DATE
+> Task :react-native-saf-x:processReleaseJavaRes NO-SOURCE
+> Task :react-native-safe-area-context:processReleaseJavaRes
+> Task :react-native-screens:bundleLibRuntimeToJarRelease
+> Task :react-native-screens:processReleaseJavaRes
+> Task :react-native-sqlite-storage:processReleaseJavaRes NO-SOURCE
+> Task :react-native-vector-icons_material-design-icons:processReleaseJavaRes
+> Task :app:mergeReleaseStartupProfile UP-TO-DATE
+> Task :app:mergeReleaseShaders UP-TO-DATE
+> Task :app:compileReleaseShaders NO-SOURCE
+> Task :app:generateReleaseAssets UP-TO-DATE
+> Task :react-native-app-auth:mergeReleaseShaders
+> Task :react-native-app-auth:compileReleaseShaders NO-SOURCE
+> Task :react-native-app-auth:generateReleaseAssets UP-TO-DATE
+> Task :react-native-app-auth:mergeReleaseAssets
+> Task :react-native-community_netinfo:mergeReleaseShaders
+> Task :react-native-community_netinfo:compileReleaseShaders NO-SOURCE
+> Task :react-native-community_netinfo:generateReleaseAssets UP-TO-DATE
+> Task :react-native-community_netinfo:mergeReleaseAssets
+> Task :react-native-config:mergeReleaseShaders UP-TO-DATE
+> Task :react-native-config:compileReleaseShaders NO-SOURCE
+> Task :react-native-config:generateReleaseAssets UP-TO-DATE
+> Task :react-native-config:mergeReleaseAssets UP-TO-DATE
+> Task :react-native-fs:mergeReleaseShaders
+> Task :react-native-fs:compileReleaseShaders NO-SOURCE
+> Task :react-native-fs:generateReleaseAssets UP-TO-DATE
+> Task :react-native-fs:mergeReleaseAssets
+> Task :app:mergeReleaseResources
+> Task :react-native-gesture-handler:mergeReleaseShaders
+> Task :react-native-gesture-handler:compileReleaseShaders NO-SOURCE
+> Task :react-native-gesture-handler:generateReleaseAssets UP-TO-DATE
+> Task :react-native-gesture-handler:mergeReleaseAssets
+> Task :react-native-keychain:mergeReleaseShaders UP-TO-DATE
+> Task :react-native-keychain:compileReleaseShaders NO-SOURCE
+> Task :react-native-keychain:generateReleaseAssets UP-TO-DATE
+> Task :react-native-keychain:mergeReleaseAssets UP-TO-DATE
+> Task :react-native-saf-x:mergeReleaseShaders
+> Task :react-native-saf-x:compileReleaseShaders NO-SOURCE
+> Task :react-native-saf-x:generateReleaseAssets UP-TO-DATE
+> Task :react-native-saf-x:mergeReleaseAssets
+> Task :react-native-safe-area-context:mergeReleaseShaders
+> Task :react-native-safe-area-context:compileReleaseShaders NO-SOURCE
+> Task :react-native-safe-area-context:generateReleaseAssets UP-TO-DATE
+> Task :react-native-safe-area-context:mergeReleaseAssets
+> Task :react-native-screens:mergeReleaseShaders
+> Task :react-native-screens:compileReleaseShaders NO-SOURCE
+> Task :react-native-screens:generateReleaseAssets UP-TO-DATE
+> Task :react-native-screens:mergeReleaseAssets
+> Task :react-native-sqlite-storage:mergeReleaseShaders
+> Task :react-native-sqlite-storage:compileReleaseShaders NO-SOURCE
+> Task :react-native-sqlite-storage:generateReleaseAssets UP-TO-DATE
+> Task :react-native-sqlite-storage:mergeReleaseAssets
+> Task :react-native-vector-icons_material-design-icons:mergeReleaseShaders
+> Task :react-native-vector-icons_material-design-icons:compileReleaseShaders NO-SOURCE
+> Task :react-native-vector-icons_material-design-icons:generateReleaseAssets UP-TO-DATE
+> Task :react-native-vector-icons_material-design-icons:mergeReleaseAssets
+> Task :app:mergeReleaseAssets
+> Task :app:extractReleaseVersionControlInfo UP-TO-DATE
+> Task :app:compressReleaseAssets
+> Task :react-native-app-auth:createFullJarRelease
+> Task :react-native-app-auth:extractProguardFiles
+> Task :react-native-app-auth:generateReleaseLintModel
+> Task :react-native-app-auth:prepareLintJarForPublish UP-TO-DATE
+> Task :react-native-community_netinfo:createFullJarRelease
+> Task :react-native-community_netinfo:extractProguardFiles
+> Task :react-native-community_netinfo:generateReleaseLintModel
+> Task :react-native-community_netinfo:prepareLintJarForPublish UP-TO-DATE
+> Task :react-native-config:createFullJarRelease UP-TO-DATE
+> Task :react-native-config:extractProguardFiles UP-TO-DATE
+> Task :react-native-config:generateReleaseLintModel UP-TO-DATE
+> Task :react-native-config:prepareLintJarForPublish UP-TO-DATE
+> Task :react-native-fs:createFullJarRelease
+> Task :react-native-fs:extractProguardFiles
+> Task :react-native-fs:generateReleaseLintModel
+> Task :react-native-fs:prepareLintJarForPublish UP-TO-DATE
+> Task :react-native-gesture-handler:createFullJarRelease
+> Task :react-native-gesture-handler:extractProguardFiles
+> Task :react-native-gesture-handler:generateReleaseLintModel
+> Task :react-native-gesture-handler:prepareLintJarForPublish UP-TO-DATE
+> Task :react-native-keychain:createFullJarRelease UP-TO-DATE
+> Task :react-native-keychain:extractProguardFiles UP-TO-DATE
+> Task :react-native-keychain:generateReleaseLintModel UP-TO-DATE
+> Task :react-native-keychain:prepareLintJarForPublish UP-TO-DATE
+> Task :react-native-saf-x:createFullJarRelease
+> Task :react-native-saf-x:extractProguardFiles
+> Task :react-native-saf-x:generateReleaseLintModel
+> Task :react-native-saf-x:prepareLintJarForPublish UP-TO-DATE
+> Task :react-native-safe-area-context:createFullJarRelease
+> Task :react-native-safe-area-context:extractProguardFiles
+> Task :react-native-safe-area-context:generateReleaseLintModel
+> Task :react-native-safe-area-context:prepareLintJarForPublish UP-TO-DATE
+> Task :react-native-screens:createFullJarRelease
+> Task :react-native-screens:extractProguardFiles
+> Task :react-native-screens:generateReleaseLintModel
+> Task :react-native-screens:prepareLintJarForPublish UP-TO-DATE
+> Task :react-native-sqlite-storage:createFullJarRelease
+> Task :react-native-sqlite-storage:extractProguardFiles
+> Task :react-native-sqlite-storage:generateReleaseLintModel
+> Task :react-native-sqlite-storage:prepareLintJarForPublish UP-TO-DATE
+> Task :react-native-vector-icons_material-design-icons:createFullJarRelease
+> Task :react-native-vector-icons_material-design-icons:extractProguardFiles
+> Task :react-native-vector-icons_material-design-icons:generateReleaseLintModel
+> Task :react-native-vector-icons_material-design-icons:prepareLintJarForPublish UP-TO-DATE
+> Task :react-native-vector-icons_material-design-icons:stripReleaseDebugSymbols NO-SOURCE
+> Task :react-native-vector-icons_material-design-icons:copyReleaseJniLibsProjectAndLocalJars
+> Task :react-native-vector-icons_material-design-icons:extractDeepLinksForAarRelease UP-TO-DATE
+> Task :react-native-vector-icons_material-design-icons:extractReleaseAnnotations
+> Task :react-native-vector-icons_material-design-icons:mergeReleaseConsumerProguardFiles UP-TO-DATE
+> Task :app:processReleaseResources
+> Task :react-native-vector-icons_material-design-icons:mergeReleaseJavaResource
+> Task :react-native-vector-icons_material-design-icons:syncReleaseLibJars
+> Task :react-native-vector-icons_material-design-icons:bundleReleaseLocalLintAar
+> Task :react-native-gesture-handler:extractDeepLinksForAarRelease UP-TO-DATE
+> Task :app:compileReleaseKotlin
+> Task :react-native-gesture-handler:extractReleaseAnnotations
+> Task :react-native-gesture-handler:stripReleaseDebugSymbols
+> Task :app:compileReleaseJavaWithJavac UP-TO-DATE
+> Task :app:mergeReleaseGeneratedProguardFiles UP-TO-DATE
+> Task :app:processReleaseJavaRes UP-TO-DATE
+> Task :app:mergeReleaseJavaResource UP-TO-DATE
+> Task :app:generateReleaseLintVitalReportModel
+> Task :react-native-gesture-handler:mergeReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-keychain:stripReleaseDebugSymbols NO-SOURCE
+> Task :react-native-keychain:copyReleaseJniLibsProjectAndLocalJars UP-TO-DATE
+> Task :react-native-keychain:extractDeepLinksForAarRelease UP-TO-DATE
+> Task :react-native-keychain:extractReleaseAnnotations UP-TO-DATE
+> Task :react-native-keychain:mergeReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-keychain:mergeReleaseJavaResource UP-TO-DATE
+> Task :react-native-keychain:syncReleaseLibJars UP-TO-DATE
+> Task :react-native-keychain:bundleReleaseLocalLintAar UP-TO-DATE
+> Task :react-native-safe-area-context:stripReleaseDebugSymbols NO-SOURCE
+> Task :react-native-safe-area-context:copyReleaseJniLibsProjectAndLocalJars
+> Task :react-native-safe-area-context:extractDeepLinksForAarRelease UP-TO-DATE
+> Task :react-native-gesture-handler:mergeReleaseJavaResource
+> Task :react-native-gesture-handler:copyReleaseJniLibsProjectAndLocalJars
+> Task :react-native-safe-area-context:extractReleaseAnnotations
+> Task :react-native-gesture-handler:syncReleaseLibJars
+> Task :app:expandReleaseArtProfileWildcards
+> Task :react-native-gesture-handler:bundleReleaseLocalLintAar
+> Task :react-native-safe-area-context:mergeReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-screens:extractDeepLinksForAarRelease UP-TO-DATE
+> Task :react-native-safe-area-context:mergeReleaseJavaResource
+> Task :react-native-screens:stripReleaseDebugSymbols
+> Task :react-native-screens:extractReleaseAnnotations
+> Task :react-native-safe-area-context:syncReleaseLibJars
+> Task :react-native-safe-area-context:bundleReleaseLocalLintAar
+> Task :react-native-screens:mergeReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-community_netinfo:stripReleaseDebugSymbols NO-SOURCE
+> Task :react-native-community_netinfo:copyReleaseJniLibsProjectAndLocalJars
+> Task :react-native-community_netinfo:extractDeepLinksForAarRelease UP-TO-DATE
+> Task :react-native-screens:mergeReleaseJavaResource
+> Task :react-native-screens:copyReleaseJniLibsProjectAndLocalJars
+> Task :react-native-community_netinfo:extractReleaseAnnotations
+> Task :react-native-screens:syncReleaseLibJars
+> Task :react-native-screens:bundleReleaseLocalLintAar
+> Task :react-native-community_netinfo:mergeReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-app-auth:stripReleaseDebugSymbols NO-SOURCE
+> Task :react-native-community_netinfo:mergeReleaseJavaResource
+> Task :react-native-app-auth:copyReleaseJniLibsProjectAndLocalJars
+> Task :react-native-community_netinfo:syncReleaseLibJars
+> Task :react-native-community_netinfo:bundleReleaseLocalLintAar
+> Task :react-native-app-auth:extractDeepLinksForAarRelease UP-TO-DATE
+> Task :react-native-app-auth:extractReleaseAnnotations
+> Task :react-native-app-auth:mergeReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-config:stripReleaseDebugSymbols NO-SOURCE
+> Task :react-native-config:copyReleaseJniLibsProjectAndLocalJars UP-TO-DATE
+> Task :react-native-config:extractDeepLinksForAarRelease UP-TO-DATE
+> Task :react-native-config:extractReleaseAnnotations UP-TO-DATE
+> Task :react-native-app-auth:mergeReleaseJavaResource
+> Task :react-native-config:mergeReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-app-auth:syncReleaseLibJars
+> Task :react-native-app-auth:bundleReleaseLocalLintAar
+> Task :react-native-config:mergeReleaseJavaResource UP-TO-DATE
+> Task :react-native-config:syncReleaseLibJars UP-TO-DATE
+> Task :react-native-config:bundleReleaseLocalLintAar UP-TO-DATE
+> Task :react-native-fs:stripReleaseDebugSymbols NO-SOURCE
+> Task :react-native-fs:copyReleaseJniLibsProjectAndLocalJars
+> Task :react-native-fs:extractDeepLinksForAarRelease UP-TO-DATE
+> Task :react-native-fs:extractReleaseAnnotations
+> Task :react-native-fs:mergeReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-saf-x:stripReleaseDebugSymbols NO-SOURCE
+> Task :react-native-fs:mergeReleaseJavaResource
+> Task :react-native-saf-x:copyReleaseJniLibsProjectAndLocalJars
+> Task :react-native-fs:syncReleaseLibJars
+> Task :react-native-fs:bundleReleaseLocalLintAar
+> Task :react-native-saf-x:extractDeepLinksForAarRelease UP-TO-DATE
+> Task :react-native-saf-x:extractReleaseAnnotations
+> Task :react-native-saf-x:mergeReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-sqlite-storage:stripReleaseDebugSymbols NO-SOURCE
+> Task :react-native-saf-x:mergeReleaseJavaResource
+> Task :react-native-sqlite-storage:copyReleaseJniLibsProjectAndLocalJars
+> Task :react-native-saf-x:syncReleaseLibJars
+> Task :react-native-saf-x:bundleReleaseLocalLintAar
+> Task :react-native-sqlite-storage:extractDeepLinksForAarRelease UP-TO-DATE
+> Task :react-native-sqlite-storage:extractReleaseAnnotations
+> Task :react-native-sqlite-storage:mergeReleaseConsumerProguardFiles UP-TO-DATE
+> Task :react-native-sqlite-storage:mergeReleaseJavaResource
+> Task :react-native-sqlite-storage:syncReleaseLibJars
+> Task :react-native-sqlite-storage:bundleReleaseLocalLintAar
+> Task :react-native-app-auth:writeReleaseLintModelMetadata
+> Task :react-native-community_netinfo:writeReleaseLintModelMetadata
+> Task :react-native-config:lintVitalAnalyzeRelease UP-TO-DATE
+> Task :react-native-config:writeReleaseLintModelMetadata UP-TO-DATE
+> Task :react-native-fs:writeReleaseLintModelMetadata
+> Task :react-native-gesture-handler:writeReleaseLintModelMetadata
+> Task :react-native-keychain:writeReleaseLintModelMetadata UP-TO-DATE
+> Task :react-native-saf-x:writeReleaseLintModelMetadata
+> Task :react-native-safe-area-context:writeReleaseLintModelMetadata
+> Task :react-native-screens:writeReleaseLintModelMetadata
+> Task :react-native-sqlite-storage:writeReleaseLintModelMetadata
+> Task :react-native-vector-icons_material-design-icons:writeReleaseLintModelMetadata
+> Task :react-native-app-auth:generateReleaseLintVitalModel
+> Task :react-native-community_netinfo:generateReleaseLintVitalModel
+> Task :react-native-config:generateReleaseLintVitalModel UP-TO-DATE
+> Task :react-native-fs:generateReleaseLintVitalModel
+> Task :react-native-gesture-handler:generateReleaseLintVitalModel
+> Task :react-native-keychain:generateReleaseLintVitalModel UP-TO-DATE
+> Task :react-native-saf-x:generateReleaseLintVitalModel
+> Task :react-native-safe-area-context:generateReleaseLintVitalModel
+> Task :react-native-screens:generateReleaseLintVitalModel
+> Task :react-native-sqlite-storage:generateReleaseLintVitalModel
+> Task :react-native-vector-icons_material-design-icons:generateReleaseLintVitalModel
+> Task :app:collectReleaseDependencies UP-TO-DATE
+> Task :app:sdkReleaseDependencyData UP-TO-DATE
+> Task :app:validateSigningRelease UP-TO-DATE
+> Task :app:writeReleaseAppMetadata UP-TO-DATE
+> Task :app:writeReleaseSigningConfigVersions UP-TO-DATE
+> Task :react-native-app-auth:bundleReleaseAar
+> Task :react-native-app-auth:mapReleaseSourceSetPaths
+> Task :react-native-app-auth:mergeReleaseResources
+> Task :react-native-community_netinfo:bundleReleaseAar
+> Task :react-native-community_netinfo:mapReleaseSourceSetPaths
+> Task :react-native-app-auth:verifyReleaseResources
+> Task :react-native-community_netinfo:mergeReleaseResources
+> Task :react-native-app-auth:assembleRelease
+> Task :react-native-config:bundleReleaseAar UP-TO-DATE
+> Task :react-native-config:mapReleaseSourceSetPaths UP-TO-DATE
+> Task :react-native-config:mergeReleaseResources UP-TO-DATE
+> Task :react-native-config:verifyReleaseResources UP-TO-DATE
+> Task :react-native-config:assembleRelease UP-TO-DATE
+> Task :react-native-fs:bundleReleaseAar
+> Task :react-native-fs:mapReleaseSourceSetPaths
+> Task :react-native-fs:lintVitalAnalyzeRelease
+> Task :react-native-community_netinfo:lintVitalAnalyzeRelease
+> Task :react-native-app-auth:lintVitalAnalyzeRelease
+> Task :react-native-fs:mergeReleaseResources
+> Task :react-native-keychain:lintVitalAnalyzeRelease UP-TO-DATE
+> Task :react-native-gesture-handler:bundleReleaseAar
+> Task :react-native-gesture-handler:mapReleaseSourceSetPaths
+> Task :app:minifyReleaseWithR8
+> Task :react-native-community_netinfo:verifyReleaseResources
+> Task :react-native-saf-x:lintVitalAnalyzeRelease
+> Task :react-native-gesture-handler:mergeReleaseResources
+> Task :react-native-community_netinfo:assembleRelease
+> Task :react-native-keychain:bundleReleaseAar UP-TO-DATE
+> Task :react-native-keychain:mapReleaseSourceSetPaths UP-TO-DATE
+> Task :app:compileReleaseArtProfile
+> Task :react-native-keychain:mergeReleaseResources UP-TO-DATE
+> Task :react-native-keychain:verifyReleaseResources UP-TO-DATE
+> Task :react-native-keychain:assembleRelease UP-TO-DATE
+> Task :react-native-saf-x:bundleReleaseAar
+> Task :react-native-saf-x:mapReleaseSourceSetPaths
+> Task :react-native-safe-area-context:lintVitalAnalyzeRelease
+> Task :react-native-fs:verifyReleaseResources
+> Task :react-native-saf-x:mergeReleaseResources
+> Task :react-native-fs:assembleRelease
+> Task :react-native-safe-area-context:bundleReleaseAar
+> Task :react-native-safe-area-context:mapReleaseSourceSetPaths
+> Task :react-native-sqlite-storage:lintVitalAnalyzeRelease
+> Task :react-native-gesture-handler:verifyReleaseResources
+> Task :react-native-gesture-handler:lintVitalAnalyzeRelease
+> Task :react-native-saf-x:verifyReleaseResources
+> Task :react-native-safe-area-context:mergeReleaseResources
+> Task :react-native-gesture-handler:assembleRelease
+> Task :react-native-saf-x:assembleRelease
+> Task :app:convertShrunkResourcesToBinaryRelease
+> Task :react-native-screens:bundleReleaseAar
+> Task :react-native-screens:mapReleaseSourceSetPaths
+> Task :react-native-vector-icons_material-design-icons:lintVitalAnalyzeRelease
+> Task :react-native-screens:lintVitalAnalyzeRelease
+> Task :react-native-screens:mergeReleaseResources
+> Task :app:optimizeReleaseResources
+> Task :react-native-sqlite-storage:bundleReleaseAar
+> Task :react-native-sqlite-storage:mapReleaseSourceSetPaths
+> Task :app:lintVitalAnalyzeRelease
+> Task :react-native-safe-area-context:verifyReleaseResources
+> Task :react-native-sqlite-storage:mergeReleaseResources
+> Task :react-native-safe-area-context:assembleRelease
+> Task :react-native-vector-icons_material-design-icons:bundleReleaseAar
+> Task :app:lintVitalReportRelease
+> Task :react-native-vector-icons_material-design-icons:mapReleaseSourceSetPaths
+> Task :app:lintVitalRelease
+> Task :react-native-vector-icons_material-design-icons:mergeReleaseResources
+> Task :app:packageRelease
+> Task :app:createReleaseApkListingFileRedirect UP-TO-DATE
+> Task :app:assembleRelease
+> Task :react-native-sqlite-storage:verifyReleaseResources
+> Task :react-native-sqlite-storage:assembleRelease
+> Task :react-native-screens:verifyReleaseResources
+> Task :react-native-screens:assembleRelease
+> Task :react-native-vector-icons_material-design-icons:verifyReleaseResources
+> Task :react-native-vector-icons_material-design-icons:assembleRelease
+
+[Incubating] Problems report is available at: file:///C:/PET/android/build/reports/problems/problems-report.html
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.14.3/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD SUCCESSFUL in 4m 37s
+531 actionable tasks: 355 executed, 176 up-to-date

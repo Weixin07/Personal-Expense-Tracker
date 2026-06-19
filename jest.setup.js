@@ -1,5 +1,49 @@
 // Jest setup file for React Native testing
 
+// Keep Animated on the JS driver in tests. The native driver path loads
+// react-native's bundled renderer, which mismatches the installed react version.
+jest.mock('react-native/src/private/animated/NativeAnimatedHelper', () => {
+  const noop = jest.fn();
+  const api = {
+    getValue: noop,
+    setWaitingForIdentifier: noop,
+    unsetWaitingForIdentifier: noop,
+    flushQueue: noop,
+    createAnimatedNode: noop,
+    startListeningToAnimatedNodeValue: noop,
+    stopListeningToAnimatedNodeValue: noop,
+    connectAnimatedNodes: noop,
+    disconnectAnimatedNodes: noop,
+    startAnimatingNode: noop,
+    stopAnimation: noop,
+    setAnimatedNodeValue: noop,
+    setAnimatedNodeOffset: noop,
+    flattenAnimatedNodeOffset: noop,
+    extractAnimatedNodeOffset: noop,
+    connectAnimatedNodeToView: noop,
+    disconnectAnimatedNodeFromView: noop,
+    restoreDefaultValues: noop,
+    dropAnimatedNode: noop,
+    addAnimatedEventToView: noop,
+    removeAnimatedEventFromView: noop,
+  };
+  const helper = {
+    API: api,
+    generateNewNodeTag: () => 1,
+    generateNewAnimationId: () => 1,
+    assertNativeAnimatedModule: noop,
+    shouldUseNativeDriver: () => false,
+    shouldSignalBatch: false,
+    transformDataType: value => value,
+    nativeEventEmitter: { addListener: noop, removeListeners: noop },
+  };
+  return {
+    __esModule: true,
+    default: helper,
+    shouldUseNativeDriver: () => false,
+  };
+});
+
 // Mock react-native-config
 jest.mock('react-native-config', () => ({
   GOOGLE_OAUTH_CLIENT_ID: 'test-client-id',
@@ -38,6 +82,11 @@ jest.mock('react-native-keychain', () => ({
     FINGERPRINT: 'Fingerprint',
     FACE: 'Face',
     IRIS: 'Iris',
+  },
+  SECURITY_LEVEL: {
+    ANY: 'ANY',
+    SECURE_SOFTWARE: 'SECURE_SOFTWARE',
+    SECURE_HARDWARE: 'SECURE_HARDWARE',
   },
   setGenericPassword: jest.fn(() => Promise.resolve(true)),
   getGenericPassword: jest.fn(() => Promise.resolve(false)),
@@ -99,13 +148,18 @@ jest.mock('@react-native-community/netinfo', () => ({
 
 // Mock react-native-saf-x
 jest.mock('react-native-saf-x', () => ({
-  openDocumentTree: jest.fn(() =>
-    Promise.resolve({ uri: 'content://mock/tree' }),
-  ),
-  createFile: jest.fn(() => Promise.resolve({ uri: 'content://mock/file' })),
-  writeFile: jest.fn(() => Promise.resolve()),
-  readFile: jest.fn(() => Promise.resolve('')),
-  releasePersistableUriPermission: jest.fn(() => Promise.resolve()),
+  StorageAccessFramework: {
+    requestDirectoryPermissions: jest.fn(() =>
+      Promise.resolve({ granted: true, uri: 'content://mock/tree' }),
+    ),
+    persistAccessPermissions: jest.fn(() => Promise.resolve()),
+    persistPermissions: jest.fn(() => Promise.resolve()),
+    takePersistableUriPermission: jest.fn(() => Promise.resolve()),
+    createFile: jest.fn(() => Promise.resolve('content://mock/file')),
+    writeFile: jest.fn(() => Promise.resolve()),
+    readFile: jest.fn(() => Promise.resolve('')),
+    deleteFile: jest.fn(() => Promise.resolve()),
+  },
 }));
 
 // Mock SQLite
