@@ -13,6 +13,7 @@ const EXPENSE_COLUMNS = `
   currency_code,
   fx_rate_to_base,
   base_amount,
+  base_currency_code,
   date,
   category_id,
   notes,
@@ -27,6 +28,7 @@ type RawExpenseRow = {
   currency_code: string;
   fx_rate_to_base: number;
   base_amount: number;
+  base_currency_code: string | null;
   date: string;
   category_id: number | null;
   notes: string | null;
@@ -41,6 +43,7 @@ const toExpenseRecord = (row: RawExpenseRow): ExpenseRecord => ({
   currencyCode: row.currency_code,
   fxRateToBase: row.fx_rate_to_base,
   baseAmount: row.base_amount,
+  baseCurrencyCode: row.base_currency_code ?? null,
   date: row.date,
   categoryId: row.category_id,
   notes: row.notes,
@@ -68,16 +71,18 @@ export const createExpense = async (
       currency_code,
       fx_rate_to_base,
       base_amount,
+      base_currency_code,
       date,
       category_id,
       notes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       payload.description,
       payload.amountNative,
       payload.currencyCode,
       payload.fxRateToBase,
       payload.baseAmount,
+      payload.baseCurrencyCode ?? null,
       payload.date,
       payload.categoryId ?? null,
       payload.notes ?? null,
@@ -109,6 +114,7 @@ export const updateExpense = async (
       currency_code = ?,
       fx_rate_to_base = ?,
       base_amount = ?,
+      base_currency_code = ?,
       date = ?,
       category_id = ?,
       notes = ?,
@@ -120,6 +126,7 @@ export const updateExpense = async (
       fields.currencyCode,
       fields.fxRateToBase,
       fields.baseAmount,
+      fields.baseCurrencyCode ?? null,
       fields.date,
       fields.categoryId ?? null,
       fields.notes ?? null,

@@ -22,6 +22,8 @@ import {
   getAllSettings as dbGetAllSettings,
   setSetting as dbSetSetting,
   listExportQueue as dbListExportQueue,
+  listCurrencyFxRates as dbListCurrencyFxRates,
+  upsertCurrencyFxRate as dbUpsertCurrencyFxRate,
 } from '../database';
 import type {
   ExpenseRecord,
@@ -32,6 +34,7 @@ import type {
   UpdateCategoryRecord,
   AppSettingRecord,
   ExportQueueRecord,
+  CurrencyFxRateRecord,
 } from '../database';
 import { bankersRound } from '../utils/math';
 import { toError, toErrorMessage } from '../utils/errors';
@@ -58,6 +61,7 @@ type CoreState = {
   expenses: ExpenseRecord[];
   categories: CategoryRecord[];
   settings: ExpenseDataSettings;
+  fxRateCache: CurrencyFxRateRecord[];
   filters: ExpenseFilters;
   isInitialised: boolean;
   isLoading: boolean;
@@ -75,10 +79,18 @@ export type TotalsByCategory = {
   total: number;
 };
 
+export type TotalsByBaseCurrency = {
+  baseCurrencyCode: string | null;
+  rawTotal: number;
+  total: number;
+};
+
 export type ExpenseTotals = {
   rawBaseAmount: number;
   baseAmount: number;
   byCategory: TotalsByCategory[];
+  byBaseCurrency: TotalsByBaseCurrency[];
+  mixedBase: boolean;
 };
 
 export type ExpenseDataSelectors = {
@@ -126,6 +138,7 @@ export type ExpenseDataAction =
         expenses: ExpenseRecord[];
         categories: CategoryRecord[];
         settings: ExpenseDataSettings;
+        fxRateCache: CurrencyFxRateRecord[];
       };
     }
   | { type: 'load/error'; payload: string }
@@ -140,6 +153,7 @@ export type ExpenseDataAction =
   | { type: 'expense/update'; payload: ExpenseRecord }
   | { type: 'expense/delete'; payload: number }
   | { type: 'categories/set-all'; payload: CategoryRecord[] }
+  | { type: 'fx-cache/upsert'; payload: CurrencyFxRateRecord }
   | { type: 'settings/set-base-currency'; payload: string | null }
   | { type: 'settings/set-biometric'; payload: boolean }
   | { type: 'settings/set-drive-folder'; payload: string | null }
@@ -159,6 +173,7 @@ export const initialState: CoreState = {
     driveFolderId: null,
     exportDirectoryUri: null,
   },
+  fxRateCache: [],
   filters: {},
   isInitialised: false,
   isLoading: false,
@@ -234,6 +249,7 @@ export const expenseDataReducer = (
         expenses: action.payload.expenses,
         categories: action.payload.categories,
         settings: action.payload.settings,
+        fxRateCache: action.payload.fxRateCache,
         isInitialised: true,
         isLoading: false,
         error: null,
@@ -306,6 +322,20 @@ export const expenseDataReducer = (
         ...state,
         categories: action.payload,
       };
+    case 'fx-cache/upsert': {
+      const next = state.fxRateCache.filter(
+        rate =>
+          !(
+            rate.baseCurrencyCode === action.payload.baseCurrencyCode &&
+            rate.currencyCode === action.payload.currencyCode
+          ),
+      );
+      next.push(action.payload);
+      return {
+        ...state,
+        fxRateCache: next,
+      };
+    }
     case 'settings/set-base-currency':
       return {
         ...state,
@@ -386,6 +416,8 @@ const calculateTotals = (expenses: ExpenseRecord[]): ExpenseTotals => {
       rawBaseAmount: 0,
       baseAmount: 0,
       byCategory: [],
+      byBaseCurrency: [],
+      mixedBase: false,
     };
   }
 
@@ -395,11 +427,16 @@ const calculateTotals = (expenses: ExpenseRecord[]): ExpenseTotals => {
   );
   const baseAmount = bankersRound(rawBaseAmount, 2);
   const categoryTotals = new Map<number | null, number>();
+  const baseCurrencyTotals = new Map<string | null, number>();
 
   expenses.forEach(expense => {
     const key = expense.categoryId ?? null;
     const current = categoryTotals.get(key) ?? 0;
     categoryTotals.set(key, current + expense.baseAmount);
+
+    const baseKey = expense.baseCurrencyCode ?? null;
+    const baseCurrent = baseCurrencyTotals.get(baseKey) ?? 0;
+    baseCurrencyTotals.set(baseKey, baseCurrent + expense.baseAmount);
   });
 
   const byCategory: TotalsByCategory[] = Array.from(
@@ -410,10 +447,20 @@ const calculateTotals = (expenses: ExpenseRecord[]): ExpenseTotals => {
     total: bankersRound(value, 2),
   }));
 
+  const byBaseCurrency: TotalsByBaseCurrency[] = Array.from(
+    baseCurrencyTotals.entries(),
+  ).map(([baseCurrencyCode, value]) => ({
+    baseCurrencyCode,
+    rawTotal: value,
+    total: bankersRound(value, 2),
+  }));
+
   return {
     rawBaseAmount,
     baseAmount,
     byCategory,
+    byBaseCurrency,
+    mixedBase: byBaseCurrency.length > 1,
   };
 };
 
@@ -439,14 +486,26 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
     dispatch({ type: 'load/start' });
     try {
       const snapshot = await withDatabase(async db => {
-        const [expenses, categories, settings, exportQueueRecords] =
-          await Promise.all([
-            dbListExpenses(db),
-            dbListCategories(db),
-            dbGetAllSettings(db),
-            dbListExportQueue(db),
-          ]);
-        return { expenses, categories, settings, exportQueueRecords };
+        const [
+          expenses,
+          categories,
+          settings,
+          exportQueueRecords,
+          fxRateCache,
+        ] = await Promise.all([
+          dbListExpenses(db),
+          dbListCategories(db),
+          dbGetAllSettings(db),
+          dbListExportQueue(db),
+          dbListCurrencyFxRates(db),
+        ]);
+        return {
+          expenses,
+          categories,
+          settings,
+          exportQueueRecords,
+          fxRateCache,
+        };
       });
 
       dispatch({
@@ -455,6 +514,7 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
           expenses: snapshot.expenses,
           categories: snapshot.categories,
           settings: parseSettings(snapshot.settings),
+          fxRateCache: snapshot.fxRateCache,
         },
       });
       setLoadedQueueRecords(snapshot.exportQueueRecords);
@@ -481,8 +541,30 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
     async payload => {
       dispatch({ type: 'operation/start' });
       try {
-        const expense = await withDatabase(db => dbCreateExpense(db, payload));
+        const expense = await withDatabase(async db => {
+          const created = await dbCreateExpense(db, payload);
+          if (created.baseCurrencyCode) {
+            await dbUpsertCurrencyFxRate(
+              db,
+              created.baseCurrencyCode,
+              created.currencyCode,
+              created.fxRateToBase,
+            );
+          }
+          return created;
+        });
         dispatch({ type: 'expense/add', payload: expense });
+        if (expense.baseCurrencyCode) {
+          dispatch({
+            type: 'fx-cache/upsert',
+            payload: {
+              baseCurrencyCode: expense.baseCurrencyCode,
+              currencyCode: expense.currencyCode,
+              fxRateToBase: expense.fxRateToBase,
+              updatedAt: expense.updatedAt,
+            },
+          });
+        }
         return expense;
       } catch (error) {
         dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
@@ -498,8 +580,30 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
     async payload => {
       dispatch({ type: 'operation/start' });
       try {
-        const expense = await withDatabase(db => dbUpdateExpense(db, payload));
+        const expense = await withDatabase(async db => {
+          const updated = await dbUpdateExpense(db, payload);
+          if (updated.baseCurrencyCode) {
+            await dbUpsertCurrencyFxRate(
+              db,
+              updated.baseCurrencyCode,
+              updated.currencyCode,
+              updated.fxRateToBase,
+            );
+          }
+          return updated;
+        });
         dispatch({ type: 'expense/update', payload: expense });
+        if (expense.baseCurrencyCode) {
+          dispatch({
+            type: 'fx-cache/upsert',
+            payload: {
+              baseCurrencyCode: expense.baseCurrencyCode,
+              currencyCode: expense.currencyCode,
+              fxRateToBase: expense.fxRateToBase,
+              updatedAt: expense.updatedAt,
+            },
+          });
+        }
         return expense;
       } catch (error) {
         dispatch({ type: 'operation/error', payload: toErrorMessage(error) });

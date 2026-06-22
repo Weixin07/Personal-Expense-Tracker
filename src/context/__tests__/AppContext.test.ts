@@ -14,6 +14,7 @@ const makeExpense = (
   currencyCode: 'USD',
   fxRateToBase: 1,
   baseAmount: 3.5,
+  baseCurrencyCode: 'USD',
   date: '2025-01-10',
   categoryId: null,
   notes: null,
@@ -53,6 +54,7 @@ describe('expenseDataReducer', () => {
           driveFolderId: 'folder-1',
           exportDirectoryUri: 'content://dir',
         },
+        fxRateCache: [],
       };
       const next = expenseDataReducer(
         { ...initialState, isLoading: true },

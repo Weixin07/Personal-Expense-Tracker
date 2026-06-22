@@ -220,6 +220,7 @@ export const generateMockExpenses = (count: number) => {
       currencyCode: currency,
       fxRateToBase: parseFloat(fxRate.toFixed(6)),
       baseAmount: parseFloat((amount * fxRate).toFixed(6)),
+      baseCurrencyCode: 'USD',
       date: date.toISOString().split('T')[0],
       categoryId: Math.floor(Math.random() * categories.length) + 1,
       notes: Math.random() > 0.5 ? `Note for expense ${i + 1}` : null,

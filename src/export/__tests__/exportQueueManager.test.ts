@@ -14,6 +14,7 @@ const expenses: ExpenseRecord[] = [
     currencyCode: 'GBP',
     fxRateToBase: 1.0,
     baseAmount: 45.5,
+    baseCurrencyCode: 'GBP',
     date: '2025-01-15',
     categoryId: 1,
     notes: null,

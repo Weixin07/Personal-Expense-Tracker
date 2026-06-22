@@ -31,6 +31,8 @@ jest.mock('../../database', () => ({
   getAllSettings: jest.fn(),
   setSetting: jest.fn(),
   listExportQueue: jest.fn(),
+  listCurrencyFxRates: jest.fn(),
+  upsertCurrencyFxRate: jest.fn(),
   insertExportQueueItem: jest.fn(),
   updateExportQueueStatus: jest.fn(),
   removeExportQueueItem: jest.fn(),
@@ -58,6 +60,7 @@ const expense: ExpenseRecord = {
   currencyCode: 'USD',
   fxRateToBase: 1,
   baseAmount: 3.5,
+  baseCurrencyCode: 'USD',
   date: '2025-01-10',
   categoryId: null,
   notes: null,
@@ -99,6 +102,8 @@ beforeEach(() => {
   mockDb.listCategories.mockResolvedValue([]);
   mockDb.getAllSettings.mockResolvedValue([]);
   mockDb.listExportQueue.mockResolvedValue([]);
+  mockDb.listCurrencyFxRates.mockResolvedValue([]);
+  mockDb.upsertCurrencyFxRate.mockResolvedValue(undefined as never);
   mockDb.setSetting.mockResolvedValue(undefined as never);
   mockDb.insertExportQueueItem.mockResolvedValue(undefined as never);
   mockDb.updateExportQueueStatus.mockResolvedValue(undefined as never);
@@ -144,6 +149,7 @@ describe('ExpenseDataProvider effects', () => {
         currencyCode: 'USD',
         fxRateToBase: 1,
         baseAmount: 3.5,
+        baseCurrencyCode: 'USD',
         date: '2025-01-10',
         categoryId: null,
         notes: null,
@@ -164,6 +170,7 @@ describe('ExpenseDataProvider effects', () => {
           currencyCode: 'USD',
           fxRateToBase: 1,
           baseAmount: 1,
+          baseCurrencyCode: 'USD',
           date: '2025-01-10',
           categoryId: null,
           notes: null,

@@ -127,6 +127,7 @@ CREATE TABLE expenses (
   currency_code TEXT NOT NULL CHECK (LENGTH(currency_code) = 3),
   fx_rate_to_base REAL NOT NULL CHECK (fx_rate_to_base > 0),
   base_amount REAL NOT NULL CHECK (base_amount >= 0),
+  base_currency_code TEXT NULL,  -- base currency the rate/base_amount were captured against
   date TEXT NOT NULL CHECK (LENGTH(date) = 10),  -- ISO YYYY-MM-DD
   category_id INTEGER NULL,
   notes TEXT NULL,
@@ -135,6 +136,11 @@ CREATE TABLE expenses (
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
 );
 ```
+
+Each expense records the base currency its `fx_rate_to_base`/`base_amount` were
+captured against. Changing the `base_currency` setting applies to **new
+expenses only**; existing expenses keep their original base, and totals are
+reported per base currency when historical data spans more than one.
 
 **`categories`** (Expense classification)
 
@@ -177,6 +183,21 @@ CREATE TABLE export_queue (
   drive_file_id TEXT NULL
 );
 ```
+
+**`currency_fx_rates`** (Last-used FX rate per currency)
+
+```sql
+CREATE TABLE currency_fx_rates (
+  base_currency_code TEXT NOT NULL CHECK (LENGTH(base_currency_code) = 3),
+  currency_code TEXT NOT NULL CHECK (LENGTH(currency_code) = 3),
+  fx_rate_to_base REAL NOT NULL CHECK (fx_rate_to_base > 0),
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (base_currency_code, currency_code)
+);
+```
+
+Caches the most recently entered rate for each `(base, currency)` pair so the
+Add Expense form can prefill it instead of requiring re-entry.
 
 ### Architecture Patterns
 

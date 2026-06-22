@@ -22,7 +22,7 @@ const SettingsScreen: React.FC = () => {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const {
-    state: { settings, isLoading, exportQueue },
+    state: { settings, isLoading, exportQueue, expenses },
     actions: {
       setBiometricGateEnabled,
       setBaseCurrency,
@@ -46,13 +46,35 @@ const SettingsScreen: React.FC = () => {
   const openCurrencyDialog = () => setCurrencyDialogVisible(true);
   const closeCurrencyDialog = () => setCurrencyDialogVisible(false);
 
-  const handleCurrencySelect = async (option: { code: string }) => {
+  const applyBaseCurrency = async (code: string) => {
     try {
-      await setBaseCurrency(option.code);
+      await setBaseCurrency(code);
       closeCurrencyDialog();
     } catch {
       // keep dialog open so the user can retry
     }
+  };
+
+  const handleCurrencySelect = async (option: { code: string }) => {
+    const isChange =
+      Boolean(settings.baseCurrency) && option.code !== settings.baseCurrency;
+    if (isChange && expenses.length > 0) {
+      Alert.alert(
+        'Change base currency?',
+        `Existing expenses keep the base currency and FX rate they were saved with. Only new expenses will use ${option.code}, so totals may be shown separately per base currency.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Change',
+            onPress: () => {
+              void applyBaseCurrency(option.code);
+            },
+          },
+        ],
+      );
+      return;
+    }
+    await applyBaseCurrency(option.code);
   };
 
   const baseCurrencyName = findCurrencyName(settings.baseCurrency);

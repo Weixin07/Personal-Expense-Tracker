@@ -28,7 +28,7 @@ describe('migrations', () => {
   describe('latestMigrationVersion', () => {
     it('should return the latest migration version', () => {
       const version = latestMigrationVersion();
-      expect(version).toBe(4);
+      expect(version).toBe(5);
     });
   });
 
@@ -92,8 +92,8 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      // Should execute transaction 4 times (one for each migration)
-      expect(mockDb.transaction).toHaveBeenCalledTimes(4);
+      // All five migrations are pending from a fresh database.
+      expect(mockDb.transaction).toHaveBeenCalledTimes(5);
     });
 
     it('should run only pending migrations', async () => {
@@ -123,8 +123,8 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      // Should execute transaction 2 times (migrations 3 and 4)
-      expect(mockDb.transaction).toHaveBeenCalledTimes(2);
+      // Migrations 3, 4 and 5 are pending past version 2.
+      expect(mockDb.transaction).toHaveBeenCalledTimes(3);
     });
 
     it('should not run any migrations if already at latest version', async () => {
@@ -143,8 +143,8 @@ describe('migrations', () => {
         rowsAffected: 0,
         rows: {
           length: 1,
-          raw: () => [{ version: 4 }],
-          item: (index: number) => (index === 0 ? { version: 4 } : null),
+          raw: () => [{ version: 5 }],
+          item: (index: number) => (index === 0 ? { version: 5 } : null),
         },
       };
 
@@ -239,8 +239,8 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      // Should execute transaction 1 time (migration 4 only)
-      expect(mockDb.transaction).toHaveBeenCalledTimes(1);
+      // Migrations 4 and 5 are pending past version 3.
+      expect(mockDb.transaction).toHaveBeenCalledTimes(2);
 
       const transactionCall = (mockDb.transaction as jest.Mock).mock.calls[0];
       const executor = transactionCall[0];
@@ -280,8 +280,8 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      // Should run all 4 migrations
-      expect(mockDb.transaction).toHaveBeenCalledTimes(4);
+      // All five migrations are pending from an empty schema_migrations table.
+      expect(mockDb.transaction).toHaveBeenCalledTimes(5);
     });
 
     it('should apply migrations in version order', async () => {
@@ -332,6 +332,7 @@ describe('migrations', () => {
         'export-queue',
         'export-queue-metadata',
         'export-queue-file-uri',
+        'expense-base-currency-and-fx-cache',
       ]);
     });
 
@@ -379,6 +380,54 @@ describe('migrations', () => {
           'ALTER TABLE export_queue ADD COLUMN drive_file_id TEXT NULL',
         ),
         [],
+      );
+    });
+
+    it('should add base currency column and fx-rate cache in migration 5', async () => {
+      const mockCreateTableResult: ResultSet = {
+        insertId: undefined,
+        rowsAffected: 0,
+        rows: {
+          length: 0,
+          raw: () => [],
+          item: () => null,
+        },
+      };
+
+      const mockVersionResult: ResultSet = {
+        insertId: undefined,
+        rowsAffected: 0,
+        rows: {
+          length: 1,
+          raw: () => [{ version: 4 }],
+          item: (index: number) => (index === 0 ? { version: 4 } : null),
+        },
+      };
+
+      mockDb.executeSql
+        .mockResolvedValueOnce([mockCreateTableResult])
+        .mockResolvedValueOnce([mockVersionResult]);
+
+      await runMigrations(mockDb);
+
+      const transactionCall = (mockDb.transaction as jest.Mock).mock.calls[0];
+      const executor = transactionCall[0];
+
+      executor(mockTx);
+
+      expect(mockTx.executeSql).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'ALTER TABLE expenses ADD COLUMN base_currency_code TEXT NULL',
+        ),
+        [],
+      );
+      expect(mockTx.executeSql).toHaveBeenCalledWith(
+        expect.stringContaining('CREATE TABLE IF NOT EXISTS currency_fx_rates'),
+        [],
+      );
+      expect(mockTx.executeSql).toHaveBeenCalledWith(
+        'INSERT INTO schema_migrations (version, name) VALUES (?, ?)',
+        [5, 'expense-base-currency-and-fx-cache'],
       );
     });
   });

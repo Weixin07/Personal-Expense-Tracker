@@ -5,6 +5,7 @@ export type ExpenseRecord = {
   currencyCode: string;
   fxRateToBase: number;
   baseAmount: number;
+  baseCurrencyCode: string | null;
   date: string;
   categoryId: number | null;
   notes: string | null;
@@ -50,6 +51,13 @@ export type UpdateCategoryRecord = Omit<
 export type AppSettingRecord = {
   key: string;
   value: string | null;
+};
+
+export type CurrencyFxRateRecord = {
+  baseCurrencyCode: string;
+  currencyCode: string;
+  fxRateToBase: number;
+  updatedAt: string;
 };
 export type ExportQueueRecord = {
   id: string;

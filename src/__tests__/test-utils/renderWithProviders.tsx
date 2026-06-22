@@ -43,6 +43,7 @@ export const makeContextState = (
     expenses: [],
     categories: [],
     exportQueue: [],
+    fxRateCache: [],
     filters: {},
     isInitialised: true,
     isLoading: false,
@@ -63,7 +64,13 @@ export const makeContextSelectors = (
   overrides: Partial<ExpenseDataSelectors> = {},
 ): ExpenseDataSelectors => ({
   filteredExpenses: [],
-  totals: { rawBaseAmount: 0, baseAmount: 0, byCategory: [] },
+  totals: {
+    rawBaseAmount: 0,
+    baseAmount: 0,
+    byCategory: [],
+    byBaseCurrency: [],
+    mixedBase: false,
+  },
   hasActiveFilters: false,
   ...overrides,
 });

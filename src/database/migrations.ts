@@ -13,6 +13,31 @@ export type Migration = {
 
 const MIGRATIONS: readonly Migration[] = [
   {
+    version: 5,
+    name: 'expense-base-currency-and-fx-cache',
+    statements: [
+      {
+        sql: `ALTER TABLE expenses ADD COLUMN base_currency_code TEXT NULL;`,
+      },
+      {
+        sql: `UPDATE expenses
+            SET base_currency_code = (
+              SELECT value FROM app_settings WHERE key = 'base_currency'
+            )
+            WHERE base_currency_code IS NULL;`,
+      },
+      {
+        sql: `CREATE TABLE IF NOT EXISTS currency_fx_rates (
+            base_currency_code TEXT NOT NULL CHECK (LENGTH(base_currency_code) = 3),
+            currency_code TEXT NOT NULL CHECK (LENGTH(currency_code) = 3),
+            fx_rate_to_base REAL NOT NULL CHECK (fx_rate_to_base > 0),
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            PRIMARY KEY (base_currency_code, currency_code)
+          );`,
+      },
+    ],
+  },
+  {
     version: 4,
     name: 'export-queue-file-uri',
     statements: [

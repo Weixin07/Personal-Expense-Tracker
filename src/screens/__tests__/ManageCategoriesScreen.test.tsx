@@ -36,6 +36,7 @@ const makeExpense = (
   currencyCode: 'USD',
   fxRateToBase: 1,
   baseAmount: 3.5,
+  baseCurrencyCode: 'USD',
   date: '2025-01-10',
   categoryId: 1,
   notes: null,

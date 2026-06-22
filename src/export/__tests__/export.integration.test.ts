@@ -29,6 +29,7 @@ describe('CSV Export Integration Tests', () => {
       currencyCode: 'GBP',
       fxRateToBase: 1.0,
       baseAmount: 45.5,
+      baseCurrencyCode: 'GBP',
       date: '2025-01-15',
       categoryId: 1,
       notes: 'Tesco shopping',
@@ -42,6 +43,7 @@ describe('CSV Export Integration Tests', () => {
       currencyCode: 'USD',
       fxRateToBase: 1.27,
       baseAmount: 31.75,
+      baseCurrencyCode: 'GBP',
       date: '2025-01-20',
       categoryId: 2,
       notes: null,
@@ -55,6 +57,7 @@ describe('CSV Export Integration Tests', () => {
       currencyCode: 'EUR',
       fxRateToBase: 1.15,
       baseAmount: 4.025,
+      baseCurrencyCode: 'GBP',
       date: '2025-01-22',
       categoryId: null,
       notes: 'Line 1\nLine 2',
@@ -77,7 +80,7 @@ describe('CSV Export Integration Tests', () => {
       // Check header row
       const lines = csv.split('\r\n');
       expect(lines[0]).toBe(
-        '\uFEFFid,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes',
+        '\uFEFFid,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code',
       );
     });
 
@@ -141,9 +144,9 @@ describe('CSV Export Integration Tests', () => {
       const csv = result.content;
       const lines = csv.split('\r\n');
 
-      // Second expense has null notes
+      // notes is the second-to-last column; base_currency_code is the last column.
       const secondExpense = lines[2].split(',');
-      expect(secondExpense[secondExpense.length - 1]).toBe('');
+      expect(secondExpense[secondExpense.length - 2]).toBe('');
     });
 
     it('should handle large datasets efficiently', () => {
@@ -157,6 +160,7 @@ describe('CSV Export Integration Tests', () => {
           currencyCode: 'GBP',
           fxRateToBase: 1.0,
           baseAmount: Math.random() * 1000,
+          baseCurrencyCode: 'GBP',
           date: '2025-01-01',
           categoryId: (i % 5) + 1,
           notes: null,
@@ -203,6 +207,7 @@ describe('CSV Export Integration Tests', () => {
         currencyCode: 'USD',
         fxRateToBase: 1.234567,
         baseAmount: 152.415135963,
+        baseCurrencyCode: 'USD',
         date: '2025-01-01',
         categoryId: null,
         notes: null,
@@ -233,7 +238,7 @@ describe('CSV Export Integration Tests', () => {
 
       const header = lines[0].replace('\uFEFF', '');
       expect(header).toBe(
-        'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes',
+        'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code',
       );
 
       // Verify data row column positions
@@ -247,6 +252,7 @@ describe('CSV Export Integration Tests', () => {
       expect(firstDataRow[6]).toBe('2025-01-15'); // date
       expect(firstDataRow[7]).toBe('Groceries'); // category
       expect(firstDataRow[8]).toBe('Tesco shopping'); // notes
+      expect(firstDataRow[9]).toBe('GBP'); // base_currency_code
     });
   });
 

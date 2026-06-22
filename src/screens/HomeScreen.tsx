@@ -107,11 +107,20 @@ const HomeScreen: React.FC = () => {
     return map;
   }, [categories]);
 
-  const totalsLabel = useMemo(
-    () =>
-      formatCurrencyAmount(totals.baseAmount, settings.baseCurrency, 'base'),
-    [totals.baseAmount, settings.baseCurrency],
-  );
+  const totalsLines = useMemo(() => {
+    if (totals.byBaseCurrency.length === 0) {
+      return [
+        formatCurrencyAmount(totals.baseAmount, settings.baseCurrency, 'base'),
+      ];
+    }
+    return totals.byBaseCurrency.map(entry =>
+      formatCurrencyAmount(
+        entry.total,
+        entry.baseCurrencyCode ?? settings.baseCurrency,
+        'base',
+      ),
+    );
+  }, [totals.byBaseCurrency, totals.baseAmount, settings.baseCurrency]);
 
   const pendingExports = useMemo(
     () => exportQueue.filter(item => item.status === 'pending').length,
@@ -218,7 +227,7 @@ const HomeScreen: React.FC = () => {
               <Text style={styles.listAmount}>
                 {formatCurrencyAmount(
                   item.baseAmount,
-                  settings.baseCurrency,
+                  item.baseCurrencyCode ?? settings.baseCurrency,
                   'base',
                 )}
               </Text>
@@ -262,7 +271,14 @@ const HomeScreen: React.FC = () => {
           />
         </View>
         <Text variant="bodyMedium">Base currency: {baseCurrencyLabel}</Text>
-        <Text variant="bodyMedium">Total (base): {totalsLabel}</Text>
+        <Text variant="bodyMedium">
+          Total (base): {totalsLines.join('  |  ')}
+        </Text>
+        {totals.mixedBase ? (
+          <Text variant="labelSmall" style={styles.metaText}>
+            Totals span multiple base currencies and are shown per base.
+          </Text>
+        ) : null}
         <Text variant="bodyMedium">
           Tracked expenses: {filteredExpenses.length}
         </Text>
@@ -372,7 +388,8 @@ const HomeScreen: React.FC = () => {
     hasActiveFilters,
     pendingExports,
     refreshing,
-    totalsLabel,
+    totalsLines,
+    totals.mixedBase,
   ]);
 
   const listEmptyComponent = useMemo(

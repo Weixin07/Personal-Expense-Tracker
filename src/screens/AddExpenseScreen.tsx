@@ -26,6 +26,7 @@ import {
   buildUpdatePayload,
   computeBaseAmount,
   getDefaultExpenseFormValues,
+  resolveFxRateForCurrency,
   validateExpenseForm,
   type ExpenseFormErrors,
   type ExpenseFormValues,
@@ -42,7 +43,15 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
   const expenseId = route.params?.expenseId ?? null;
 
   const {
-    state: { categories, expenses, settings, isInitialised, isLoading, error },
+    state: {
+      categories,
+      expenses,
+      settings,
+      fxRateCache,
+      isInitialised,
+      isLoading,
+      error,
+    },
     actions: { createExpense, updateExpense, deleteExpense },
   } = useExpenseData();
 
@@ -57,8 +66,9 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
         settings.baseCurrency,
         categories,
         existingExpense ?? undefined,
+        fxRateCache,
       ),
-    [settings.baseCurrency, categories, existingExpense],
+    [settings.baseCurrency, categories, existingExpense, fxRateCache],
   );
 
   const [values, setValues] = useState<ExpenseFormValues>(initialFormValues);
@@ -112,7 +122,16 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
   };
 
   const handleCurrencySelect = (option: { code: string }) => {
-    setValues(prev => ({ ...prev, currencyCode: option.code }));
+    const resolvedRate = resolveFxRateForCurrency(
+      option.code,
+      settings.baseCurrency,
+      fxRateCache,
+    );
+    setValues(prev => ({
+      ...prev,
+      currencyCode: option.code,
+      fxRateToBase: resolvedRate !== '' ? resolvedRate : prev.fxRateToBase,
+    }));
     setCurrencyDialogVisible(false);
     if (errors.currencyCode) {
       setErrors(prev => ({ ...prev, currencyCode: undefined }));
@@ -267,7 +286,11 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
           </HelperText>
 
           <TextInput
-            label="FX rate to base"
+            label={
+              values.currencyCode && settings.baseCurrency
+                ? `FX rate (1 ${values.currencyCode} = ? ${settings.baseCurrency})`
+                : 'FX rate to base'
+            }
             value={values.fxRateToBase}
             onChangeText={handleChange('fxRateToBase')}
             mode="outlined"

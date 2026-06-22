@@ -8,6 +8,7 @@ import {
 import { formatMoneyAmount, formatFxRate } from '../utils/formatting';
 import type {
   CategoryRecord,
+  CurrencyFxRateRecord,
   ExpenseRecord,
   NewExpenseRecord,
   UpdateExpenseRecord,
@@ -19,6 +20,7 @@ export type ExpenseFormValues = {
   currencyCode: string;
   fxRateToBase: string;
   baseAmount: string;
+  baseCurrencyCode: string | null;
   date: string;
   categoryId: number | null;
   notes: string;
@@ -46,6 +48,7 @@ export type ValidExpensePayload = {
   currencyCode: string;
   fxRateToBase: number;
   baseAmount: number;
+  baseCurrencyCode: string | null;
   date: string;
   categoryId: number | null;
   notes: string | null;
@@ -70,10 +73,39 @@ export const computeBaseAmount = (
   return Math.round(product * 1e8) / 1e8;
 };
 
+/**
+ * Resolve the FX-rate string to prefill for a given native currency.
+ * Returns '1.000000' when the currency matches the base, the last cached rate
+ * for the (base, currency) pair when one exists, or '' when unknown.
+ */
+export const resolveFxRateForCurrency = (
+  currencyCode: string,
+  baseCurrency: string | null,
+  cachedRates: readonly CurrencyFxRateRecord[] = [],
+): string => {
+  const code = currencyCode.trim().toUpperCase();
+  if (!code || !baseCurrency) {
+    return '';
+  }
+
+  const base = baseCurrency.trim().toUpperCase();
+  if (code === base) {
+    return formatFxRate(1);
+  }
+
+  const cached = cachedRates.find(
+    rate =>
+      rate.baseCurrencyCode.toUpperCase() === base &&
+      rate.currencyCode.toUpperCase() === code,
+  );
+  return cached ? formatFxRate(cached.fxRateToBase) : '';
+};
+
 export const getDefaultExpenseFormValues = (
   baseCurrency: string | null,
   categories: CategoryRecord[],
   existing?: ExpenseRecord,
+  cachedRates: readonly CurrencyFxRateRecord[] = [],
 ): ExpenseFormValues => {
   if (existing) {
     return {
@@ -82,6 +114,7 @@ export const getDefaultExpenseFormValues = (
       currencyCode: existing.currencyCode,
       fxRateToBase: formatFxRate(existing.fxRateToBase),
       baseAmount: formatMoneyAmount(existing.baseAmount),
+      baseCurrencyCode: existing.baseCurrencyCode ?? baseCurrency,
       date: existing.date,
       categoryId: existing.categoryId ?? null,
       notes: existing.notes ?? '',
@@ -90,13 +123,19 @@ export const getDefaultExpenseFormValues = (
 
   const today = new Date();
   const isoDate = today.toISOString().slice(0, 10);
+  const currencyCode = baseCurrency ?? '';
 
   return {
     description: '',
     amountNative: '',
-    currencyCode: baseCurrency ?? '',
-    fxRateToBase: '',
+    currencyCode,
+    fxRateToBase: resolveFxRateForCurrency(
+      currencyCode,
+      baseCurrency,
+      cachedRates,
+    ),
     baseAmount: '',
+    baseCurrencyCode: baseCurrency,
     date: isoDate,
     categoryId: categories.length ? categories[0].id : null,
     notes: '',
@@ -147,6 +186,14 @@ export const validateExpenseForm = (
     errors.currencyCode = currencyCheck.message;
   }
 
+  if (values.baseCurrencyCode) {
+    const baseCurrencyCheck = validateCurrencyCode(values.baseCurrencyCode);
+    if (!baseCurrencyCheck.valid) {
+      errors.form =
+        'Base currency is invalid. Set a valid base currency in Settings.';
+    }
+  }
+
   const baseAmountNumber = computeBaseAmount(
     values.amountNative,
     values.fxRateToBase,
@@ -179,6 +226,9 @@ export const validateExpenseForm = (
       currencyCode: values.currencyCode.trim().toUpperCase(),
       fxRateToBase: Number(values.fxRateToBase),
       baseAmount: baseAmountNumber ?? 0,
+      baseCurrencyCode: values.baseCurrencyCode
+        ? values.baseCurrencyCode.trim().toUpperCase()
+        : null,
       date: values.date,
       categoryId: values.categoryId ?? null,
       notes: ensureNotes(values.notes),
@@ -194,6 +244,7 @@ export const buildCreatePayload = (
   currencyCode: value.currencyCode,
   fxRateToBase: value.fxRateToBase,
   baseAmount: value.baseAmount,
+  baseCurrencyCode: value.baseCurrencyCode,
   date: value.date,
   categoryId: value.categoryId,
   notes: value.notes,
@@ -209,6 +260,7 @@ export const buildUpdatePayload = (
   currencyCode: value.currencyCode,
   fxRateToBase: value.fxRateToBase,
   baseAmount: value.baseAmount,
+  baseCurrencyCode: value.baseCurrencyCode,
   date: value.date,
   categoryId: value.categoryId,
   notes: value.notes,
