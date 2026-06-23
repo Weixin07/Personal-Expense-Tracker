@@ -207,21 +207,27 @@ const HomeScreen: React.FC = () => {
       const categoryName = item.categoryId
         ? categoriesMap.get(item.categoryId)
         : null;
+      const payee = item.payee.trim();
+      const description = item.description.trim();
+      const title = payee || description || '(no payee)';
       const descriptionParts = [
         formatDateBritish(item.date),
         categoryName ?? 'No category',
         `${formatMoneyAmount(item.amountNative)} ${item.currencyCode}`,
       ];
+      if (payee && description) {
+        descriptionParts.unshift(description);
+      }
       return (
         <List.Item
           style={styles.listItem}
-          title={item.description}
+          title={title}
           description={descriptionParts.join(' | ')}
           descriptionNumberOfLines={2}
           onPress={() =>
             navigation.navigate('AddExpense', { expenseId: item.id })
           }
-          accessibilityLabel={`Open expense ${item.description}`}
+          accessibilityLabel={`Open expense ${title}`}
           right={() => (
             <View style={styles.amountContainer}>
               <Text style={styles.listAmount}>

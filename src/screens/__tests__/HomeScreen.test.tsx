@@ -27,6 +27,7 @@ const makeExpense = (
 ): ExpenseRecord => ({
   id: 1,
   description: 'Coffee',
+  payee: 'Corner Cafe',
   amountNative: 3.5,
   currencyCode: 'USD',
   fxRateToBase: 1,
@@ -65,8 +66,20 @@ describe('HomeScreen', () => {
     expect(screen.getByText('No expenses found')).toBeOnTheScreen();
   });
 
-  it('renders an expense row when expenses are present', () => {
-    const expense = makeExpense({ description: 'Lunch' });
+  it('renders the payee as the row title when expenses are present', () => {
+    const expense = makeExpense({ payee: 'Corner Cafe', description: 'Lunch' });
+    mockedUseExpenseData.mockReturnValue(
+      makeContextValue({
+        state: { expenses: [expense] },
+        selectors: { filteredExpenses: [expense] },
+      }),
+    );
+    renderWithProviders(<HomeScreen />);
+    expect(screen.getByText('Corner Cafe')).toBeOnTheScreen();
+  });
+
+  it('falls back to the description for the title when payee is blank', () => {
+    const expense = makeExpense({ payee: '', description: 'Lunch' });
     mockedUseExpenseData.mockReturnValue(
       makeContextValue({
         state: { expenses: [expense] },
@@ -75,6 +88,18 @@ describe('HomeScreen', () => {
     );
     renderWithProviders(<HomeScreen />);
     expect(screen.getByText('Lunch')).toBeOnTheScreen();
+  });
+
+  it('shows a placeholder title when payee and description are both blank', () => {
+    const expense = makeExpense({ payee: '', description: '' });
+    mockedUseExpenseData.mockReturnValue(
+      makeContextValue({
+        state: { expenses: [expense] },
+        selectors: { filteredExpenses: [expense] },
+      }),
+    );
+    renderWithProviders(<HomeScreen />);
+    expect(screen.getByText('(no payee)')).toBeOnTheScreen();
   });
 
   it('navigates to AddExpense when the add button is pressed', () => {
@@ -112,6 +137,7 @@ describe('HomeScreen', () => {
     };
     const expense = makeExpense({
       id: 7,
+      payee: 'Bean Bar',
       description: 'Coffee',
       categoryId: 1,
     });
@@ -146,7 +172,7 @@ describe('HomeScreen', () => {
     fireEvent.press(screen.getByLabelText('Select Food'));
     expect(setFilters).toHaveBeenCalledWith({ categoryId: 1 });
 
-    fireEvent.press(screen.getByLabelText('Open expense Coffee'));
+    fireEvent.press(screen.getByLabelText('Open expense Bean Bar'));
     expect(mockNavigate).toHaveBeenCalledWith('AddExpense', { expenseId: 7 });
 
     fireEvent.press(screen.getByLabelText('View export queue'));

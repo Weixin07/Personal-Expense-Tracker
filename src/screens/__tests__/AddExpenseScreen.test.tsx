@@ -24,6 +24,7 @@ const makeExpense = (
 ): ExpenseRecord => ({
   id: 1,
   description: 'Coffee',
+  payee: 'Corner Cafe',
   amountNative: 3.5,
   currencyCode: 'USD',
   fxRateToBase: 1,
@@ -77,6 +78,7 @@ describe('AddExpenseScreen', () => {
     renderScreen(undefined);
     expect(screen.getByText('Save expense')).toBeOnTheScreen();
     expect(screen.getByLabelText('Expense description')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Expense payee')).toBeOnTheScreen();
   });
 
   it('shows a spinner until the data is initialised', () => {
@@ -107,6 +109,10 @@ describe('AddExpenseScreen', () => {
       'Groceries',
     );
     fireEvent.changeText(
+      screen.getByLabelText('Expense payee'),
+      'Local Market',
+    );
+    fireEvent.changeText(
       screen.getByLabelText('Amount in native currency'),
       '12.50',
     );
@@ -117,15 +123,60 @@ describe('AddExpenseScreen', () => {
     fireEvent.press(screen.getByLabelText('Create expense'));
 
     await waitFor(() => expect(createExpense).toHaveBeenCalledTimes(1));
+    expect(createExpense).toHaveBeenCalledWith(
+      expect.objectContaining({ payee: 'Local Market' }),
+    );
     expect(navigation.goBack).toHaveBeenCalled();
   });
 
-  it('blocks submit and surfaces validation errors when required fields are empty', () => {
+  it('blocks submit when description, payee and category are all empty', () => {
+    const createExpense = jest.fn();
+    renderScreen(undefined, { actions: { createExpense } });
+    fireEvent.changeText(
+      screen.getByLabelText('Amount in native currency'),
+      '12.50',
+    );
+    fireEvent.changeText(
+      screen.getByLabelText('FX rate to base currency'),
+      '1',
+    );
+    fireEvent.press(screen.getByLabelText('Create expense'));
+    expect(createExpense).not.toHaveBeenCalled();
+    expect(
+      screen.getByText('Add a description, payee, or category.'),
+    ).toBeOnTheScreen();
+  });
+
+  it('saves a category-only expense with no description or payee', async () => {
+    const createExpense = jest.fn().mockResolvedValue(makeExpense());
+    const { navigation } = renderScreen(undefined, {
+      state: { categories: [makeCategory({ id: 1, name: 'Food' })] },
+      actions: { createExpense },
+    });
+    fireEvent.changeText(
+      screen.getByLabelText('Amount in native currency'),
+      '12.50',
+    );
+    fireEvent.changeText(
+      screen.getByLabelText('FX rate to base currency'),
+      '1',
+    );
+    fireEvent.press(screen.getByLabelText('Create expense'));
+    await waitFor(() => expect(createExpense).toHaveBeenCalledTimes(1));
+    expect(createExpense).toHaveBeenCalledWith(
+      expect.objectContaining({ description: '', payee: '' }),
+    );
+    expect(navigation.goBack).toHaveBeenCalled();
+  });
+
+  it('blocks submit and surfaces a validation error when amount is empty', () => {
     const createExpense = jest.fn();
     renderScreen(undefined, { actions: { createExpense } });
     fireEvent.press(screen.getByLabelText('Create expense'));
     expect(createExpense).not.toHaveBeenCalled();
-    expect(screen.getByText('Description is required.')).toBeOnTheScreen();
+    expect(
+      screen.getByText('Amount must be greater than zero.'),
+    ).toBeOnTheScreen();
   });
 
   it('updates an existing expense on submit', async () => {
@@ -195,6 +246,10 @@ describe('AddExpenseScreen', () => {
     fireEvent.changeText(
       screen.getByLabelText('Expense description'),
       'Groceries',
+    );
+    fireEvent.changeText(
+      screen.getByLabelText('Expense payee'),
+      'Local Market',
     );
     fireEvent.changeText(
       screen.getByLabelText('Amount in native currency'),
@@ -275,12 +330,14 @@ describe('AddExpenseScreen', () => {
   it('clears a field error after the value is corrected', () => {
     renderScreen(undefined);
     fireEvent.press(screen.getByLabelText('Create expense'));
-    expect(screen.getByText('Description is required.')).toBeOnTheScreen();
+    expect(
+      screen.getByText('Amount must be greater than zero.'),
+    ).toBeOnTheScreen();
     fireEvent.changeText(
-      screen.getByLabelText('Expense description'),
-      'Coffee',
+      screen.getByLabelText('Amount in native currency'),
+      '10',
     );
-    expect(screen.queryByText('Description is required.')).toBeNull();
+    expect(screen.queryByText('Amount must be greater than zero.')).toBeNull();
   });
 
   it('clears the date error after the date is corrected', () => {

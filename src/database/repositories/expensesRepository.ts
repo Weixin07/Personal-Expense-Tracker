@@ -9,6 +9,7 @@ import type {
 const EXPENSE_COLUMNS = `
   id,
   description,
+  payee,
   amount_native,
   currency_code,
   fx_rate_to_base,
@@ -24,6 +25,7 @@ const EXPENSE_COLUMNS = `
 type RawExpenseRow = {
   id: number;
   description: string;
+  payee: string;
   amount_native: number;
   currency_code: string;
   fx_rate_to_base: number;
@@ -39,6 +41,7 @@ type RawExpenseRow = {
 const toExpenseRecord = (row: RawExpenseRow): ExpenseRecord => ({
   id: row.id,
   description: row.description,
+  payee: row.payee,
   amountNative: row.amount_native,
   currencyCode: row.currency_code,
   fxRateToBase: row.fx_rate_to_base,
@@ -67,6 +70,7 @@ export const createExpense = async (
   const resultSet = await db.executeSql(
     `INSERT INTO expenses (
       description,
+      payee,
       amount_native,
       currency_code,
       fx_rate_to_base,
@@ -75,9 +79,10 @@ export const createExpense = async (
       date,
       category_id,
       notes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       payload.description,
+      payload.payee,
       payload.amountNative,
       payload.currencyCode,
       payload.fxRateToBase,
@@ -110,6 +115,7 @@ export const updateExpense = async (
   const resultSet = await db.executeSql(
     `UPDATE expenses SET
       description = ?,
+      payee = ?,
       amount_native = ?,
       currency_code = ?,
       fx_rate_to_base = ?,
@@ -122,6 +128,7 @@ export const updateExpense = async (
     WHERE id = ?`,
     [
       fields.description,
+      fields.payee,
       fields.amountNative,
       fields.currencyCode,
       fields.fxRateToBase,

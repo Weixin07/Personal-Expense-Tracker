@@ -13,6 +13,15 @@ export type Migration = {
 
 const MIGRATIONS: readonly Migration[] = [
   {
+    version: 6,
+    name: 'expense-payee',
+    statements: [
+      {
+        sql: `ALTER TABLE expenses ADD COLUMN payee TEXT NOT NULL DEFAULT 'Unknown';`,
+      },
+    ],
+  },
+  {
     version: 5,
     name: 'expense-base-currency-and-fx-cache',
     statements: [

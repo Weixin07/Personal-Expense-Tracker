@@ -56,6 +56,7 @@ const mockStorage = storageAccess as jest.Mocked<typeof storageAccess>;
 const expense: ExpenseRecord = {
   id: 1,
   description: 'Coffee',
+  payee: 'Corner Cafe',
   amountNative: 3.5,
   currencyCode: 'USD',
   fxRateToBase: 1,
@@ -145,6 +146,7 @@ describe('ExpenseDataProvider effects', () => {
     await act(async () => {
       await ctx.actions.createExpense({
         description: 'Coffee',
+        payee: 'Corner Cafe',
         amountNative: 3.5,
         currencyCode: 'USD',
         fxRateToBase: 1,
@@ -166,6 +168,7 @@ describe('ExpenseDataProvider effects', () => {
       await expect(
         ctx.actions.createExpense({
           description: 'x',
+          payee: 'y',
           amountNative: 1,
           currencyCode: 'USD',
           fxRateToBase: 1,

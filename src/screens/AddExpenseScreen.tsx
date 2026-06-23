@@ -147,6 +147,9 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
 
     if (!validation.ok) {
       setErrors(validation.errors);
+      if (validation.errors.form) {
+        setFormError(validation.errors.form);
+      }
       return;
     }
 
@@ -249,12 +252,17 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
             onChangeText={handleChange('description')}
             mode="outlined"
             accessibilityLabel="Expense description"
-            error={Boolean(errors.description)}
             autoCapitalize="sentences"
           />
-          <HelperText type="error" visible={Boolean(errors.description)}>
-            {errors.description}
-          </HelperText>
+
+          <TextInput
+            label="Payee"
+            value={values.payee}
+            onChangeText={handleChange('payee')}
+            mode="outlined"
+            accessibilityLabel="Expense payee"
+            autoCapitalize="words"
+          />
 
           <TextInput
             label="Amount (native)"

@@ -10,6 +10,7 @@ const expenses: ExpenseRecord[] = [
   {
     id: 1,
     description: 'Weekly groceries',
+    payee: 'Tesco',
     amountNative: 45.5,
     currencyCode: 'GBP',
     fxRateToBase: 1.0,

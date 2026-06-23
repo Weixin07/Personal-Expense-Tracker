@@ -1,8 +1,3 @@
-/**
- * Performance Testing Helpers
- * Utilities for measuring and validating performance characteristics
- */
-
 export type PerformanceMetrics = {
   duration: number;
   memory?: {
@@ -20,9 +15,6 @@ export type PerformanceThresholds = {
   minIterationsPerSecond?: number;
 };
 
-/**
- * Measure execution time of a function
- */
 export const measureTime = async <T>(
   fn: () => T | Promise<T>,
 ): Promise<{ result: T; duration: number }> => {
@@ -32,9 +24,6 @@ export const measureTime = async <T>(
   return { result, duration };
 };
 
-/**
- * Measure memory usage (if available)
- */
 export const measureMemory = (): { used: number } | null => {
   const perf = performance as typeof performance & {
     memory?: { usedJSHeapSize: number };
@@ -47,9 +36,6 @@ export const measureMemory = (): { used: number } | null => {
   return null;
 };
 
-/**
- * Measure both time and memory for a function
- */
 export const measurePerformance = async <T>(
   fn: () => T | Promise<T>,
 ): Promise<{ result: T; metrics: PerformanceMetrics }> => {
@@ -72,9 +58,6 @@ export const measurePerformance = async <T>(
   return { result, metrics };
 };
 
-/**
- * Run a function multiple times and collect statistics
- */
 export const benchmark = async <T>(
   fn: () => T | Promise<T>,
   iterations: number = 100,
@@ -115,9 +98,6 @@ export const benchmark = async <T>(
   };
 };
 
-/**
- * Assert performance meets thresholds
- */
 export const assertPerformance = (
   metrics: PerformanceMetrics,
   thresholds: PerformanceThresholds,
@@ -153,9 +133,6 @@ export const assertPerformance = (
   }
 };
 
-/**
- * Format bytes to human-readable string
- */
 export const formatBytes = (bytes: number): string => {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -164,9 +141,6 @@ export const formatBytes = (bytes: number): string => {
   return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
 };
 
-/**
- * Format duration to human-readable string
- */
 export const formatDuration = (ms: number): string => {
   if (ms < 1000) {
     return `${ms.toFixed(2)}ms`;
@@ -177,9 +151,6 @@ export const formatDuration = (ms: number): string => {
   return `${(ms / 60000).toFixed(2)}min`;
 };
 
-/**
- * Generate mock expense data for performance testing
- */
 export const generateMockExpenses = (count: number) => {
   const categories = [
     'Food',
@@ -200,6 +171,16 @@ export const generateMockExpenses = (count: number) => {
     'Utility bill',
     'Doctor visit',
   ];
+  const payees = [
+    'Tesco',
+    'Shell',
+    'The Bistro',
+    'Costa',
+    'Cineworld',
+    'Amazon',
+    'British Gas',
+    'NHS Clinic',
+  ];
 
   const expenses = [];
   const startDate = new Date('2020-01-01');
@@ -216,6 +197,7 @@ export const generateMockExpenses = (count: number) => {
       id: i + 1,
       description:
         descriptions[Math.floor(Math.random() * descriptions.length)],
+      payee: payees[Math.floor(Math.random() * payees.length)],
       amountNative: parseFloat(amount.toFixed(2)),
       currencyCode: currency,
       fxRateToBase: parseFloat(fxRate.toFixed(6)),
@@ -232,9 +214,6 @@ export const generateMockExpenses = (count: number) => {
   return expenses;
 };
 
-/**
- * Generate mock categories for performance testing
- */
 export const generateMockCategories = () => {
   return [
     {
@@ -276,16 +255,10 @@ export const generateMockCategories = () => {
   ];
 };
 
-/**
- * Wait for a specified duration
- */
 export const wait = (ms: number): Promise<void> => {
   return new Promise(resolve => setTimeout(resolve, ms));
 };
 
-/**
- * Run test with timeout
- */
 export const withTimeout = async <T>(
   fn: () => Promise<T>,
   timeoutMs: number,

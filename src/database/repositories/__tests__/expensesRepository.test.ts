@@ -21,6 +21,7 @@ describe('expensesRepository', () => {
     it('should create an expense and return the created record', async () => {
       const newExpense: NewExpenseRecord = {
         description: 'Test expense',
+        payee: 'Acme Store',
         amountNative: 100.5,
         currencyCode: 'USD',
         fxRateToBase: 1.0,
@@ -44,6 +45,7 @@ describe('expensesRepository', () => {
       const mockExpense = {
         id: 42,
         description: 'Test expense',
+        payee: 'Acme Store',
         amount_native: 100.5,
         currency_code: 'USD',
         fx_rate_to_base: 1.0,
@@ -77,6 +79,7 @@ describe('expensesRepository', () => {
         expect.stringContaining('INSERT INTO expenses'),
         [
           'Test expense',
+          'Acme Store',
           100.5,
           'USD',
           1.0,
@@ -91,6 +94,7 @@ describe('expensesRepository', () => {
       expect(result).toEqual({
         id: 42,
         description: 'Test expense',
+        payee: 'Acme Store',
         amountNative: 100.5,
         currencyCode: 'USD',
         fxRateToBase: 1.0,
@@ -107,6 +111,7 @@ describe('expensesRepository', () => {
     it('should handle null categoryId and notes', async () => {
       const newExpense: NewExpenseRecord = {
         description: 'Test expense',
+        payee: 'Acme Store',
         amountNative: 50.0,
         currencyCode: 'USD',
         fxRateToBase: 1.0,
@@ -130,6 +135,7 @@ describe('expensesRepository', () => {
       const mockExpense = {
         id: 43,
         description: 'Test expense',
+        payee: 'Acme Store',
         amount_native: 50.0,
         currency_code: 'USD',
         fx_rate_to_base: 1.0,
@@ -162,6 +168,7 @@ describe('expensesRepository', () => {
         expect.stringContaining('INSERT INTO expenses'),
         [
           'Test expense',
+          'Acme Store',
           50.0,
           'USD',
           1.0,
@@ -180,6 +187,7 @@ describe('expensesRepository', () => {
     it('should throw error if insertId is not returned', async () => {
       const newExpense: NewExpenseRecord = {
         description: 'Test expense',
+        payee: 'Acme Store',
         amountNative: 100.5,
         currencyCode: 'USD',
         fxRateToBase: 1.0,
@@ -210,6 +218,7 @@ describe('expensesRepository', () => {
     it('should throw error if expense cannot be loaded after insert', async () => {
       const newExpense: NewExpenseRecord = {
         description: 'Test expense',
+        payee: 'Acme Store',
         amountNative: 100.5,
         currencyCode: 'USD',
         fxRateToBase: 1.0,
@@ -255,6 +264,7 @@ describe('expensesRepository', () => {
       const updatePayload: UpdateExpenseRecord = {
         id: 42,
         description: 'Updated expense',
+        payee: 'Acme Store',
         amountNative: 200.75,
         currencyCode: 'EUR',
         fxRateToBase: 1.1,
@@ -278,6 +288,7 @@ describe('expensesRepository', () => {
       const mockExpense = {
         id: 42,
         description: 'Updated expense',
+        payee: 'Acme Store',
         amount_native: 200.75,
         currency_code: 'EUR',
         fx_rate_to_base: 1.1,
@@ -310,6 +321,7 @@ describe('expensesRepository', () => {
         expect.stringContaining('UPDATE expenses SET'),
         [
           'Updated expense',
+          'Acme Store',
           200.75,
           'EUR',
           1.1,
@@ -325,6 +337,7 @@ describe('expensesRepository', () => {
       expect(result).toEqual({
         id: 42,
         description: 'Updated expense',
+        payee: 'Acme Store',
         amountNative: 200.75,
         currencyCode: 'EUR',
         fxRateToBase: 1.1,
@@ -342,6 +355,7 @@ describe('expensesRepository', () => {
       const updatePayload: UpdateExpenseRecord = {
         id: 999,
         description: 'Updated expense',
+        payee: 'Acme Store',
         amountNative: 200.75,
         currencyCode: 'EUR',
         fxRateToBase: 1.1,
@@ -373,6 +387,7 @@ describe('expensesRepository', () => {
       const updatePayload: UpdateExpenseRecord = {
         id: 42,
         description: 'Updated expense',
+        payee: 'Acme Store',
         amountNative: 200.75,
         currencyCode: 'EUR',
         fxRateToBase: 1.1,
@@ -396,6 +411,7 @@ describe('expensesRepository', () => {
       const mockExpense = {
         id: 42,
         description: 'Updated expense',
+        payee: 'Acme Store',
         amount_native: 200.75,
         currency_code: 'EUR',
         fx_rate_to_base: 1.1,
@@ -474,6 +490,7 @@ describe('expensesRepository', () => {
       const mockExpense = {
         id: 42,
         description: 'Test expense',
+        payee: 'Acme Store',
         amount_native: 100.5,
         currency_code: 'USD',
         fx_rate_to_base: 1.0,
@@ -508,6 +525,7 @@ describe('expensesRepository', () => {
       expect(result).toEqual({
         id: 42,
         description: 'Test expense',
+        payee: 'Acme Store',
         amountNative: 100.5,
         currencyCode: 'USD',
         fxRateToBase: 1.0,

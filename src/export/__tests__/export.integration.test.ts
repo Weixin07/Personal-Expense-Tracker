@@ -1,7 +1,3 @@
-/**
- * Integration tests for CSV export and Google Drive upload flow
- */
-
 import type { CategoryRecord, ExpenseRecord } from '../../database/types';
 import { buildExpensesCsv } from '../csvBuilder';
 
@@ -25,6 +21,7 @@ describe('CSV Export Integration Tests', () => {
     {
       id: 1,
       description: 'Weekly groceries',
+      payee: 'Tesco',
       amountNative: 45.5,
       currencyCode: 'GBP',
       fxRateToBase: 1.0,
@@ -39,6 +36,7 @@ describe('CSV Export Integration Tests', () => {
     {
       id: 2,
       description: 'Uber to airport',
+      payee: 'Uber',
       amountNative: 25.0,
       currencyCode: 'USD',
       fxRateToBase: 1.27,
@@ -53,6 +51,7 @@ describe('CSV Export Integration Tests', () => {
     {
       id: 3,
       description: 'Coffee with "special" quotes',
+      payee: 'Costa',
       amountNative: 3.5,
       currencyCode: 'EUR',
       fxRateToBase: 1.15,
@@ -77,10 +76,9 @@ describe('CSV Export Integration Tests', () => {
       // Check BOM
       expect(csv.charCodeAt(0)).toBe(0xfeff);
 
-      // Check header row
       const lines = csv.split('\r\n');
       expect(lines[0]).toBe(
-        '\uFEFFid,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code',
+        '\uFEFFid,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee',
       );
     });
 
@@ -144,18 +142,18 @@ describe('CSV Export Integration Tests', () => {
       const csv = result.content;
       const lines = csv.split('\r\n');
 
-      // notes is the second-to-last column; base_currency_code is the last column.
+      // Trailing columns are: notes, base_currency_code, payee.
       const secondExpense = lines[2].split(',');
-      expect(secondExpense[secondExpense.length - 2]).toBe('');
+      expect(secondExpense[secondExpense.length - 3]).toBe('');
     });
 
     it('should handle large datasets efficiently', () => {
-      // Generate 10,000 expenses
       const largeDataset: ExpenseRecord[] = Array.from(
         { length: 10000 },
         (_, i) => ({
           id: i + 1,
           description: `Expense ${i + 1}`,
+          payee: `Vendor ${i + 1}`,
           amountNative: Math.random() * 1000,
           currencyCode: 'GBP',
           fxRateToBase: 1.0,
@@ -195,7 +193,6 @@ describe('CSV Export Integration Tests', () => {
       // Check that record separators use CRLF (note: newlines inside quoted fields are preserved as-is)
       const lines = csv.split('\r\n');
       expect(lines.length).toBeGreaterThan(1);
-      // Verify CRLF is used between records
       expect(csv).toMatch(/\r\n/);
     });
 
@@ -203,6 +200,7 @@ describe('CSV Export Integration Tests', () => {
       const preciseExpense: ExpenseRecord = {
         id: 100,
         description: 'Precision test',
+        payee: 'Vendor',
         amountNative: 123.456789,
         currencyCode: 'USD',
         fxRateToBase: 1.234567,
@@ -238,7 +236,7 @@ describe('CSV Export Integration Tests', () => {
 
       const header = lines[0].replace('\uFEFF', '');
       expect(header).toBe(
-        'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code',
+        'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee',
       );
 
       // Verify data row column positions
@@ -253,6 +251,7 @@ describe('CSV Export Integration Tests', () => {
       expect(firstDataRow[7]).toBe('Groceries'); // category
       expect(firstDataRow[8]).toBe('Tesco shopping'); // notes
       expect(firstDataRow[9]).toBe('GBP'); // base_currency_code
+      expect(firstDataRow[10]).toBe('Tesco'); // payee
     });
   });
 

@@ -5,6 +5,7 @@ describe('buildExpensesCsv', () => {
   const baseExpense: ExpenseRecord = {
     id: 1,
     description: 'Coffee',
+    payee: 'Corner Cafe',
     amountNative: 3.5,
     currencyCode: 'USD',
     fxRateToBase: 1,
@@ -39,7 +40,7 @@ describe('buildExpensesCsv', () => {
 
     // Check for expected content rather than parsing (which is complex with embedded CRLF)
     expect(content).toContain(
-      'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code',
+      'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee',
     );
     expect(content).toContain('"Breakfast, ""delicious""\nandalusian"');
     expect(content).toContain('3.50,USD,1.000000,3.50,2025-01-10,Essentials');
@@ -60,7 +61,7 @@ describe('buildExpensesCsv', () => {
 
     const rows = content.slice(1).split('\r\n');
     expect(rows[1]).toBe(
-      '5,Coffee,3.50,USD,1.000000,3.50,2025-01-10,,Morning brew,USD',
+      '5,Coffee,3.50,USD,1.000000,3.50,2025-01-10,,Morning brew,USD,Corner Cafe',
     );
   });
 

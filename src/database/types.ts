@@ -1,6 +1,7 @@
 export type ExpenseRecord = {
   id: number;
   description: string;
+  payee: string;
   amountNative: number;
   currencyCode: string;
   fxRateToBase: number;

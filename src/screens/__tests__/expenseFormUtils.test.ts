@@ -29,12 +29,14 @@ describe('expenseFormUtils', () => {
       const values = getDefaultExpenseFormValues('USD', categories);
       expect(values.currencyCode).toBe('USD');
       expect(values.description).toBe('');
+      expect(values.payee).toBe('');
     });
 
     it('hydrates from existing expense', () => {
       const existing: ExpenseRecord = {
         id: 42,
         description: 'Lunch',
+        payee: 'Cafe Rio',
         amountNative: 10,
         currencyCode: 'USD',
         fxRateToBase: 1,
@@ -48,6 +50,7 @@ describe('expenseFormUtils', () => {
       };
       const values = getDefaultExpenseFormValues(null, categories, existing);
       expect(values.description).toBe('Lunch');
+      expect(values.payee).toBe('Cafe Rio');
       expect(values.baseAmount).toBe('10.00');
     });
   });
@@ -61,6 +64,7 @@ describe('expenseFormUtils', () => {
 
       const result = validateExpenseForm({
         description: '',
+        payee: '',
         amountNative: '0',
         currencyCode: 'BTC',
         fxRateToBase: '0',
@@ -72,7 +76,9 @@ describe('expenseFormUtils', () => {
       });
       expect(result.ok).toBe(false);
       if (!result.ok) {
-        expect(result.errors.description).toBeDefined();
+        expect(result.errors.form).toBe(
+          'Add a description, payee, or category.',
+        );
         expect(result.errors.amountNative).toBe(
           'Amount must be greater than zero.',
         );
@@ -88,6 +94,7 @@ describe('expenseFormUtils', () => {
     it('passes with valid data', () => {
       const result = validateExpenseForm({
         description: 'Dinner',
+        payee: 'Bistro',
         amountNative: '20.50',
         currencyCode: 'USD',
         fxRateToBase: '1.123456',
@@ -99,7 +106,67 @@ describe('expenseFormUtils', () => {
       });
       expect(result.ok).toBe(true);
       if (result.ok) {
+        expect(result.value.payee).toBe('Bistro');
         expect(result.value.baseAmount).toBeCloseTo(23.030848, 8);
+      }
+    });
+
+    const validBase = {
+      amountNative: '20.50',
+      currencyCode: 'USD',
+      fxRateToBase: '1.123456',
+      baseAmount: '',
+      baseCurrencyCode: 'USD',
+      date: '2025-01-10',
+      notes: '',
+    } as const;
+
+    it('accepts a category-only expense with blank description and payee', () => {
+      const result = validateExpenseForm({
+        ...validBase,
+        description: '',
+        payee: '',
+        categoryId: 1,
+      });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.description).toBe('');
+        expect(result.value.payee).toBe('');
+      }
+    });
+
+    it('accepts a description-only expense with no payee or category', () => {
+      const result = validateExpenseForm({
+        ...validBase,
+        description: 'Lunch',
+        payee: '',
+        categoryId: null,
+      });
+      expect(result.ok).toBe(true);
+    });
+
+    it('accepts a payee-only expense with no description or category', () => {
+      const result = validateExpenseForm({
+        ...validBase,
+        description: '',
+        payee: 'Cafe',
+        categoryId: null,
+      });
+      expect(result.ok).toBe(true);
+    });
+
+    it('rejects an expense with no description, payee, or category', () => {
+      const result = validateExpenseForm({
+        ...validBase,
+        description: '   ',
+        payee: '',
+        categoryId: null,
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.errors.form).toBe(
+          'Add a description, payee, or category.',
+        );
       }
     });
   });
@@ -107,6 +174,7 @@ describe('expenseFormUtils', () => {
   describe('build payload helpers', () => {
     const valid = {
       description: 'Groceries',
+      payee: 'Local Market',
       amountNative: 50,
       currencyCode: 'USD',
       fxRateToBase: 1,

@@ -32,6 +32,7 @@ const makeExpense = (
 ): ExpenseRecord => ({
   id: 1,
   description: 'Coffee',
+  payee: 'Corner Cafe',
   amountNative: 3.5,
   currencyCode: 'USD',
   fxRateToBase: 1,

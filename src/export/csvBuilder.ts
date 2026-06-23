@@ -22,6 +22,7 @@ const HEADER_COLUMNS = [
   'category',
   'notes',
   'base_currency_code',
+  'payee',
 ] as const;
 
 const UTF8_BOM = '\uFEFF';
@@ -87,6 +88,7 @@ export const buildExpensesCsv = ({
       categoryName,
       expense.notes ?? '',
       expense.baseCurrencyCode ?? '',
+      expense.payee,
     ].map(escapeCell);
 
     lines.push(row.join(','));
