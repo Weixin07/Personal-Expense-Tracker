@@ -479,6 +479,16 @@ git commit --no-verify
 - All files must type-check with `tsc --noEmit`
 - No `any` types unless explicitly justified
 
+### App Icon
+
+The launcher icon is generated from a single source image, `scripts/assets/logo.png`, by `scripts/generate-icons.mjs` (uses `sharp`). It emits the adaptive-icon layers (`mipmap-anydpi-v26/`, per-density foreground PNGs, `values/ic_launcher_background.xml`) plus the legacy `ic_launcher` PNGs across all densities. To regenerate after replacing the source image:
+
+```bash
+node scripts/generate-icons.mjs
+```
+
+Tune the `BACKGROUND` colour and the `*_FRACTION` framing constants at the top of the script, then rebuild Android (`cd android && ./gradlew clean`) to pick up the new resources.
+
 ---
 
 ## 🧪 Testing

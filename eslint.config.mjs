@@ -116,6 +116,16 @@ export default [
     },
   },
 
+  // Node-side tooling scripts (ESM, Node globals)
+  {
+    files: ['scripts/**/*.{js,mjs}'],
+    languageOptions: {
+      sourceType: 'module',
+      ecmaVersion: 'latest',
+      globals: { ...globals.node },
+    },
+  },
+
   // Test, setup, and helper files run under Jest
   {
     files: ['**/__tests__/**', '**/*.test.{js,jsx,ts,tsx}', 'jest.setup*.js'],

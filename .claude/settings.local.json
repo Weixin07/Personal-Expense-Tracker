@@ -142,7 +142,15 @@
       "Bash(git --no-pager diff src/hooks/useBiometricGate.ts)",
       "Bash(git --no-pager diff --name-only)",
       "Bash(git --no-pager diff -- '*.ts' '*.tsx' '*.js' '*.mjs')",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(magick -version)",
+      "Bash(node \"C:/Users/faith/AppData/Local/Temp/claude/C--PET/573c90ac-718a-43de-84f2-6c55953d90d3/scratchpad/inspect.mjs\")",
+      "Bash(node \"C:/PET/scripts/inspect-logo.mjs\")",
+      "Bash(node scripts/generate-icons.mjs)",
+      "Bash(mkdir -p scripts/assets)",
+      "Bash(git mv *)",
+      "Bash(mv doc-temp/logo.png scripts/assets/logo.png)",
+      "Bash(echo \"=== exit: $? ===\")"
     ],
     "deny": [],
     "ask": []
