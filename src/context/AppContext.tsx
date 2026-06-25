@@ -38,7 +38,11 @@ import type {
 } from '../database';
 import { bankersRound } from '../utils/math';
 import { toError, toErrorMessage } from '../utils/errors';
-import { useBiometricGate, useExportSync } from '../hooks';
+import {
+  useBiometricGate,
+  useExportSync,
+  biometricCredentialExists,
+} from '../hooks';
 import type { BiometricGateState, ExportQueueItem } from '../hooks';
 import { BiometricGateModal } from '../components/BiometricGateModal';
 
@@ -53,6 +57,7 @@ export type ExpenseFilters = {
 export type ExpenseDataSettings = {
   baseCurrency: string | null;
   biometricGateEnabled: boolean;
+  biometricCredentialVersion: number;
   driveFolderId: string | null;
   exportDirectoryUri: string | null;
 };
@@ -141,7 +146,10 @@ export type ExpenseDataAction =
         fxRateCache: CurrencyFxRateRecord[];
       };
     }
-  | { type: 'load/error'; payload: string }
+  | {
+      type: 'load/error';
+      payload: { error: string; biometricGateEnabled: boolean };
+    }
   | { type: 'operation/start' }
   | { type: 'operation/end' }
   | { type: 'operation/error'; payload: string }
@@ -156,13 +164,17 @@ export type ExpenseDataAction =
   | { type: 'fx-cache/upsert'; payload: CurrencyFxRateRecord }
   | { type: 'settings/set-base-currency'; payload: string | null }
   | { type: 'settings/set-biometric'; payload: boolean }
+  | { type: 'settings/set-cred-version'; payload: number }
   | { type: 'settings/set-drive-folder'; payload: string | null }
   | { type: 'settings/set-export-directory'; payload: string | null };
 
 const BASE_CURRENCY_KEY = 'base_currency';
 const BIOMETRIC_GATE_KEY = 'biometric_gate_enabled';
+const BIOMETRIC_CRED_VERSION_KEY = 'biometric_cred_version';
 const DRIVE_FOLDER_ID_KEY = 'drive_folder_id';
 const EXPORT_DIRECTORY_URI_KEY = 'export_directory_uri';
+
+const BIOMETRIC_CRED_VERSION = 2;
 
 export const initialState: CoreState = {
   expenses: [],
@@ -170,6 +182,7 @@ export const initialState: CoreState = {
   settings: {
     baseCurrency: null,
     biometricGateEnabled: false,
+    biometricCredentialVersion: 0,
     driveFolderId: null,
     exportDirectoryUri: null,
   },
@@ -196,9 +209,16 @@ const parseSettings = (records: AppSettingRecord[]): ExpenseDataSettings => {
     records.find(setting => setting.key === EXPORT_DIRECTORY_URI_KEY)?.value ??
     null;
   const biometricGateEnabled = biometricGateSetting === 'true';
+  const biometricCredentialVersion =
+    Number.parseInt(
+      records.find(setting => setting.key === BIOMETRIC_CRED_VERSION_KEY)
+        ?.value ?? '',
+      10,
+    ) || 0;
   return {
     baseCurrency,
     biometricGateEnabled,
+    biometricCredentialVersion,
     driveFolderId,
     exportDirectoryUri,
   };
@@ -257,9 +277,13 @@ export const expenseDataReducer = (
     case 'load/error':
       return {
         ...state,
+        settings: {
+          ...state.settings,
+          biometricGateEnabled: action.payload.biometricGateEnabled,
+        },
         isInitialised: true,
         isLoading: false,
-        error: action.payload,
+        error: action.payload.error,
       };
     case 'operation/start':
       return {
@@ -350,6 +374,14 @@ export const expenseDataReducer = (
         settings: {
           ...state.settings,
           biometricGateEnabled: action.payload,
+        },
+      };
+    case 'settings/set-cred-version':
+      return {
+        ...state,
+        settings: {
+          ...state.settings,
+          biometricCredentialVersion: action.payload,
         },
       };
     case 'settings/set-drive-folder':
@@ -519,7 +551,16 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
       });
       setLoadedQueueRecords(snapshot.exportQueueRecords);
     } catch (error) {
-      dispatch({ type: 'load/error', payload: toErrorMessage(error) });
+      let biometricGateEnabled: boolean;
+      try {
+        biometricGateEnabled = await biometricCredentialExists();
+      } catch {
+        biometricGateEnabled = true;
+      }
+      dispatch({
+        type: 'load/error',
+        payload: { error: toErrorMessage(error), biometricGateEnabled },
+      });
     }
   }, []);
 
@@ -535,7 +576,46 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
     ensureCredential: ensureBiometricCredential,
     clearCredential: clearBiometricCredential,
     applyEnabledState: applyBiometricEnabledState,
-  } = useBiometricGate({ enabled: state.settings.biometricGateEnabled });
+  } = useBiometricGate({
+    enabled: state.settings.biometricGateEnabled,
+    isInitialised: state.isInitialised,
+  });
+
+  useEffect(() => {
+    if (state.error !== null) {
+      return;
+    }
+    if (!state.isInitialised || !state.settings.biometricGateEnabled) {
+      return;
+    }
+    if (state.settings.biometricCredentialVersion >= BIOMETRIC_CRED_VERSION) {
+      return;
+    }
+    void (async () => {
+      try {
+        await ensureBiometricCredential();
+        await withDatabase(db =>
+          dbSetSetting(
+            db,
+            BIOMETRIC_CRED_VERSION_KEY,
+            String(BIOMETRIC_CRED_VERSION),
+          ),
+        );
+        dispatch({
+          type: 'settings/set-cred-version',
+          payload: BIOMETRIC_CRED_VERSION,
+        });
+      } catch {
+        // Leave the version unbumped so the upgrade retries on the next launch.
+      }
+    })();
+  }, [
+    state.error,
+    state.isInitialised,
+    state.settings.biometricGateEnabled,
+    state.settings.biometricCredentialVersion,
+    ensureBiometricCredential,
+  ]);
 
   const createExpense = useCallback<ExpenseDataActions['createExpense']>(
     async payload => {
@@ -732,6 +812,17 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
         );
         dispatch({ type: 'settings/set-biometric', payload: enabled });
         if (enabled) {
+          await withDatabase(db =>
+            dbSetSetting(
+              db,
+              BIOMETRIC_CRED_VERSION_KEY,
+              String(BIOMETRIC_CRED_VERSION),
+            ),
+          );
+          dispatch({
+            type: 'settings/set-cred-version',
+            payload: BIOMETRIC_CRED_VERSION,
+          });
           applyBiometricEnabledState(true);
         }
       } catch (error) {

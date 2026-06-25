@@ -32,7 +32,8 @@ const ensureBiometricCredential = async (): Promise<void> => {
   try {
     await Keychain.setGenericPassword('expense-tracker', 'biometric-lock', {
       service: BIOMETRIC_KEYCHAIN_SERVICE,
-      accessControl: Keychain.ACCESS_CONTROL.BIOMETRY_CURRENT_SET,
+      accessControl:
+        Keychain.ACCESS_CONTROL.BIOMETRY_CURRENT_SET_OR_DEVICE_PASSCODE,
       accessible: Keychain.ACCESSIBLE.WHEN_PASSCODE_SET_THIS_DEVICE_ONLY,
       securityLevel: Keychain.SECURITY_LEVEL.SECURE_HARDWARE,
     });
@@ -44,15 +45,21 @@ const ensureBiometricCredential = async (): Promise<void> => {
   }
 };
 
+export const biometricCredentialExists = (): Promise<boolean> =>
+  Keychain.hasGenericPassword({ service: BIOMETRIC_KEYCHAIN_SERVICE });
+
 export const useBiometricGate = ({
   enabled,
+  isInitialised,
 }: {
   enabled: boolean;
+  isInitialised?: boolean;
 }): UseBiometricGateResult => {
   const [isLocked, setIsLocked] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const lastBackgroundAtRef = useRef<number | null>(null);
   const biometricPromptInFlightRef = useRef(false);
+  const coldStartEvaluatedRef = useRef(false);
 
   const unlockWithBiometrics = useCallback(async (): Promise<boolean> => {
     if (!enabled) {
@@ -127,6 +134,17 @@ export const useBiometricGate = ({
     );
     return () => subscription.remove();
   }, [enabled]);
+
+  useEffect(() => {
+    if (!isInitialised || coldStartEvaluatedRef.current) {
+      return;
+    }
+    coldStartEvaluatedRef.current = true;
+    if (enabled) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot lock once settings finish hydrating; cannot be a lazy useState initializer because the gate flag is loaded asynchronously after mount
+      setIsLocked(true);
+    }
+  }, [enabled, isInitialised]);
 
   useEffect(() => {
     if (!enabled) {

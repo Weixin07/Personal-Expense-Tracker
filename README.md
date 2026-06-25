@@ -69,7 +69,7 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 
 ### 🔒 Security & Privacy
 
-- **Biometric App Lock**: Optional biometric/PIN gate after 5 minutes of inactivity
+- **Biometric App Lock**: Optional biometric/PIN gate on app relaunch and after 5 minutes of inactivity
 - **Secure Token Storage**: Android Keystore for OAuth tokens with device-encrypted storage
 - **No Telemetry**: Zero analytics, crash reporting, or tracking in v1
 - **Parameterized SQL**: All database queries use parameter binding (ESLint-enforced)
@@ -753,16 +753,17 @@ This app prioritizes **local security** (device protection) over **network secur
 
 1. User enables biometric lock in Settings
 2. App tracks foreground/background state
-3. After 5 minutes in background, app locks
-4. User must authenticate with biometric/PIN to unlock
-5. Modal blocks UI until authentication succeeds
+3. App locks on relaunch (after settings hydrate), and after 5 minutes in background
+4. The lock is enforced even if settings fail to load, whenever a biometric credential exists (fail-closed)
+5. User must authenticate with biometric/PIN to unlock
+6. Modal blocks UI until authentication succeeds
 
-**Implementation:** `src/context/AppContext.tsx` (Modal-in-Provider + AppState listener + Keychain via `react-native-keychain`)
+**Implementation:** `src/context/AppContext.tsx` (Modal-in-Provider) + `src/hooks/useBiometricGate.ts` (cold-start hydration latch + AppState listener + Keychain via `react-native-keychain`)
 
 **Biometric Storage:**
 
 - Service name: `expense-tracker-biometric-gate`
-- Access control: `BIOMETRY_CURRENT_SET` (invalidates on new biometric enrollment)
+- Access control: `BIOMETRY_CURRENT_SET_OR_DEVICE_PASSCODE` (invalidates the biometric path on new enrollment, while allowing the device passcode as a fallback so re-enrollment cannot hard-lock the user)
 
 #### 4. Parameterized SQL Queries
 

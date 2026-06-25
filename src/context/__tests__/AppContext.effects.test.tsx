@@ -253,6 +253,19 @@ describe('ExpenseDataProvider effects', () => {
     expect(ctx.state.settings.biometricGateEnabled).toBe(false);
   });
 
+  it('stamps the credential version when the gate is enabled', async () => {
+    await renderProvider();
+    await act(async () => {
+      await ctx.actions.setBiometricGateEnabled(true);
+    });
+    expect(mockDb.setSetting).toHaveBeenCalledWith(
+      expect.anything(),
+      'biometric_cred_version',
+      '2',
+    );
+    expect(ctx.state.settings.biometricCredentialVersion).toBe(2);
+  });
+
   it('queues an export and writes a file', async () => {
     mockExport.writeExportFile.mockResolvedValue({
       filename: 'export.csv',
@@ -321,6 +334,91 @@ describe('ExpenseDataProvider effects', () => {
     await waitFor(() => expect(ctx.state.biometric.lastError).toBeTruthy());
 
     nowSpy.mockRestore();
+  });
+
+  it('shows the unlock modal on cold start when the gate is enabled', async () => {
+    mockDb.getAllSettings.mockResolvedValue([
+      { key: 'biometric_gate_enabled', value: 'true' },
+    ]);
+    await renderProvider();
+    await waitFor(() =>
+      expect(screen.getByText('Unlock required')).toBeOnTheScreen(),
+    );
+    expect(ctx.state.biometric.isLocked).toBe(true);
+  });
+
+  it('locks fail-closed on a settings-load failure when a credential exists', async () => {
+    mockDb.listExpenses.mockRejectedValueOnce(new Error('load failed'));
+    (Keychain.hasGenericPassword as jest.Mock).mockResolvedValueOnce(true);
+    await renderProvider();
+    await waitFor(() =>
+      expect(screen.getByText('Unlock required')).toBeOnTheScreen(),
+    );
+    expect(ctx.state.biometric.isLocked).toBe(true);
+    expect(ctx.state.error).toBe('load failed');
+    expect(mockDb.setSetting).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'biometric_cred_version',
+      '2',
+    );
+  });
+
+  it('stays unlocked on a settings-load failure when no credential exists', async () => {
+    mockDb.listExpenses.mockRejectedValueOnce(new Error('load failed'));
+    (Keychain.hasGenericPassword as jest.Mock).mockResolvedValueOnce(false);
+    await renderProvider();
+    expect(ctx.state.biometric.isLocked).toBe(false);
+    expect(screen.queryByText('Unlock required')).toBeNull();
+  });
+
+  it('locks fail-closed when the credential probe itself throws', async () => {
+    mockDb.listExpenses.mockRejectedValueOnce(new Error('load failed'));
+    (Keychain.hasGenericPassword as jest.Mock).mockRejectedValueOnce(
+      new Error('keychain down'),
+    );
+    await renderProvider();
+    await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
+  });
+
+  it('refreshes a legacy credential to the new access control on healthy load', async () => {
+    mockDb.getAllSettings.mockResolvedValue([
+      { key: 'biometric_gate_enabled', value: 'true' },
+    ]);
+    await renderProvider();
+    await waitFor(() =>
+      expect(mockDb.setSetting).toHaveBeenCalledWith(
+        expect.anything(),
+        'biometric_cred_version',
+        '2',
+      ),
+    );
+    expect(Keychain.setGenericPassword).toHaveBeenCalled();
+  });
+
+  it('does not refresh when the credential version is already current', async () => {
+    mockDb.getAllSettings.mockResolvedValue([
+      { key: 'biometric_gate_enabled', value: 'true' },
+      { key: 'biometric_cred_version', value: '2' },
+    ]);
+    await renderProvider();
+    await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
+    expect(Keychain.setGenericPassword).not.toHaveBeenCalled();
+  });
+
+  it('does not bump the version when the credential refresh fails', async () => {
+    mockDb.getAllSettings.mockResolvedValue([
+      { key: 'biometric_gate_enabled', value: 'true' },
+    ]);
+    (Keychain.setGenericPassword as jest.Mock).mockRejectedValueOnce(
+      new Error('keystore fail'),
+    );
+    await renderProvider();
+    await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
+    expect(mockDb.setSetting).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'biometric_cred_version',
+      '2',
+    );
   });
 });
 
@@ -428,7 +526,7 @@ describe('ExpenseDataProvider queue and connectivity', () => {
     mockDb.getAllSettings.mockResolvedValue([
       { key: 'biometric_gate_enabled', value: 'true' },
     ]);
-    (Keychain.getGenericPassword as jest.Mock).mockResolvedValueOnce(false);
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
     await renderProvider();
     let result = true;
     await act(async () => {
@@ -439,7 +537,7 @@ describe('ExpenseDataProvider queue and connectivity', () => {
   });
 
   it('reports a failed biometric unlock attempt', async () => {
-    (Keychain.getGenericPassword as jest.Mock).mockRejectedValueOnce(
+    (Keychain.getGenericPassword as jest.Mock).mockRejectedValue(
       new Error('denied'),
     );
     mockDb.getAllSettings.mockResolvedValue([

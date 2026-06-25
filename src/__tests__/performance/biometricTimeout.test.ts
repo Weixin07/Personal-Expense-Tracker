@@ -249,21 +249,14 @@ describe('Performance: Biometric Lock Timeout Accuracy', () => {
       expect(shouldLock).toBe(true);
     });
 
-    // eslint-disable-next-line no-secrets/no-secrets
-    it('should not lock if lastBackgroundTime is null (fresh start)', () => {
-      const lastBackgroundTime = null;
+    it('should lock on cold start when the gate is enabled', () => {
+      const isInitialised = true;
+      const gateEnabled = true;
 
-      if (lastBackgroundTime === null) {
-        console.log('🔓 Fresh start - no timeout check needed');
-        expect(true).toBe(true);
-        return;
-      }
+      const shouldLock = isInitialised && gateEnabled;
 
-      const now = Date.now();
-      const elapsed = now - lastBackgroundTime;
-      const shouldLock = elapsed >= BIOMETRIC_TIMEOUT_MS;
-
-      expect(shouldLock).toBe(false);
+      console.log('🔒 Cold start with gate enabled - lock required');
+      expect(shouldLock).toBe(true);
     });
   });
 

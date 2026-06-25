@@ -1,7 +1,10 @@
 import { AppState } from 'react-native';
 import * as Keychain from 'react-native-keychain';
 import { renderHook, act, waitFor } from '@testing-library/react-native';
-import { useBiometricGate } from '../useBiometricGate';
+import {
+  useBiometricGate,
+  biometricCredentialExists,
+} from '../useBiometricGate';
 
 let appStateHandler: ((status: string) => void) | undefined;
 const emitAppState = (status: string): void => appStateHandler?.(status);
@@ -86,6 +89,27 @@ describe('useBiometricGate', () => {
     expect(Keychain.setGenericPassword).toHaveBeenCalled();
   });
 
+  it('creates the credential with device-passcode fallback access control', async () => {
+    const { result } = renderHook(() => useBiometricGate({ enabled: true }));
+    await act(async () => {
+      await result.current.ensureCredential();
+    });
+    expect(Keychain.setGenericPassword).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        accessControl:
+          Keychain.ACCESS_CONTROL.BIOMETRY_CURRENT_SET_OR_DEVICE_PASSCODE,
+      }),
+    );
+  });
+
+  it('biometricCredentialExists reflects hasGenericPassword', async () => {
+    (Keychain.hasGenericPassword as jest.Mock).mockResolvedValueOnce(true);
+    await expect(biometricCredentialExists()).resolves.toBe(true);
+    expect(Keychain.hasGenericPassword).toHaveBeenCalled();
+  });
+
   it('clears the keychain credential on clearCredential', async () => {
     const { result } = renderHook(() => useBiometricGate({ enabled: true }));
     await act(async () => {
@@ -141,5 +165,35 @@ describe('useBiometricGate', () => {
     act(() => result.current.applyEnabledState(false));
     expect(result.current.isLocked).toBe(false);
     expect(result.current.lastError).toBeNull();
+  });
+
+  it('locks on cold start once settings have hydrated with the gate enabled', async () => {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
+    const { result } = renderHook(() =>
+      useBiometricGate({ enabled: true, isInitialised: true }),
+    );
+    await waitFor(() => expect(result.current.isLocked).toBe(true));
+    expect(Keychain.getGenericPassword).toHaveBeenCalled();
+  });
+
+  it('does not lock on cold start when the gate is disabled', async () => {
+    const { result } = renderHook(() =>
+      useBiometricGate({ enabled: false, isInitialised: true }),
+    );
+    await waitFor(() => expect(result.current.isLocked).toBe(false));
+    expect(Keychain.getGenericPassword).not.toHaveBeenCalled();
+  });
+
+  it('does not cold-lock when the gate is enabled after the initial hydration', async () => {
+    (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) =>
+        useBiometricGate({ enabled, isInitialised: true }),
+      { initialProps: { enabled: false } },
+    );
+    await waitFor(() => expect(result.current.isLocked).toBe(false));
+    rerender({ enabled: true });
+    await waitFor(() => expect(result.current.isLocked).toBe(false));
+    expect(Keychain.getGenericPassword).not.toHaveBeenCalled();
   });
 });

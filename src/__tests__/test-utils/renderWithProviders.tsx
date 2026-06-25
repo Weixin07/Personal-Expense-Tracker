@@ -53,6 +53,7 @@ export const makeContextState = (
     settings: {
       baseCurrency: 'USD',
       biometricGateEnabled: false,
+      biometricCredentialVersion: 0,
       driveFolderId: null,
       exportDirectoryUri: null,
       ...settings,

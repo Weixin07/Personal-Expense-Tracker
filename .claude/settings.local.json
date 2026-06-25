@@ -135,7 +135,14 @@
       "Bash(git --no-pager diff)",
       "Bash(git --no-pager status --porcelain)",
       "Bash(git --no-pager log --oneline -1 -- eslint.config.mjs)",
-      "Bash(git --no-pager log -6 --format='%H%n%B%n---')"
+      "Bash(git --no-pager log -6 --format='%H%n%B%n---')",
+      "Bash(git --no-pager diff --stat -- src/database src/components/BiometricGateModal.tsx src/screens/SettingsScreen.tsx jest.setup.js App.tsx index.js src/context/__tests__/AppContext.test.ts src/__tests__/test-utils/renderWithProviders.tsx src/screens/__tests__/SettingsScreen.test.tsx)",
+      "Bash(echo \"EXIT=$? \\(empty above = no changes to out-of-scope files\\)\")",
+      "Bash(node -e \"console.log\\(require\\('react-native-keychain/package.json'\\).version\\)\")",
+      "Bash(git --no-pager diff src/hooks/useBiometricGate.ts)",
+      "Bash(git --no-pager diff --name-only)",
+      "Bash(git --no-pager diff -- '*.ts' '*.tsx' '*.js' '*.mjs')",
+      "Bash(git *)"
     ],
     "deny": [],
     "ask": []

@@ -279,7 +279,11 @@ biometric, SAF export, and the offline queue. Also confirm icons and themed UI r
 6. **Offline queue** — disable network, add an expense, queue an export; re-enable network
    and confirm it auto-uploads.
 7. **Biometric lock** (if supported) — enable it, background the app 5+ minutes, confirm
-   the unlock prompt.
+   the unlock prompt. Then fully kill the app and relaunch; confirm the unlock prompt appears
+   on cold start, and that the device-credential (PIN/passcode) fallback unlocks if biometrics fail.
+   Re-enroll a biometric (add a fingerprint/face), relaunch, and confirm the device-passcode
+   path still unlocks (the credential must not hard-lock). Finally, with the gate enabled,
+   simulate a settings-read failure and confirm the app still locks (fail-closed).
 
 To capture logs if something misbehaves:
 

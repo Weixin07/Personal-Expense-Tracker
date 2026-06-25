@@ -52,6 +52,7 @@ describe('expenseDataReducer', () => {
         settings: {
           baseCurrency: 'USD',
           biometricGateEnabled: true,
+          biometricCredentialVersion: 2,
           driveFolderId: 'folder-1',
           exportDirectoryUri: 'content://dir',
         },
@@ -72,11 +73,25 @@ describe('expenseDataReducer', () => {
     it('load/error records the message and stops loading', () => {
       const next = expenseDataReducer(
         { ...initialState, isLoading: true },
-        { type: 'load/error', payload: 'db failed' },
+        {
+          type: 'load/error',
+          payload: { error: 'db failed', biometricGateEnabled: false },
+        },
       );
       expect(next.error).toBe('db failed');
       expect(next.isInitialised).toBe(true);
       expect(next.isLoading).toBe(false);
+    });
+
+    it('load/error applies the fail-closed biometric flag', () => {
+      const next = expenseDataReducer(
+        { ...initialState, isLoading: true },
+        {
+          type: 'load/error',
+          payload: { error: 'db failed', biometricGateEnabled: true },
+        },
+      );
+      expect(next.settings.biometricGateEnabled).toBe(true);
     });
   });
 
@@ -231,6 +246,14 @@ describe('expenseDataReducer', () => {
         payload: true,
       });
       expect(next.settings.biometricGateEnabled).toBe(true);
+    });
+
+    it('settings/set-cred-version updates only biometricCredentialVersion', () => {
+      const next = expenseDataReducer(initialState, {
+        type: 'settings/set-cred-version',
+        payload: 2,
+      });
+      expect(next.settings.biometricCredentialVersion).toBe(2);
     });
 
     it('settings/set-drive-folder updates only driveFolderId', () => {

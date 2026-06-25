@@ -1,4 +1,7 @@
-export { useBiometricGate } from './useBiometricGate';
+export {
+  useBiometricGate,
+  biometricCredentialExists,
+} from './useBiometricGate';
 export type {
   BiometricGateState,
   UseBiometricGateResult,
