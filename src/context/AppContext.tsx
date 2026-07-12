@@ -1058,10 +1058,6 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
   );
 };
 
-/**
- * @deprecated Prefer the focused hooks `useExportSync` and `useBiometricGate`
- * for export-queue and biometric-gate concerns.
- */
 export const useExpenseData = (): ExpenseDataContextValue => {
   const context = useContext(ExpenseDataContext);
   if (!context) {
@@ -1071,6 +1067,3 @@ export const useExpenseData = (): ExpenseDataContextValue => {
 };
 
 export const AppProvider = ExpenseDataProvider;
-
-/** @deprecated Prefer `useExportSync` / `useBiometricGate`. */
-export const useAppContext = useExpenseData;

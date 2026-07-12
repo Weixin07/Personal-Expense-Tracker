@@ -60,7 +60,7 @@ git config --global core.longpaths true      # relax Git's own limit (deep pnpm 
 Move-Item "<project-root>" C:\pet
 cd C:\pet
 pnpm install
-Remove-Item -Recurse -Force android\app\.cxx, android\app\build -ErrorAction SilentlyContinue
+pnpm clean:android                            # removes android\app\.cxx + android\app\build (long-path safe)
 ```
 
 The Gradle build fails fast with an actionable message (stating the exact maximum
@@ -201,8 +201,10 @@ cd <project-root>
 # Optional but recommended: gate on a green build first
 pnpm validate          # lint + typecheck + tests
 
-# Clean, then build the artifact you need
-cd android; .\gradlew clean; cd ..
+# Purge stale native caches first if you just changed dependencies, then build.
+# Use pnpm clean:android — NOT `gradlew clean`, which re-runs CMake configure against
+# the stale autolinking files and fails on New Arch (see Troubleshooting).
+pnpm clean:android           # removes android/app/.cxx + android/app/build
 pnpm build:android:release   # APK
 # pnpm build:android:bundle  # .aab for the Play Store
 ```
@@ -351,6 +353,85 @@ PKCE is enabled in `src/security/googleAuth.ts` via `usePKCE: true` in the
 
 ---
 
+## Build deprecation residuals (known, accepted)
+
+The Android build emits deprecation warnings but still completes (`BUILD SUCCESSFUL`); none
+are errors. The **one first-party deprecation** — `ReactNativeHost` / `DefaultReactNativeHost`
+in `MainApplication.kt` — **has been resolved** by migrating to a `ReactHost`-only bootstrap (the
+package-list `getDefaultReactHost` overload). Everything below now originates in code this project
+does **not** own. Each is recorded with the condition that would let it be retired.
+
+The 0.83 upgrade **cleared** the `react-native-gesture-handler` Kotlin deprecation outright and
+roughly halved the `react-native-screens` warnings (bumped to the latest `4.25.x`);
+`react-native-app-auth`'s Kotlin deprecation also cleared, though it still emits a generic Java
+"uses a deprecated API" note (below). "At latest" means the newest published version still uses the
+deprecated RN API internally — no bump can clear it today.
+
+| Warning                                                                                                         | Origin                                                                                                                                                                                                                                | Retire when                                                                                                                                                                      |
+| --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `react-native-screens` deprecations (`LayoutShadowNode`, `UIManagerModule`, `ReactModuleInfo` ctor, …)          | `react-native-screens` internals — **already at latest `4.25.x`**                                                                                                                                                                     | The library ships a release that drops the deprecated RN APIs                                                                                                                    |
+| `react-native-safe-area-context` deprecations (`UIManagerModule`, `LayoutShadowNode`)                           | `react-native-safe-area-context` internals — **already at latest `5.8.x`**                                                                                                                                                            | The library ships a release that drops the deprecated RN APIs                                                                                                                    |
+| `onCatalystInstanceDestroy() [removal]`                                                                         | `@react-native-community/netinfo` — present at **every** version incl. latest `12.x`, so kept at `^11.x` (a `12.x` bump clears nothing here)                                                                                          | netinfo removes the deprecated lifecycle method upstream                                                                                                                         |
+| `react-native-keychain` deprecations (`isInsideSecureHardware`, `setUserAuthenticationValidityDurationSeconds`) | `react-native-keychain` internals                                                                                                                                                                                                     | Kept at `^9.x`; a `10.x` bump changes the biometric-gate API surface and must pass the on-device biometric smoke (see below) before adoption                                     |
+| Vector-icons `TurboReactPackage` deprecation (codegen)                                                          | `@react-native-vector-icons/material-design-icons` (react-native-paper's default icon set)                                                                                                                                            | Kept at `^12.x`; a `13.x` bump is a paper-coupled visual change and must pass on-device icon-render verification before adoption                                                 |
+| Java "uses or overrides a deprecated API" notes                                                                 | `react-native-app-auth`, `react-native-fs`, `react-native-saf-x`, `react-native-sqlite-storage` (all at latest)                                                                                                                       | The maintainer ships a release that drops the deprecated API                                                                                                                     |
+| Java "uses a deprecated API" note (`react-native-config`)                                                       | `react-native-config`                                                                                                                                                                                                                 | Pinned because of `patches/react-native-config.patch`; on any bump, re-roll the patch (`pnpm patch`) first                                                                       |
+| `Setting the namespace via the package attribute … is no longer supported` (manifest)                           | AGP warning from 7 libs' `AndroidManifest.xml` (`react-native-keychain`, `-sqlite-storage`, `-app-auth`, `-fs`, `-safe-area-context`, `-saf-x`, `@react-native-community/netinfo`) — `package=` attribute we do not own               | The library removes `package=` from its manifest (AGP already ignores the value; harmless today)                                                                                 |
+| `dependency.platforms.ios.project is not allowed` (invalid RN config)                                           | **Resolved** — `patches/react-native-sqlite-storage@6.0.1.patch` drops the rejected iOS `project` key from the library's `react-native.config.js` (iOS still autolinks via the shipped podspec; the Android `sourceDir` is untouched) | On any `react-native-sqlite-storage` bump, re-roll the patch (`pnpm patch`) first; upstream is unmaintained at `6.0.1`                                                           |
+| "Deprecated Gradle features … incompatible with Gradle 9.0"                                                     | Third-party libraries' Groovy `build.gradle` space-assignment DSL (`--warning-mode all` attributes each to `node_modules/<lib>/android/build.gradle`)                                                                                 | The Gradle wrapper is intentionally held at the RN-0.83 default (8.14.3); moving to Gradle 9 turns these into hard errors until every autolinked library migrates its DSL to `=` |
+
+The on-device smoke that gates the keychain/vector-icons bumps is described in
+`doc-temp/TEST_ON_PHONE_REMOTELY.md` (DB CRUD + migration, biometric cold-start gate,
+OAuth → Drive export, CSV export/share).
+
+> **`MainApplication.kt` bootstrap (first-party deprecation resolved).** `reactHost` is built from
+> `PackageList(this).packages` via the `getDefaultReactHost` overload that takes a package list, so the
+> app no longer references the deprecated `ReactNativeHost`. This is **off-template** (RN's New App
+> template still ships the `DefaultReactNativeHost` path) and the overload is inherently bridgeless and
+> Hermes-only — consistent with this app's fixed `newArchEnabled=true` / `hermesEnabled=true`, but it
+> would **not** honor a flip of either flag. Because it changes app startup, it must pass the on-device
+> smoke above (especially the biometric cold-start gate) before shipping; to revert, restore the
+> template's dual `reactNativeHost` + `reactHost` shape.
+
+### Benign build-log noise (not warnings)
+
+Beyond the deprecations above, a release build prints several **non-error, non-deprecation**
+lines. They are expected and need no action:
+
+| Line                                                                         | Origin                                                                          | Why it is benign                                                                                                                                                                                |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-- GLOB mismatch!` (during `externalNativeBuildClean*`)                     | RN-generated CMake re-globbing codegen dirs on `clean`                          | Cosmetic clean-time diff between the globbed file list and disk; the following build regenerates correctly. The _failure_ variant — a missing codegen dir — is different (see Troubleshooting). |
+| `Unable to strip … libconceal.so … packaging them as they are`               | A prebuilt `.so` shipped by a transitive dependency                             | The stripper cannot process the prebuilt library, so it is packaged unstripped — no functional impact.                                                                                          |
+| `No modules to process in combine-js-to-schema-cli` (keychain, vector-icons) | RN codegen scanning a library that ships no JS NativeComponent/TurboModule spec | Nothing to generate; expected for those libraries.                                                                                                                                              |
+| `WARN the transform cache was reset` (Metro)                                 | Metro after a cache invalidation (e.g. following `pnpm clean:android`)          | Expected on a clean build; Metro rebuilds its cache.                                                                                                                                            |
+| Performance-suite `console.log` timings (`src/__tests__/performance/*`)      | Intentional benchmark instrumentation (Load/Filter/Sort/CSV timings)            | These are `console.log`, **not** `console.warn`/`console.error` — deliberate micro-benchmark output (cf. JMH/tinybench), surfaced by Jest's `● Console` grouping.                               |
+
+### Verifying project-owned code is warning-clean
+
+Every residual above originates in `node_modules` or RN tooling. **Project-owned code — our
+Gradle DSL, Kotlin, and JS/TS — is verified warning-free.** Reproduce:
+
+```powershell
+pnpm lint          # eslint --max-warnings=0  -> 0 warnings
+pnpm typecheck     # tsc --noEmit             -> 0 errors
+pnpm test          # 484 tests pass; only the console.log benchmarks above
+cd android; .\gradlew clean --warning-mode all; cd ..   # the "Gradle 9.0" notices attribute only to node_modules/*/android/build.gradle
+```
+
+`pnpm validate` (`eslint --max-warnings=0` + `tsc` + tests) is the enforcement point that keeps
+our JS/TS warning-free and is a required check in `.github/workflows/validate.yml`. Our own
+`build.gradle` files use `name = value` assignment (already Gradle-10-ready) and must stay on
+that form.
+
+> **Deliberate non-actions.** To keep the signal honest the residuals are **not** suppressed:
+> do **not** add `org.gradle.warning.mode` to `gradle.properties`, and do **not** enable a global
+> `--warning-mode fail` / `allWarningsAsErrors` — both would fail the build on third-party warnings
+> this project does not own. Suppressing them at the log level, bumping the Gradle wrapper solely
+> to clear them, or patching a library only to remove a warning are all out of scope (see the
+> wrapper-hold rationale in the table above).
+
+---
+
 ## Troubleshooting
 
 ### Build fails: "SDK location not found"
@@ -366,6 +447,20 @@ The repo is checked out too deep for the New Architecture native build. A `subst
 does not help (paths are canonicalized) — physically relocate the repo to a short root,
 reinstall deps, and clear stale native caches. See
 [Windows build prerequisites](#windows-build-prerequisites-path-length).
+
+### Build fails: `add_subdirectory given source ... which is not an existing directory` (or `-- GLOB mismatch!` / `Cannot specify link libraries for target "react_codegen_..."`)
+
+Stale native caches after a dependency change (e.g. a React Native upgrade). `pnpm install`
+wipes a library's `android/build` codegen tree, but `android/app/.cxx/**/build.ninja` and the
+generated `android/app/build/generated/autolinking/.../Android-autolinking.cmake` still point at
+it, so the next CMake configure dies on the missing directory. This is exactly why **`gradlew
+clean` makes it worse** — `clean` triggers `externalNativeBuildClean*`, which re-runs configure
+before codegen regenerates.
+
+```powershell
+pnpm clean:android           # remove android/app/.cxx + android/app/build (NOT `gradlew clean`)
+pnpm build:android:release   # (or assembleDebug) regenerates codegen + autolinking
+```
 
 ### Build fails: "Release signing credentials are missing" (or `:app:validateSigningRelease` fails)
 

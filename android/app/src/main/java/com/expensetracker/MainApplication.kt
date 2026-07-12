@@ -5,31 +5,22 @@ import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
-import com.facebook.react.ReactNativeHost
-import com.facebook.react.ReactPackage
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
-import com.facebook.react.defaults.DefaultReactNativeHost
 
 class MainApplication : Application(), ReactApplication {
 
-  override val reactNativeHost: ReactNativeHost =
-      object : DefaultReactNativeHost(this) {
-        override fun getPackages(): List<ReactPackage> =
-            PackageList(this).packages.apply {
-              // Packages that cannot be autolinked yet can be added manually here, for example:
-              // add(MyReactNativePackage())
-            }
-
-        override fun getJSMainModuleName(): String = "index"
-
-        override fun getUseDeveloperSupport(): Boolean = BuildConfig.DEBUG
-
-        override val isNewArchEnabled: Boolean = BuildConfig.IS_NEW_ARCHITECTURE_ENABLED
-        override val isHermesEnabled: Boolean = BuildConfig.IS_HERMES_ENABLED
-      }
-
+  // This getDefaultReactHost overload is inherently bridgeless and always uses Hermes, so it does NOT
+  // honor the gradle.properties newArchEnabled/hermesEnabled flags — valid only while both stay true.
+  // Revisit if the app ever needs JSC or the old bridge.
   override val reactHost: ReactHost
-    get() = getDefaultReactHost(applicationContext, reactNativeHost)
+    get() =
+        getDefaultReactHost(
+            context = applicationContext,
+            // Packages that cannot be autolinked yet: PackageList(this).packages.apply { add(...) }
+            packageList = PackageList(this).packages,
+            jsMainModulePath = "index",
+            useDevSupport = BuildConfig.DEBUG,
+        )
 
   override fun onCreate() {
     super.onCreate()

@@ -1,0 +1,15 @@
+diff --git a/react-native.config.js b/react-native.config.js
+index dc150a92ce04175491c8a8edc7aea00568f555ae..7dcf0ef08220c92000dedbfcb21b1abe43e9158b 100644
+--- a/react-native.config.js
++++ b/react-native.config.js
+@@ -1,9 +1,7 @@
+ module.exports = {
+ 	dependency: {
+ 		platforms: {
+-			ios: {
+-				project: './platforms/ios/SQLite.xcodeproj'
+-			},
++			ios: {},
+ 			android: {
+ 				sourceDir: './platforms/android'
+ 			},
