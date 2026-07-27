@@ -1,129 +1,106 @@
 import {
-  authorize,
-  refresh,
-  type AuthConfiguration,
-  type AuthorizeResult,
-  type RefreshResult,
-} from 'react-native-app-auth';
-import * as Keychain from 'react-native-keychain';
-import { getGoogleOAuthConfig, GOOGLE_DRIVE_SCOPE } from './googleConfig';
-
-const AUTH_SERVICE = 'google-drive-auth';
-const AUTH_USERNAME = 'google-drive';
-const EXPIRY_BUFFER_MS = 60 * 1000; // 1 minute
+  GoogleSignin,
+  statusCodes,
+} from '@react-native-google-signin/google-signin';
+import { getGoogleSignInConfig, GOOGLE_DRIVE_SCOPE } from './googleConfig';
 
 export type GoogleAuthState = {
   accessToken: string;
-  accessTokenExpirationDate: string;
-  refreshToken?: string;
 };
 
-const buildAppAuthConfig = (): AuthConfiguration => {
-  const { clientId, redirectUri } = getGoogleOAuthConfig();
-  return {
-    serviceConfiguration: {
-      authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
-      tokenEndpoint: 'https://oauth2.googleapis.com/token',
-    },
-    clientId,
-    redirectUrl: redirectUri,
-    scopes: [GOOGLE_DRIVE_SCOPE, 'openid', 'profile'],
-    usePKCE: true, // CRITICAL: Use PKCE (Proof Key for Code Exchange) for enhanced security on mobile
-    additionalParameters: {
-      access_type: 'offline',
-      prompt: 'consent',
-    },
-  };
-};
+export type GoogleAuthErrorKind =
+  | 'play-services-unavailable'
+  | 'developer-error'
+  | 'network'
+  | 'unknown';
 
-const readStoredAuthState = async (): Promise<GoogleAuthState | null> => {
-  try {
-    const result = await Keychain.getGenericPassword({ service: AUTH_SERVICE });
-    if (!result) {
-      return null;
-    }
-    return JSON.parse(result.password) as GoogleAuthState;
-  } catch {
-    return null;
+export class GoogleAuthError extends Error {
+  readonly kind: GoogleAuthErrorKind;
+
+  constructor(kind: GoogleAuthErrorKind, message: string) {
+    super(message);
+    this.name = 'GoogleAuthError';
+    this.kind = kind;
+  }
+}
+
+// Google Play services CommonStatusCodes surfaced by the native module as the
+// numeric status code in string form. DEVELOPER_ERROR (10) means the running
+// build's OAuth client / SHA-1 is misconfigured; NETWORK_ERROR (7) is transient.
+// The library's `statusCodes` export does not include either of these.
+const DEVELOPER_ERROR_CODE = '10';
+const NETWORK_ERROR_CODE = '7';
+
+const errorCode = (error: unknown): string | undefined =>
+  typeof error === 'object' && error !== null && 'code' in error
+    ? String((error as { code: unknown }).code)
+    : undefined;
+
+const classifyAuthError = (error: unknown): GoogleAuthError => {
+  const message =
+    error instanceof Error ? error.message : 'Google sign-in failed.';
+  switch (errorCode(error)) {
+    case statusCodes.PLAY_SERVICES_NOT_AVAILABLE:
+      return new GoogleAuthError('play-services-unavailable', message);
+    case DEVELOPER_ERROR_CODE:
+      return new GoogleAuthError('developer-error', message);
+    case NETWORK_ERROR_CODE:
+      return new GoogleAuthError('network', message);
+    default:
+      return new GoogleAuthError('unknown', message);
   }
 };
 
-const storeAuthState = async (state: GoogleAuthState): Promise<void> => {
-  await Keychain.setGenericPassword(AUTH_USERNAME, JSON.stringify(state), {
-    service: AUTH_SERVICE,
-    accessible: Keychain.ACCESSIBLE.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+const ensureConfigured = (): void => {
+  const { webClientId } = getGoogleSignInConfig();
+  GoogleSignin.configure({
+    webClientId,
+    offlineAccess: true,
+    scopes: [GOOGLE_DRIVE_SCOPE],
   });
 };
 
-export const clearAuthState = async (): Promise<void> => {
-  await Keychain.resetGenericPassword({ service: AUTH_SERVICE });
+const currentAccessToken = async (): Promise<string> => {
+  const { accessToken } = await GoogleSignin.getTokens();
+  return accessToken;
 };
 
-const isTokenExpired = (state: GoogleAuthState): boolean => {
-  const expiresAt = Date.parse(state.accessTokenExpirationDate);
-  if (Number.isNaN(expiresAt)) {
-    return true;
-  }
-  return Date.now() + EXPIRY_BUFFER_MS >= expiresAt;
-};
-
-const authorizeInteractive = async (): Promise<GoogleAuthState> => {
-  const config = buildAppAuthConfig();
-  const result: AuthorizeResult = await authorize(config);
-  const nextState: GoogleAuthState = {
-    accessToken: result.accessToken,
-    accessTokenExpirationDate: result.accessTokenExpirationDate,
-    refreshToken: result.refreshToken ?? undefined,
-  };
-  await storeAuthState(nextState);
-  return nextState;
-};
-
-const refreshAccessToken = async (
-  state: GoogleAuthState,
-): Promise<GoogleAuthState | null> => {
-  if (!state.refreshToken) {
-    return null;
-  }
-  const config = buildAppAuthConfig();
-  const result: RefreshResult = await refresh(config, {
-    refreshToken: state.refreshToken,
-  });
-  const nextState: GoogleAuthState = {
-    accessToken: result.accessToken,
-    accessTokenExpirationDate: result.accessTokenExpirationDate,
-    refreshToken: result.refreshToken ?? state.refreshToken,
-  };
-  await storeAuthState(nextState);
-  return nextState;
-};
-
+/**
+ * Resolves a Google Drive access token. Returns null when the user cancels the
+ * prompt or has no usable session and interactive sign-in was not requested.
+ * Throws GoogleAuthError for hard failures (misconfigured OAuth client, Play
+ * services unavailable, network); callers must surface these rather than treat
+ * them as a plain "not signed in" result.
+ */
 export const ensureValidAccessToken = async (
   options: { interactive?: boolean } = {},
 ): Promise<string | null> => {
   const { interactive = false } = options;
-  let authState = await readStoredAuthState();
+  ensureConfigured();
 
-  if (!authState) {
-    if (!interactive) {
+  try {
+    const silent = await GoogleSignin.signInSilently();
+    if (silent.type === 'success') {
+      return await currentAccessToken();
+    }
+  } catch {
+    // No usable silent session; fall through to interactive sign-in or null.
+  }
+
+  if (!interactive) {
+    return null;
+  }
+
+  try {
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    const result = await GoogleSignin.signIn();
+    if (result.type !== 'success') {
       return null;
     }
-    authState = await authorizeInteractive();
+    return await currentAccessToken();
+  } catch (error) {
+    throw classifyAuthError(error);
   }
-
-  if (isTokenExpired(authState)) {
-    try {
-      const refreshed = await refreshAccessToken(authState);
-      authState = refreshed ?? authState;
-    } catch {
-      if (!interactive) {
-        return null;
-      }
-      authState = await authorizeInteractive();
-    }
-  }
-
-  return authState.accessToken;
 };
 
 export const ensureInteractiveAccessToken = async (): Promise<string> => {
@@ -134,6 +111,19 @@ export const ensureInteractiveAccessToken = async (): Promise<string> => {
   return token;
 };
 
+export const clearAuthState = async (): Promise<void> => {
+  ensureConfigured();
+  await GoogleSignin.signOut();
+};
+
 export const getStoredAuthState = async (): Promise<GoogleAuthState | null> => {
-  return readStoredAuthState();
+  ensureConfigured();
+  if (!GoogleSignin.getCurrentUser()) {
+    return null;
+  }
+  try {
+    return { accessToken: await currentAccessToken() };
+  } catch {
+    return null;
+  }
 };

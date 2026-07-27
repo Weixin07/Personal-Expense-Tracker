@@ -4,6 +4,7 @@ import { IconButton } from 'react-native-paper';
 import AddExpenseScreen from '../screens/AddExpenseScreen';
 import ExportQueueScreen from '../screens/ExportQueueScreen';
 import HomeScreen from '../screens/HomeScreen';
+import ImportScreen from '../screens/ImportScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import ManageCategoriesScreen from '../screens/ManageCategoriesScreen';
 
@@ -13,6 +14,7 @@ export type RootStackParamList = {
   Settings: undefined;
   ManageCategories: undefined;
   ExportQueue: undefined;
+  Import: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -55,6 +57,11 @@ const AppNavigator: React.FC = () => {
         name="ExportQueue"
         component={ExportQueueScreen}
         options={{ title: 'Export Queue' }}
+      />
+      <Stack.Screen
+        name="Import"
+        component={ImportScreen}
+        options={{ title: 'Import Expenses' }}
       />
     </Stack.Navigator>
   );

@@ -46,9 +46,7 @@ jest.mock('react-native/src/private/animated/NativeAnimatedHelper', () => {
 
 // Mock react-native-config
 jest.mock('react-native-config', () => ({
-  GOOGLE_OAUTH_CLIENT_ID: 'test-client-id',
-  GOOGLE_OAUTH_REDIRECT_URI: 'com.expensetracker:/oauth2redirect/google',
-  GOOGLE_DRIVE_UPLOAD_SCOPE: 'https://www.googleapis.com/auth/drive.file',
+  GOOGLE_WEB_CLIENT_ID: 'test-web-client-id.apps.googleusercontent.com',
 }));
 
 // Mock react-native-keychain
@@ -111,28 +109,39 @@ jest.mock('react-native-fs', () => ({
   mkdir: jest.fn(() => Promise.resolve()),
 }));
 
-// Mock react-native-app-auth
-jest.mock('react-native-app-auth', () => ({
-  authorize: jest.fn(() =>
-    Promise.resolve({
-      accessToken: 'mock-access-token',
-      accessTokenExpirationDate: new Date(Date.now() + 3600000).toISOString(),
-      refreshToken: 'mock-refresh-token',
-      tokenType: 'Bearer',
-      idToken: 'mock-id-token',
-      scopes: ['https://www.googleapis.com/auth/drive.file'],
-    }),
-  ),
-  refresh: jest.fn((config, { refreshToken }) =>
-    Promise.resolve({
-      accessToken: 'mock-refreshed-access-token',
-      accessTokenExpirationDate: new Date(Date.now() + 3600000).toISOString(),
-      refreshToken: refreshToken,
-      tokenType: 'Bearer',
-      idToken: 'mock-id-token',
-    }),
-  ),
-  revoke: jest.fn(() => Promise.resolve()),
+// Mock @react-native-google-signin/google-signin
+jest.mock('@react-native-google-signin/google-signin', () => ({
+  GoogleSignin: {
+    configure: jest.fn(),
+    hasPlayServices: jest.fn(() => Promise.resolve(true)),
+    signIn: jest.fn(() =>
+      Promise.resolve({
+        type: 'success',
+        data: {
+          scopes: ['https://www.googleapis.com/auth/drive.file'],
+          user: { email: 'test@example.com' },
+        },
+      }),
+    ),
+    signInSilently: jest.fn(() =>
+      Promise.resolve({ type: 'noSavedCredentialFound' }),
+    ),
+    addScopes: jest.fn(() => Promise.resolve({ type: 'success', data: {} })),
+    getTokens: jest.fn(() =>
+      Promise.resolve({
+        accessToken: 'mock-access-token',
+        idToken: 'mock-id-token',
+      }),
+    ),
+    getCurrentUser: jest.fn(() => null),
+    signOut: jest.fn(() => Promise.resolve()),
+    revokeAccess: jest.fn(() => Promise.resolve()),
+  },
+  statusCodes: {
+    SIGN_IN_CANCELLED: 'SIGN_IN_CANCELLED',
+    IN_PROGRESS: 'IN_PROGRESS',
+    PLAY_SERVICES_NOT_AVAILABLE: 'PLAY_SERVICES_NOT_AVAILABLE',
+  },
 }));
 
 // Mock NetInfo
@@ -149,18 +158,15 @@ jest.mock('@react-native-community/netinfo', () => ({
 
 // Mock react-native-saf-x
 jest.mock('react-native-saf-x', () => ({
-  StorageAccessFramework: {
-    requestDirectoryPermissions: jest.fn(() =>
-      Promise.resolve({ granted: true, uri: 'content://mock/tree' }),
-    ),
-    persistAccessPermissions: jest.fn(() => Promise.resolve()),
-    persistPermissions: jest.fn(() => Promise.resolve()),
-    takePersistableUriPermission: jest.fn(() => Promise.resolve()),
-    createFile: jest.fn(() => Promise.resolve('content://mock/file')),
-    writeFile: jest.fn(() => Promise.resolve()),
-    readFile: jest.fn(() => Promise.resolve('')),
-    deleteFile: jest.fn(() => Promise.resolve()),
-  },
+  openDocument: jest.fn(() =>
+    Promise.resolve([{ uri: 'content://mock/pick.csv', name: 'pick.csv' }]),
+  ),
+  openDocumentTree: jest.fn(() =>
+    Promise.resolve({ uri: 'content://mock/tree', name: 'tree' }),
+  ),
+  readFile: jest.fn(() => Promise.resolve('')),
+  writeFile: jest.fn(() => Promise.resolve()),
+  unlink: jest.fn(() => Promise.resolve(true)),
 }));
 
 // Mock SQLite

@@ -48,6 +48,25 @@ export const withDatabase = async <T>(
   return callback(db);
 };
 
+export const withTransaction = async <T>(
+  db: SQLiteDatabase,
+  work: (db: SQLiteDatabase) => Promise<T>,
+): Promise<T> => {
+  await db.executeSql('BEGIN TRANSACTION');
+  try {
+    const result = await work(db);
+    await db.executeSql('COMMIT');
+    return result;
+  } catch (error) {
+    try {
+      await db.executeSql('ROLLBACK');
+    } catch {
+      // A failed rollback must not mask the original error.
+    }
+    throw error;
+  }
+};
+
 export const currentSchemaVersion = async (): Promise<number> => {
   const db = await openDatabase();
   const [result] = await db.executeSql(

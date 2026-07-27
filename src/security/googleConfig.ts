@@ -3,18 +3,16 @@ import Config from 'react-native-config';
 export const GOOGLE_DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 export const GOOGLE_DRIVE_FOLDER_NAME = 'Expense Tracker Backups';
 
-export type GoogleOAuthConfig = {
-  clientId: string;
-  redirectUri: string;
+export type GoogleSignInConfig = {
+  webClientId: string;
 };
 
-export const getGoogleOAuthConfig = (): GoogleOAuthConfig => {
-  const clientId = Config.GOOGLE_OAUTH_CLIENT_ID;
-  const redirectUri = Config.GOOGLE_OAUTH_REDIRECT_URI;
+export const getGoogleSignInConfig = (): GoogleSignInConfig => {
+  const webClientId = Config.GOOGLE_WEB_CLIENT_ID;
 
-  if (!clientId || !redirectUri) {
+  if (!webClientId) {
     throw new Error('Google OAuth environment variables are not configured.');
   }
 
-  return { clientId, redirectUri };
+  return { webClientId };
 };

@@ -57,6 +57,9 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 - **Real-Time Totals**: Running total in base currency with applied filters
 - **Historical Tracking**: Browse complete expense history sorted by date (newest first)
 - **CSV Export**: Full-fidelity exports (UTF-8 BOM, RFC 4180 compliant) for analysis in Excel/Google Sheets
+- **CSV Import**: Load expenses from a CSV file (local, Google Drive, or any other provider the system file picker exposes) or from a Drive backup this app exported, with column mapping and a review-before-commit preview
+- **Flexible Import**: Reads CSVs written by other apps — auto-detects the column separator (comma/semicolon/tab) and common header names, normalises decorated amounts (`$1,234.56`, `1.234,56`, `(50.00)`), resolves currency symbols and names to ISO codes, and accepts ISO, month-name, and two-digit-year dates. A default currency covers files with no currency column; income rows are reported and skipped until income is supported
+- **Import FX Confirmation**: When a file carries no exchange rate for a currency, the review step lists each currency pair and the rows waiting on it. Enter the rates, apply them, and the held rows join the import; rates left blank simply stay behind and are reported. A confirmed rate is checked against the last one used — or against parity, when none is known — and is saved for later manual entry
 - **Audit Trail**: Preserved FX rates and computed base amounts ensure stable, auditable totals
 
 ### ☁️ Google Drive Backup
@@ -65,7 +68,7 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 - **Offline Queue**: Exports queued when offline, automatically uploaded when connection restored
 - **Auto-Folder Management**: Creates "Expense Tracker Backups" folder with persistent folder ID
 - **OAuth 2.0 with PKCE**: Secure authentication without embedded secrets (mobile-optimized)
-- **Least-Privilege Access**: `drive.file` scope only (app-created files, not full Drive access)
+- **Least-Privilege Access**: `drive.file` scope only (app-created files, not full Drive access). The in-app Drive list therefore shows only backups this app exported; a CSV you placed in Drive yourself is imported through the system file picker, which needs no extra Drive permission
 
 ### 🔒 Security & Privacy
 
@@ -100,7 +103,7 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 **Storage & Security**
 
 - **Database**: SQLite 6.0.1 (`react-native-sqlite-storage`) with WAL mode
-- **OAuth**: `react-native-app-auth` 8.0.3 (PKCE support)
+- **OAuth**: `@react-native-google-signin/google-signin` (native Google sign-in)
 - **Keychain**: `react-native-keychain` 9.2.0 (Android Keystore)
 - **Storage Access**: `react-native-saf-x` 2.2.3 (Scoped Storage/SAF)
 
@@ -271,12 +274,10 @@ Create a `.env` file in the repository root:
 cp .env.example .env
 ```
 
-Edit `.env` and add your Google OAuth credentials (see [Google OAuth Setup](#google-oauth-setup)):
+Edit `.env` and add your Google OAuth Web client ID (see [Google OAuth Setup](#google-oauth-setup)):
 
 ```env
-GOOGLE_OAUTH_CLIENT_ID=your-client-id-here.apps.googleusercontent.com
-GOOGLE_OAUTH_REDIRECT_URI=com.expensetracker:/oauth2redirect/google
-GOOGLE_DRIVE_UPLOAD_SCOPE=https://www.googleapis.com/auth/drive.file
+GOOGLE_WEB_CLIENT_ID=your-web-client-id.apps.googleusercontent.com
 ```
 
 ⚠️ **IMPORTANT**: Never commit `.env` to version control. It's already in `.gitignore`.
@@ -307,10 +308,8 @@ The app will build, install, and launch automatically.
 ### `.env` File Structure
 
 ```env
-# Google OAuth 2.0 Configuration
-GOOGLE_OAUTH_CLIENT_ID=<your-client-id>.apps.googleusercontent.com
-GOOGLE_OAUTH_REDIRECT_URI=com.expensetracker:/oauth2redirect/google
-GOOGLE_DRIVE_UPLOAD_SCOPE=https://www.googleapis.com/auth/drive.file
+# Google Sign-In configuration (google-signin webClientId)
+GOOGLE_WEB_CLIENT_ID=<your-web-client-id>.apps.googleusercontent.com
 ```
 
 ### Environment Variable Usage
@@ -320,7 +319,7 @@ The app uses `react-native-config` to load environment variables at build time:
 ```typescript
 import Config from 'react-native-config';
 
-const clientId = Config.GOOGLE_OAUTH_CLIENT_ID;
+const webClientId = Config.GOOGLE_WEB_CLIENT_ID;
 ```
 
 **Important Notes:**
@@ -350,19 +349,37 @@ To enable Google Drive backup functionality, you must create OAuth 2.0 credentia
 
 ### Step 3: Create OAuth 2.0 Credentials
 
-1. Go to **"APIs & Services"** → **"Credentials"**
-2. Click **"Create Credentials"** → **"OAuth client ID"**
-3. Select application type: **"Android"**
-4. **Package name**: `com.expensetracker`
-5. **SHA-1 certificate fingerprint**: See below
+Drive access uses `@react-native-google-signin/google-signin`, which needs **two** OAuth clients in the same project:
+
+**a. Android client(s)** (app identity — no client secret, no redirect URI). Debug and release
+install under different applicationIds, so create **one Android client per build type** in the same
+project:
+
+1. Go to **"APIs & Services"** → **"Credentials"** → **"Create Credentials"** → **"OAuth client ID"** → application type **"Android"**
+2. **Debug client** — Package name `com.expensetracker.debug`, SHA-1 = the `debug` variant from Step 4.
+3. **Release client** — Package name `com.expensetracker`, SHA-1 = the `release` variant from Step 4.
+
+**b. Web application client** (provides the `webClientId` used for the ID token / offline access):
+
+1. **"Create Credentials"** → **"OAuth client ID"** → application type **"Web application"**
+2. Copy its client ID into `.env` as `GOOGLE_WEB_CLIENT_ID`
+
+> Custom redirect URI schemes are **not** used — google-signin uses the native
+> Credential flow, so there is no `GOOGLE_OAUTH_REDIRECT_URI`.
 
 ### Step 4: Obtain SHA-1 Fingerprint
 
-**For Debug Builds:**
+**For Debug Builds:** this project signs debug builds with the committed project-local
+`android/app/debug.keystore`, **not** the global `~/.android/debug.keystore`:
 
 ```bash
-keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android
+keytool -list -v -keystore android/app/debug.keystore -alias androiddebugkey -storepass android
 ```
+
+Or read it authoritatively (debug + release) with `pnpm signing:report`.
+
+> The debug build installs as **`com.expensetracker.debug`** (`applicationIdSuffix` in
+> `android/app/build.gradle`), so register this SHA-1 under that package — not `com.expensetracker`.
 
 **For Release Builds:**
 
@@ -376,11 +393,13 @@ keytool -list -v -keystore expense-tracker-release.keystore -alias expense-track
 
 Copy the **SHA-1** value and paste it into Google Cloud Console.
 
-### Step 5: Copy Client ID
+### Step 5: Copy the Web Client ID
 
-1. After creating the credential, you'll see a **Client ID** (format: `<hash>.apps.googleusercontent.com`)
-2. Copy this value
-3. Paste it into your `.env` file as `GOOGLE_OAUTH_CLIENT_ID`
+1. Open the **Web application** client you created
+2. Copy its **Client ID** (format: `<hash>.apps.googleusercontent.com`)
+3. Paste it into your `.env` file as `GOOGLE_WEB_CLIENT_ID`
+
+The Android client needs no value in `.env` — it is matched by package name + SHA-1.
 
 ### Step 6: Verify Configuration
 
@@ -644,10 +663,17 @@ PET/
 │   │   │   └── exportQueueRepository.ts
 │   │   └── __tests__/          # Database tests
 │   ├── export/                 # CSV export and Drive upload
+│   │   ├── csvColumns.ts       # Canonical column contract (shared with import)
 │   │   ├── csvBuilder.ts       # CSV generation (RFC 4180)
-│   │   ├── driveUploader.ts    # Google Drive REST API client
+│   │   ├── driveUploader.ts    # Google Drive upload client
+│   │   ├── driveDownloader.ts  # Google Drive list + download (alt=media)
 │   │   ├── exportQueueManager.ts # Queue operations
 │   │   └── __tests__/          # Export tests
+│   ├── import/                 # CSV import (inverse of export)
+│   │   ├── csvParser.ts        # RFC 4180 parser (BOM/CRLF, quoted fields)
+│   │   ├── mapping.ts          # Column mapping + date-format normalization
+│   │   ├── importManager.ts    # Preview (validate) + commit (atomic bulk insert)
+│   │   └── __tests__/          # Import tests
 │   ├── navigation/             # React Navigation
 │   │   └── AppNavigator.tsx    # Stack navigator definition
 │   ├── screens/                # Screen components
@@ -718,24 +744,22 @@ This app prioritizes **local security** (device protection) over **network secur
 
 ### Security Features
 
-#### 1. OAuth 2.0 with PKCE (Proof Key for Code Exchange)
+#### 1. Native Google Sign-In (no embedded secret)
 
-**Why PKCE?**
+**Why native sign-in?**
 
 - Mobile apps cannot securely store client secrets (APKs can be decompiled)
-- PKCE replaces static secrets with dynamic, per-request code verifiers
-- Google enforces PKCE for Android OAuth clients
+- Google authenticates the app by package name + signing certificate (SHA-1), so no secret is shipped
+- Sign-in runs through Google Play services rather than a browser redirect
 
 **How it works:**
 
-1. App generates random `code_verifier` (43-128 chars)
-2. App computes `code_challenge = SHA256(code_verifier)` (base64-URL encoded)
-3. Authorization request includes `code_challenge` + `code_challenge_method=S256`
-4. User approves, Google returns authorization code
-5. Token exchange includes original `code_verifier`
-6. Google validates `SHA256(code_verifier) == code_challenge`, issues tokens
+1. The app calls `GoogleSignin.signIn()` (or `signInSilently()`) via Google Play services
+2. The Android OAuth client is verified by package name + SHA-1; the `webClientId` yields an ID token
+3. `getTokens()` returns a short-lived access token
+4. The access token is sent as a `Bearer` header to the Drive REST API, scoped to `drive.file`
 
-**Implementation:** `src/security/googleAuth.ts` sets `usePKCE: true` in `react-native-app-auth` config.
+**Implementation:** `src/security/googleAuth.ts` configures `@react-native-google-signin/google-signin` with the `drive.file` scope.
 
 **Resources:**
 
@@ -877,22 +901,19 @@ pnpm install
 
 #### 3. OAuth Errors
 
-**Error:** `DEVELOPER_ERROR` or `invalid_client`
+**Error:** `DEVELOPER_ERROR`
 
 **Solution:**
 
-- Verify `GOOGLE_OAUTH_CLIENT_ID` in `.env` matches Google Cloud Console client ID
-- Ensure OAuth client type is **"Android"** (not "Web")
-- Check SHA-1 fingerprint is added to OAuth client
+- Verify `GOOGLE_WEB_CLIENT_ID` in `.env` is the **Web application** client ID
+- Ensure an **Android** OAuth client exists for your build's package + SHA-1 (debug is `com.expensetracker.debug`, release is `com.expensetracker`)
 - Rebuild app after changing `.env`: `pnpm android`
 
-**Error:** `Redirect URI mismatch`
+**Error:** `PLAY_SERVICES_NOT_AVAILABLE`
 
 **Solution:**
 
-- Verify `GOOGLE_OAUTH_REDIRECT_URI` format: `com.expensetracker:/oauth2redirect/google`
-- Check `android/app/build.gradle` correctly parses redirect URI
-- Ensure `AndroidManifest.xml` has correct intent filter (should be auto-generated)
+- Run on a device/emulator that has **Google Play services** (use a "Google Play" emulator image, not AOSP)
 
 ---
 
@@ -1015,7 +1036,7 @@ This project is for personal use and is not licensed for redistribution, commerc
 - [React Native](https://reactnative.dev/) - Cross-platform mobile framework
 - [React Native Paper](https://callstack.github.io/react-native-paper/) - Material Design 3 components
 - [React Navigation](https://reactnavigation.org/) - Routing and navigation
-- [react-native-app-auth](https://github.com/FormidableLabs/react-native-app-auth) - OAuth PKCE implementation
+- [@react-native-google-signin/google-signin](https://github.com/react-native-google-signin/google-signin) - Native Google sign-in for Drive access
 - [Google Drive API](https://developers.google.com/drive) - Cloud backup functionality
 
 ---

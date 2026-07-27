@@ -5,6 +5,7 @@ import {
   deleteCategory,
   getCategoryById,
   getCategoryByName,
+  getOrCreateCategoryByName,
   listCategories,
 } from '../categoriesRepository';
 import type { NewCategoryRecord, UpdateCategoryRecord } from '../../types';
@@ -562,6 +563,56 @@ describe('categoriesRepository', () => {
       const result = await listCategories(mockDb);
 
       expect(result).toEqual([]);
+    });
+  });
+
+  describe('getOrCreateCategoryByName', () => {
+    const rowResult = (row: unknown): ResultSet => ({
+      insertId: 1,
+      rowsAffected: 1,
+      rows: {
+        length: row ? 1 : 0,
+        raw: () => (row ? [row] : []),
+        item: () => row ?? null,
+      },
+    });
+
+    it('returns the existing category without inserting', async () => {
+      mockDb.executeSql.mockResolvedValueOnce([
+        rowResult({
+          id: 4,
+          name: 'Food',
+          created_at: '2025-01-01',
+          updated_at: '2025-01-01',
+        }),
+      ]);
+
+      const result = await getOrCreateCategoryByName(mockDb, 'Food');
+
+      expect(result.id).toBe(4);
+      expect(mockDb.executeSql).toHaveBeenCalledTimes(1);
+    });
+
+    it('creates the category when it does not exist', async () => {
+      mockDb.executeSql
+        .mockResolvedValueOnce([rowResult(null)]) // getCategoryByName miss
+        .mockResolvedValueOnce([rowResult(null)]) // INSERT
+        .mockResolvedValueOnce([
+          rowResult({
+            id: 9,
+            name: 'Travel',
+            created_at: '2025-01-01',
+            updated_at: '2025-01-01',
+          }),
+        ]); // getCategoryById
+
+      const result = await getOrCreateCategoryByName(mockDb, 'Travel');
+
+      expect(result.id).toBe(9);
+      expect(mockDb.executeSql).toHaveBeenCalledWith(
+        expect.stringContaining('INSERT INTO categories'),
+        ['Travel'],
+      );
     });
   });
 });

@@ -15,8 +15,10 @@ import {
 } from '../AppContext';
 import * as db from '../../database';
 import * as exportModule from '../../export';
+import * as importModule from '../../import';
 import * as storageAccess from '../../security/storageAccess';
 import type { ExpenseRecord, CategoryRecord } from '../../database';
+import type { ImportPreview } from '../../import';
 
 jest.mock('../../database', () => ({
   withDatabase: jest.fn(),
@@ -44,6 +46,10 @@ jest.mock('../../export', () => ({
   uploadPendingExports: jest.fn(),
 }));
 
+jest.mock('../../import', () => ({
+  commitImport: jest.fn(),
+}));
+
 jest.mock('../../security/storageAccess', () => ({
   requestDirectorySelection: jest.fn(),
   deleteFileUri: jest.fn(),
@@ -51,7 +57,21 @@ jest.mock('../../security/storageAccess', () => ({
 
 const mockDb = db as jest.Mocked<typeof db>;
 const mockExport = exportModule as jest.Mocked<typeof exportModule>;
+const mockImport = importModule as jest.Mocked<typeof importModule>;
 const mockStorage = storageAccess as jest.Mocked<typeof storageAccess>;
+
+const emptyPreview: ImportPreview = {
+  valid: [],
+  invalid: [],
+  skippedIncome: [],
+  needsFxRate: [],
+  fxReview: [],
+  currencyReview: [],
+  duplicates: [],
+  inferredDateOrder: null,
+  newCategoryNames: [],
+  totalRows: 0,
+};
 
 const expense: ExpenseRecord = {
   id: 1,
@@ -123,6 +143,12 @@ beforeEach(() => {
     uri: 'content://dir',
   });
   mockStorage.deleteFileUri.mockResolvedValue(undefined);
+  mockImport.commitImport.mockResolvedValue({
+    inserted: 2,
+    skippedInvalid: 0,
+    skippedNeedsFxRate: 0,
+    createdCategories: 1,
+  });
 });
 
 describe('ExpenseDataProvider effects', () => {
@@ -181,6 +207,41 @@ describe('ExpenseDataProvider effects', () => {
       ).rejects.toThrow('insert failed');
     });
     expect(ctx.state.error).toBe('insert failed');
+  });
+
+  it('imports expenses and reloads state from the database', async () => {
+    await renderProvider();
+    mockDb.listExpenses.mockResolvedValue([expense]);
+
+    let summary;
+    await act(async () => {
+      summary = await ctx.actions.importExpenses(emptyPreview, {
+        'USD|EUR': 1.2,
+      });
+    });
+
+    expect(mockImport.commitImport).toHaveBeenCalledWith(emptyPreview, {
+      'USD|EUR': 1.2,
+    });
+    expect(summary).toEqual({
+      inserted: 2,
+      skippedInvalid: 0,
+      skippedNeedsFxRate: 0,
+      createdCategories: 1,
+    });
+    expect(ctx.state.expenses).toHaveLength(1);
+  });
+
+  it('surfaces an error when import fails', async () => {
+    await renderProvider();
+    mockImport.commitImport.mockRejectedValueOnce(new Error('import boom'));
+
+    await act(async () => {
+      await expect(ctx.actions.importExpenses(emptyPreview)).rejects.toThrow(
+        'import boom',
+      );
+    });
+    expect(ctx.state.error).toBe('import boom');
   });
 
   it('updates and deletes expenses through the database', async () => {

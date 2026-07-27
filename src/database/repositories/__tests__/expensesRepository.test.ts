@@ -1,12 +1,29 @@
 import type { SQLiteDatabase, ResultSet } from 'react-native-sqlite-storage';
 import {
   createExpense,
+  createExpensesBulk,
   updateExpense,
   deleteExpense,
   getExpenseById,
   listExpenses,
 } from '../expensesRepository';
 import type { NewExpenseRecord, UpdateExpenseRecord } from '../../types';
+
+const makeNewExpense = (
+  overrides: Partial<NewExpenseRecord> = {},
+): NewExpenseRecord => ({
+  description: 'Item',
+  payee: 'Store',
+  amountNative: 10,
+  currencyCode: 'USD',
+  fxRateToBase: 1,
+  baseAmount: 10,
+  baseCurrencyCode: 'USD',
+  date: '2025-01-15',
+  categoryId: null,
+  notes: null,
+  ...overrides,
+});
 
 describe('expensesRepository', () => {
   let mockDb: jest.Mocked<SQLiteDatabase>;
@@ -772,6 +789,59 @@ describe('expensesRepository', () => {
       );
 
       expect(result).toHaveLength(1);
+    });
+  });
+
+  describe('createExpensesBulk', () => {
+    const okResult = {
+      insertId: undefined,
+      rowsAffected: 1,
+      rows: { length: 0, raw: () => [], item: () => null },
+    };
+
+    it('returns 0 and issues no SQL for an empty batch', async () => {
+      const count = await createExpensesBulk(mockDb, []);
+
+      expect(count).toBe(0);
+      expect(mockDb.executeSql).not.toHaveBeenCalled();
+    });
+
+    it('inserts a single multi-row statement with all values parameterized', async () => {
+      mockDb.executeSql.mockResolvedValue([okResult]);
+
+      const payloads = [
+        makeNewExpense({ description: 'A', categoryId: 5 }),
+        makeNewExpense({ description: 'B', amountNative: 20, baseAmount: 20 }),
+      ];
+
+      const count = await createExpensesBulk(mockDb, payloads);
+
+      expect(count).toBe(2);
+      expect(mockDb.executeSql).toHaveBeenCalledTimes(1);
+      const call = mockDb.executeSql.mock.calls[0];
+      const sql = call[0] as string;
+      const params = (call[1] ?? []) as Array<string | number | null>;
+      expect(sql).toContain('INSERT INTO expenses');
+      expect(
+        sql.match(/\(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/g),
+      ).toHaveLength(2);
+      expect(params).toHaveLength(20);
+      expect(params[0]).toBe('A');
+      expect(params[8]).toBe(5);
+    });
+
+    it('splits large batches across multiple statements', async () => {
+      mockDb.executeSql.mockResolvedValue([okResult]);
+
+      const payloads = Array.from({ length: 95 }, (_, index) =>
+        makeNewExpense({ description: `E${index}` }),
+      );
+
+      const count = await createExpensesBulk(mockDb, payloads);
+
+      expect(count).toBe(95);
+      // 90 per statement -> two statements
+      expect(mockDb.executeSql).toHaveBeenCalledTimes(2);
     });
   });
 });

@@ -1,4 +1,5 @@
 import {
+  normalizeCurrency,
   validateBaseAmountPrecision,
   validateCurrencyCode,
   validateIsoDateWithinFutureWindow,
@@ -122,5 +123,49 @@ describe('validation helpers', () => {
         message: 'Date is required.',
       });
     });
+  });
+});
+
+describe('normalizeCurrency', () => {
+  it('passes a valid ISO code through, upper-casing it', () => {
+    expect(normalizeCurrency('usd')).toEqual({ status: 'ok', code: 'USD' });
+  });
+
+  it('resolves a display name', () => {
+    expect(normalizeCurrency('US Dollar')).toEqual({
+      status: 'ok',
+      code: 'USD',
+    });
+  });
+
+  it('resolves an unambiguous symbol', () => {
+    expect(normalizeCurrency('€')).toEqual({ status: 'ok', code: 'EUR' });
+    expect(normalizeCurrency('£')).toEqual({ status: 'ok', code: 'GBP' });
+  });
+
+  it('reports every candidate for an ambiguous symbol', () => {
+    const result = normalizeCurrency('$');
+    expect(result.status).toBe('ambiguous');
+    if (result.status === 'ambiguous') {
+      expect(result.candidates).toContain('USD');
+      expect(result.candidates).toContain('AUD');
+      expect(result.candidates).toContain('CAD');
+    }
+  });
+
+  it('distinguishes a withdrawn currency by its period suffix', () => {
+    expect(normalizeCurrency('Afghan Afghani')).toEqual({
+      status: 'ok',
+      code: 'AFN',
+    });
+    expect(normalizeCurrency('Afghan Afghani (1927–2002)')).toEqual({
+      status: 'ok',
+      code: 'AFA',
+    });
+  });
+
+  it('returns unknown for an unrecognised value', () => {
+    expect(normalizeCurrency('ZZZ')).toEqual({ status: 'unknown' });
+    expect(normalizeCurrency('')).toEqual({ status: 'unknown' });
   });
 });

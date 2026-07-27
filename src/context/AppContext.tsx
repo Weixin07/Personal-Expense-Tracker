@@ -8,6 +8,8 @@ import React, {
   useState,
 } from 'react';
 import type { UploadPendingExportsResult } from '../export';
+import { commitImport } from '../import';
+import type { ImportPreview, ImportSummary } from '../import';
 import { requestDirectorySelection } from '../security/storageAccess';
 import {
   withDatabase,
@@ -126,6 +128,11 @@ export type ExpenseDataActions = {
   uploadQueuedExports: (options?: {
     interactive?: boolean;
   }) => Promise<UploadPendingExportsResult | null>;
+  /** `acceptedRates` is keyed by `fxPairKey`, matching `commitImport`. */
+  importExpenses: (
+    preview: ImportPreview,
+    acceptedRates?: Record<string, number>,
+  ) => Promise<ImportSummary>;
   unlockWithBiometrics: () => Promise<boolean>;
 };
 
@@ -958,6 +965,23 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
 
   const refresh = useCallback(() => loadFromDatabase(), [loadFromDatabase]);
 
+  const importExpenses = useCallback<ExpenseDataActions['importExpenses']>(
+    async (preview, acceptedRates) => {
+      dispatch({ type: 'operation/start' });
+      try {
+        const summary = await commitImport(preview, acceptedRates);
+        await loadFromDatabase();
+        return summary;
+      } catch (error) {
+        dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
+        throw toError(error);
+      } finally {
+        dispatch({ type: 'operation/end' });
+      }
+    },
+    [loadFromDatabase],
+  );
+
   const filteredExpenses = useMemo(
     () => applyFilters(state.expenses, state.filters),
     [state.expenses, state.filters],
@@ -998,6 +1022,7 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
       removeExport,
       clearCompletedExports,
       uploadQueuedExports,
+      importExpenses,
       unlockWithBiometrics,
     }),
     [
@@ -1020,6 +1045,7 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
       removeExport,
       clearCompletedExports,
       uploadQueuedExports,
+      importExpenses,
       unlockWithBiometrics,
     ],
   );

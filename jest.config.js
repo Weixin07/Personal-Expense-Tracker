@@ -5,7 +5,7 @@ module.exports = {
     '<rootDir>/jest.setup.js',
   ],
   transformIgnorePatterns: [
-    'node_modules/(?!(?:\\.pnpm/[^/]+/node_modules/)?(?:react-native|@react-native|@react-native-community|@react-native-vector-icons|@react-navigation|react-native-.*)/)',
+    'node_modules/(?!(?:\\.pnpm/[^/]+/node_modules/)?(?:react-native|@react-native|@react-native-google-signin|@react-native-community|@react-native-vector-icons|@react-navigation|react-native-.*)/)',
   ],
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',

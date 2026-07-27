@@ -55,6 +55,12 @@ describe('SettingsScreen', () => {
     expect(mockNavigate).toHaveBeenCalledWith('ExportQueue');
   });
 
+  it('navigates to the import screen', () => {
+    renderWithProviders(<SettingsScreen />);
+    fireEvent.press(screen.getByLabelText('Import expenses'));
+    expect(mockNavigate).toHaveBeenCalledWith('Import');
+  });
+
   it('toggles the biometric gate', () => {
     const setBiometricGateEnabled = jest.fn();
     mockedUseExpenseData.mockReturnValue(

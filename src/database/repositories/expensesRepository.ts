@@ -107,6 +107,61 @@ export const createExpense = async (
   return expense;
 };
 
+const BULK_INSERT_COLUMN_COUNT = 10;
+// SQLite caps host parameters per statement (SQLITE_MAX_VARIABLE_NUMBER, 999 on
+// older builds). Cap rows per INSERT so column_count * rows stays under it.
+const BULK_INSERT_MAX_ROWS = 90;
+
+const toBulkInsertParams = (
+  payload: NewExpenseRecord,
+): Array<string | number | null> => [
+  payload.description,
+  payload.payee,
+  payload.amountNative,
+  payload.currencyCode,
+  payload.fxRateToBase,
+  payload.baseAmount,
+  payload.baseCurrencyCode ?? null,
+  payload.date,
+  payload.categoryId ?? null,
+  payload.notes ?? null,
+];
+
+export const createExpensesBulk = async (
+  db: SQLiteDatabase,
+  payloads: readonly NewExpenseRecord[],
+): Promise<number> => {
+  if (payloads.length === 0) {
+    return 0;
+  }
+
+  const rowPlaceholder = `(${Array(BULK_INSERT_COLUMN_COUNT).fill('?').join(', ')})`;
+
+  for (let start = 0; start < payloads.length; start += BULK_INSERT_MAX_ROWS) {
+    const batch = payloads.slice(start, start + BULK_INSERT_MAX_ROWS);
+    const placeholders = Array(batch.length).fill(rowPlaceholder).join(', ');
+    const params = batch.flatMap(toBulkInsertParams);
+    await db.executeSql(
+      // eslint-disable-next-line no-restricted-syntax -- placeholder groups are a trusted constant; every row value is parameterized
+      `INSERT INTO expenses (
+        description,
+        payee,
+        amount_native,
+        currency_code,
+        fx_rate_to_base,
+        base_amount,
+        base_currency_code,
+        date,
+        category_id,
+        notes
+      ) VALUES ${placeholders}`,
+      params,
+    );
+  }
+
+  return payloads.length;
+};
+
 export const updateExpense = async (
   db: SQLiteDatabase,
   payload: UpdateExpenseRecord,

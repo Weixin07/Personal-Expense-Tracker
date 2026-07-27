@@ -1,6 +1,9 @@
 import {
-  StorageAccessFramework,
-  type DirectoryPermission,
+  openDocument,
+  openDocumentTree,
+  readFile,
+  writeFile,
+  unlink,
 } from 'react-native-saf-x';
 
 const MIME_TYPE_CSV = 'text/csv';
@@ -9,38 +12,14 @@ export type DirectorySelectionResult =
   | { ok: true; uri: string }
   | { ok: false; cancelled: boolean; message?: string };
 
-const isPermissionGranted = (
-  permission: DirectoryPermission | null,
-): permission is DirectoryPermission & { uri: string } =>
-  Boolean(permission && permission.granted && permission.uri);
-
-const persistDirectoryPermission = async (uri: string): Promise<void> => {
-  if (typeof StorageAccessFramework.persistAccessPermissions === 'function') {
-    await StorageAccessFramework.persistAccessPermissions(uri);
-    return;
-  }
-  if (typeof StorageAccessFramework.persistPermissions === 'function') {
-    await StorageAccessFramework.persistPermissions(uri);
-    return;
-  }
-  if (
-    typeof StorageAccessFramework.takePersistableUriPermission === 'function'
-  ) {
-    await StorageAccessFramework.takePersistableUriPermission(uri);
-  }
-};
-
 export const requestDirectorySelection =
   async (): Promise<DirectorySelectionResult> => {
     try {
-      const permission =
-        await StorageAccessFramework.requestDirectoryPermissions();
-      if (!isPermissionGranted(permission)) {
-        return { ok: false, cancelled: true, message: permission?.error };
+      const directory = await openDocumentTree(true);
+      if (!directory || !directory.uri) {
+        return { ok: false, cancelled: true };
       }
-
-      await persistDirectoryPermission(permission.uri);
-      return { ok: true, uri: permission.uri };
+      return { ok: true, uri: directory.uri };
     } catch (error) {
       const message =
         error instanceof Error
@@ -55,17 +34,39 @@ export const createCsvFileInDirectory = async (
   filename: string,
   content: string,
 ): Promise<string> => {
-  const fileUri = await StorageAccessFramework.createFile(
-    directoryUri,
-    filename,
-    MIME_TYPE_CSV,
-  );
-  await StorageAccessFramework.writeFile(fileUri, content, 'utf8');
+  const fileUri = `${directoryUri}/${filename}`;
+  await writeFile(fileUri, content, {
+    encoding: 'utf8',
+    mimeType: MIME_TYPE_CSV,
+  });
   return fileUri;
 };
 
 export const readFileAsBase64 = async (uri: string): Promise<string> => {
-  return StorageAccessFramework.readFile(uri, 'base64');
+  return readFile(uri, { encoding: 'base64' });
+};
+
+export const readFileAsString = async (uri: string): Promise<string> => {
+  return readFile(uri, { encoding: 'utf8' });
+};
+
+export type FileSelectionResult =
+  | { ok: true; uri: string }
+  | { ok: false; cancelled: boolean; message?: string };
+
+export const pickCsvFile = async (): Promise<FileSelectionResult> => {
+  try {
+    const selection = await openDocument({ persist: false, multiple: false });
+    const document = Array.isArray(selection) ? selection[0] : selection;
+    if (!document || !document.uri) {
+      return { ok: false, cancelled: true };
+    }
+    return { ok: true, uri: document.uri };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Failed to open document.';
+    return { ok: false, cancelled: false, message };
+  }
 };
 
 export const deleteFileUri = async (
@@ -75,7 +76,7 @@ export const deleteFileUri = async (
     return;
   }
   try {
-    await StorageAccessFramework.deleteFile(uri);
+    await unlink(uri);
   } catch {
     // Ignore failures; file may already be gone or permission revoked.
   }

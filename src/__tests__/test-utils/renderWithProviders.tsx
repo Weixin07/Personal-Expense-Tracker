@@ -98,6 +98,12 @@ export const makeContextActions = (
   removeExport: jest.fn().mockResolvedValue(undefined),
   clearCompletedExports: jest.fn().mockResolvedValue(undefined),
   uploadQueuedExports: jest.fn().mockResolvedValue(null),
+  importExpenses: jest.fn().mockResolvedValue({
+    inserted: 0,
+    skippedInvalid: 0,
+    skippedNeedsFxRate: 0,
+    createdCategories: 0,
+  }),
   unlockWithBiometrics: jest.fn().mockResolvedValue(true),
   ...overrides,
 });

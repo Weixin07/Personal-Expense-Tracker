@@ -213,6 +213,14 @@ const SettingsScreen: React.FC = () => {
           accessibilityLabel="Open export queue"
         />
         <List.Item
+          title="Import expenses"
+          description="Load expenses from a CSV file or Drive backup"
+          right={() => <List.Icon icon="chevron-right" />}
+          onPress={() => navigation.navigate('Import')}
+          accessibilityRole="button"
+          accessibilityLabel="Import expenses"
+        />
+        <List.Item
           title="Drive backup folder"
           description={driveFolderDescription}
           right={() => (

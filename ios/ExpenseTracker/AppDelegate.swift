@@ -2,7 +2,6 @@ import UIKit
 import React
 import React_RCTAppDelegate
 import ReactAppDependencyProvider
-import RNAppAuthAuthorizationFlowManager
 
 @main
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -10,7 +9,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
   var reactNativeDelegate: ReactNativeDelegate?
   var reactNativeFactory: RCTReactNativeFactory?
-  var authorizationFlowManagerDelegate: RNAppAuthAuthorizationFlowManager?
 
   func application(
     _ application: UIApplication,
@@ -32,25 +30,6 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     )
 
     return true
-  }
-
-  func application(
-    _ app: UIApplication,
-    open url: URL,
-    options: [UIApplication.OpenURLOptionsKey: Any] = [:]
-  ) -> Bool {
-    if let flowDelegate = authorizationFlowManagerDelegate,
-       flowDelegate.resumeExternalUserAgentFlow(with: url) {
-      authorizationFlowManagerDelegate = nil
-      return true
-    }
-    return false
-  }
-}
-
-extension AppDelegate: RNAppAuthAuthorizationFlowManagerDelegate {
-  func setAuthorizationFlowManagerDelegate(_ delegate: RNAppAuthAuthorizationFlowManager?) {
-    authorizationFlowManagerDelegate = delegate
   }
 }
 

@@ -107,6 +107,17 @@ export const getCategoryByName = async (
   return toCategoryRecord(result.rows.item(0) as RawCategoryRow);
 };
 
+export const getOrCreateCategoryByName = async (
+  db: SQLiteDatabase,
+  name: string,
+): Promise<CategoryRecord> => {
+  const existing = await getCategoryByName(db, name);
+  if (existing) {
+    return existing;
+  }
+  return createCategory(db, { name });
+};
+
 export const listCategories = async (
   db: SQLiteDatabase,
 ): Promise<CategoryRecord[]> => {

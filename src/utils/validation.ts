@@ -20,6 +20,93 @@ const currencyCodes: Set<string> = new Set(
     .map(code => code.toUpperCase()),
 );
 
+/**
+ * Currency display names reversed onto their ISO code. Names in the dataset are
+ * distinct — a withdrawn currency carries its period in the name, as in "Afghan
+ * Afghani" (AFN) against "Afghan Afghani (1927–2002)" (AFA) — so the reverse
+ * mapping is one-to-one.
+ */
+const currencyNameToCode: Map<string, string> = Object.entries(
+  currencies as Record<string, string>,
+).reduce((map, [code, name]) => {
+  if (/^[A-Z]{3}$/.test(code)) {
+    map.set(name.trim().toLowerCase(), code);
+  }
+  return map;
+}, new Map<string, string>());
+
+/**
+ * Symbols carry no country, so most map to several ISO codes and cannot be
+ * resolved from the file alone. Single-candidate entries are unambiguous;
+ * the rest are offered to the user to choose from.
+ */
+const CURRENCY_SYMBOL_TO_CODES: Record<string, string[]> = {
+  $: ['USD', 'AUD', 'CAD', 'NZD', 'SGD', 'HKD'],
+  us$: ['USD'],
+  a$: ['AUD'],
+  c$: ['CAD'],
+  nz$: ['NZD'],
+  s$: ['SGD'],
+  hk$: ['HKD'],
+  r$: ['BRL'],
+  '€': ['EUR'],
+  '£': ['GBP'],
+  '¥': ['JPY', 'CNY'],
+  '₹': ['INR'],
+  '₩': ['KRW'],
+  '₽': ['RUB'],
+  '₺': ['TRY'],
+  '₴': ['UAH'],
+  '₫': ['VND'],
+  '₪': ['ILS'],
+  '฿': ['THB'],
+  '₱': ['PHP'],
+  kr: ['SEK', 'NOK', 'DKK', 'ISK'],
+  zł: ['PLN'],
+  rm: ['MYR'],
+  rp: ['IDR'],
+};
+
+export type CurrencyNormalisation =
+  | { status: 'ok'; code: string }
+  | { status: 'ambiguous'; candidates: string[] }
+  | { status: 'unknown' };
+
+/**
+ * Resolve a raw currency cell — an ISO code, a display name, or a symbol — to a
+ * single ISO-4217 code. Returns `ambiguous` with every candidate when the value
+ * maps to more than one code, so the caller can ask rather than guess.
+ */
+export const normalizeCurrency = (
+  raw: string | null | undefined,
+): CurrencyNormalisation => {
+  const trimmed = (raw ?? '').trim();
+  if (!trimmed) {
+    return { status: 'unknown' };
+  }
+
+  const upper = trimmed.toUpperCase();
+  if (currencyCodes.has(upper)) {
+    return { status: 'ok', code: upper };
+  }
+
+  const lower = trimmed.toLowerCase();
+  const byName = currencyNameToCode.get(lower);
+  if (byName) {
+    return { status: 'ok', code: byName };
+  }
+
+  const candidates =
+    CURRENCY_SYMBOL_TO_CODES[trimmed] ?? CURRENCY_SYMBOL_TO_CODES[lower];
+  if (!candidates) {
+    return { status: 'unknown' };
+  }
+
+  return candidates.length === 1
+    ? { status: 'ok', code: candidates[0] }
+    : { status: 'ambiguous', candidates: [...candidates] };
+};
+
 const truncateUtcDate = (date: Date): Date =>
   new Date(
     Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),

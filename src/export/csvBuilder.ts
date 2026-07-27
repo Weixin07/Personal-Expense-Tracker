@@ -1,4 +1,5 @@
 import type { CategoryRecord, ExpenseRecord } from '../database';
+import { EXPENSE_CSV_COLUMNS } from './csvColumns';
 
 type BuildCsvInput = {
   expenses: readonly ExpenseRecord[];
@@ -11,19 +12,7 @@ type BuildCsvOutput = {
   content: string;
 };
 
-const HEADER_COLUMNS = [
-  'id',
-  'description',
-  'amount_native',
-  'currency_code',
-  'fx_rate_to_base',
-  'base_amount',
-  'date',
-  'category',
-  'notes',
-  'base_currency_code',
-  'payee',
-] as const;
+const HEADER_COLUMNS = EXPENSE_CSV_COLUMNS;
 
 const UTF8_BOM = '\uFEFF';
 const LINE_ENDING = '\r\n';

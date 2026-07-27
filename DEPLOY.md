@@ -84,9 +84,7 @@ notepad .env
 ```
 
 ```env
-GOOGLE_OAUTH_CLIENT_ID=YOUR_CLIENT_ID_HERE.apps.googleusercontent.com
-GOOGLE_OAUTH_REDIRECT_URI=com.expensetracker:/oauth2redirect/google
-GOOGLE_DRIVE_UPLOAD_SCOPE=https://www.googleapis.com/auth/drive.file
+GOOGLE_WEB_CLIENT_ID=YOUR_WEB_CLIENT_ID.apps.googleusercontent.com
 ```
 
 `.env` is gitignored — never commit it. Variables are embedded in the APK at build time,
@@ -111,32 +109,49 @@ You will be prompted for a keystore password, a key password, and certificate de
 > a password manager and back up the `.keystore` file to a secure location. `*.keystore`
 > is gitignored; confirm it never appears in `git status`.
 
-Get the SHA-1 fingerprint (needed for the Google OAuth client in Step 3):
-
-```powershell
-keytool -list -v -keystore expense-tracker-release.keystore -alias expense-tracker
-```
-
-Copy the `SHA1:` value from the output.
+You will register this keystore's SHA-1 with the Google OAuth client in Step 3 — see
+[Signing identity](#signing-identity-which-sha-1-to-register) for how to read it
+(`pnpm signing:report`).
 
 ---
 
 ## Step 3: Configure Google OAuth
 
-The Drive backup feature uses OAuth 2.0 with PKCE. Create an **Android** OAuth client:
+The Drive backup feature uses `@react-native-google-signin/google-signin`, which needs
+**two** OAuth clients in the same project — an **Android** client for app identity and a
+**Web application** client for the `webClientId`:
 
 1. **Create a project** — [Google Cloud Console](https://console.cloud.google.com/) → new project, e.g. "Expense Tracker".
 2. **Enable the Drive API** — APIs & Services → Library → search "Google Drive API" → Enable.
 3. **Configure the consent screen** — OAuth consent screen → External → app name "Expense Tracker", your support/developer email → add scope `https://www.googleapis.com/auth/drive.file` → add your Google account as a test user. Status stays "Testing".
-4. **Create the credential** — Credentials → Create credentials → OAuth client ID:
-   - Application type: **Android** (not Web or iOS).
-   - Package name: `com.expensetracker`.
-   - SHA-1 fingerprint: paste from Step 2 (add your **debug** SHA-1 too if you want Drive to work in debug builds — `~/.android/debug.keystore`, alias `androiddebugkey`, storepass/keypass `android`).
-5. **Copy the Client ID** (`<hash>.apps.googleusercontent.com`) into `GOOGLE_OAUTH_CLIENT_ID` in `.env`.
+4. **Create the Android client(s)** — Credentials → Create credentials → OAuth client ID → application type **Android**. Debug and release install under **different** applicationIds, so each build type needs its own Android client in the same project (Google matches by package + SHA-1):
+   - **Debug:** package `com.expensetracker.debug`, SHA-1 = the `debug` variant from [Signing identity](#signing-identity-which-sha-1-to-register).
+   - **Release:** package `com.expensetracker`, SHA-1 = the `release` variant from [Signing identity](#signing-identity-which-sha-1-to-register).
+5. **Create the Web application client** — Credentials → Create credentials → OAuth client ID → **Web application**. Copy its Client ID into `GOOGLE_WEB_CLIENT_ID` in `.env`.
 
-Android OAuth clients support PKCE automatically — there is nothing to toggle. See
-[OAuth 2.0 Security with PKCE](#oauth-20-security-with-pkce) for how it works and how to
-verify it.
+There is no custom redirect URI — google-signin uses the native Credential flow. The app
+must run on a device/emulator with **Google Play services** installed.
+
+### Signing identity (which SHA-1 to register)
+
+Google matches your build by **package name + signing-certificate SHA-1**. Debug builds carry an
+`applicationIdSuffix '.debug'` (`android/app/build.gradle`), so debug and release install as
+**separate apps** and each needs its **own** Android OAuth client. Register the package **and** the
+SHA-1 of the keystore that actually signs the build you run:
+
+| Build type                                 | OAuth package to register  | Keystore (alias / password)                                                                              | Read its SHA-1                                                                  |
+| ------------------------------------------ | -------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| **Debug** (`pnpm android`)                 | `com.expensetracker.debug` | `android/app/debug.keystore` (committed) — `androiddebugkey` / `android`                                 | `pnpm signing:report` → variant `debug`                                         |
+| **Release** (`pnpm build:android:release`) | `com.expensetracker`       | `android/app/expense-tracker-release.keystore` (Step 2; gitignored) — `expense-tracker` / your passwords | `pnpm signing:report` → variant `release` (needs the four `RELEASE_*` vars set) |
+
+`pnpm signing:report` runs Gradle's `signingReport`, which reads the real `signingConfigs` and
+prints each variant's `SHA1`/`SHA-256` — the authoritative source, so a registered value can never
+drift from the keystore. (Manual equivalent: `keytool -list -v -keystore <path> -alias <alias>`.)
+
+> The committed debug keystore's SHA-1 is the same for everyone who clones the repo:
+> `5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25`. The release SHA-1 is unique to the
+> keystore you generate in Step 2 — read it with `pnpm signing:report`. Do **not** register a
+> global `~/.android/debug.keystore`: this project uses the project-local `android/app/debug.keystore`.
 
 ---
 
@@ -170,7 +185,7 @@ Get-Content android\app\release-signing.env | ForEach-Object {
 
 > **CI note:** the `.github/workflows/release-build.yml` workflow exercises a signed
 > `assembleRelease` (`workflow_dispatch` or a pushed `v*` tag). Set these four values plus
-> `GOOGLE_OAUTH_REDIRECT_URI` as repository **secrets** (the keystore as `RELEASE_KEYSTORE_BASE64`,
+> `GOOGLE_WEB_CLIENT_ID` as repository **secrets** (the keystore as `RELEASE_KEYSTORE_BASE64`,
 > a base64 of the file); the workflow decodes the keystore to a runner-only path and never
 > writes the passwords to `.env`. When the secrets are absent (e.g. a fork), the build job
 > skips instead of failing. It runs R8 by default and uploads `app-release.apk` and
@@ -314,42 +329,26 @@ policy, and a content rating — out of scope for personal use.
 
 ---
 
-## OAuth 2.0 Security with PKCE
+## OAuth 2.0 Security
 
-**PKCE (Proof Key for Code Exchange)** extends the OAuth 2.0 authorization-code flow to
-protect native apps from authorization-code interception. Mobile apps cannot hold a client
-secret safely (APKs can be decompiled and every user shares the same binary), so PKCE
-replaces the static secret with a per-request verifier/challenge pair.
+Drive auth uses `@react-native-google-signin/google-signin`, which performs Google sign-in
+through Google Play services rather than a browser redirect. There is **no client secret**
+embedded in the app: the Android OAuth client is bound to the app's package name and signing
+certificate (SHA-1), and the `webClientId` (a Web application client) is used only to obtain
+an ID token. Google issues a short-lived access token that the app sends as a Bearer token to
+the Drive REST API.
 
-How the app uses it:
-
-1. Generate a random `code_verifier` (43–128 chars).
-2. Compute `code_challenge = base64url(SHA256(code_verifier))`.
-3. Send the authorization request with `code_challenge` and `code_challenge_method=S256`.
-4. The user approves; Google returns an authorization code.
-5. The token request includes the original `code_verifier`.
-6. Google validates `SHA256(code_verifier) == code_challenge` and issues tokens.
-
-Without the verifier (which never leaves the device until the token exchange), an
-intercepted code is useless.
-
-PKCE is enabled in `src/security/googleAuth.ts` via `usePKCE: true` in the
-`react-native-app-auth` config; the library handles the flow automatically.
-
-### Verifying PKCE is working
-
-- **Logs:** `adb logcat | Select-String "pkce|code_challenge"` — expect `code_challenge`
-  and `code_challenge_method=S256` in the authorization request.
-- **Proxy:** inspect the request to
-  `https://accounts.google.com/o/oauth2/v2/auth` with Charles/mitmproxy and confirm the
-  same two parameters are present.
+`src/security/googleAuth.ts` requests only the `drive.file` scope, so the app can read and
+write **only files it created** — never the user's wider Drive contents.
 
 ### Security best practices
 
-- Never commit `.env`; keep `GOOGLE_OAUTH_CLIENT_ID` out of version control.
-- Use separate OAuth clients for debug and release builds.
+- Never commit `.env`; keep `GOOGLE_WEB_CLIENT_ID` out of version control.
+- Register both debug and release SHA-1 fingerprints on the Android OAuth client.
 - Rotate the client if it leaks; create a new one and revoke the old.
 - Keep the scope at `drive.file` (app-created files only), not full `drive` access.
+- Importing CSVs from other apps needs no new Drive permission: files the app did not
+  create are opened through the system file picker, not the Drive API.
 
 ---
 
@@ -362,10 +361,9 @@ package-list `getDefaultReactHost` overload). Everything below now originates in
 does **not** own. Each is recorded with the condition that would let it be retired.
 
 The 0.83 upgrade **cleared** the `react-native-gesture-handler` Kotlin deprecation outright and
-roughly halved the `react-native-screens` warnings (bumped to the latest `4.25.x`);
-`react-native-app-auth`'s Kotlin deprecation also cleared, though it still emits a generic Java
-"uses a deprecated API" note (below). "At latest" means the newest published version still uses the
-deprecated RN API internally — no bump can clear it today.
+roughly halved the `react-native-screens` warnings (bumped to the latest `4.25.x`).
+"At latest" means the newest published version still uses the deprecated RN API internally —
+no bump can clear it today.
 
 | Warning                                                                                                         | Origin                                                                                                                                                                                                                                | Retire when                                                                                                                                                                      |
 | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -374,9 +372,9 @@ deprecated RN API internally — no bump can clear it today.
 | `onCatalystInstanceDestroy() [removal]`                                                                         | `@react-native-community/netinfo` — present at **every** version incl. latest `12.x`, so kept at `^11.x` (a `12.x` bump clears nothing here)                                                                                          | netinfo removes the deprecated lifecycle method upstream                                                                                                                         |
 | `react-native-keychain` deprecations (`isInsideSecureHardware`, `setUserAuthenticationValidityDurationSeconds`) | `react-native-keychain` internals                                                                                                                                                                                                     | Kept at `^9.x`; a `10.x` bump changes the biometric-gate API surface and must pass the on-device biometric smoke (see below) before adoption                                     |
 | Vector-icons `TurboReactPackage` deprecation (codegen)                                                          | `@react-native-vector-icons/material-design-icons` (react-native-paper's default icon set)                                                                                                                                            | Kept at `^12.x`; a `13.x` bump is a paper-coupled visual change and must pass on-device icon-render verification before adoption                                                 |
-| Java "uses or overrides a deprecated API" notes                                                                 | `react-native-app-auth`, `react-native-fs`, `react-native-saf-x`, `react-native-sqlite-storage` (all at latest)                                                                                                                       | The maintainer ships a release that drops the deprecated API                                                                                                                     |
+| Java "uses or overrides a deprecated API" notes                                                                 | `react-native-fs`, `react-native-saf-x`, `react-native-sqlite-storage` (all at latest)                                                                                                                                                | The maintainer ships a release that drops the deprecated API                                                                                                                     |
 | Java "uses a deprecated API" note (`react-native-config`)                                                       | `react-native-config`                                                                                                                                                                                                                 | Pinned because of `patches/react-native-config.patch`; on any bump, re-roll the patch (`pnpm patch`) first                                                                       |
-| `Setting the namespace via the package attribute … is no longer supported` (manifest)                           | AGP warning from 7 libs' `AndroidManifest.xml` (`react-native-keychain`, `-sqlite-storage`, `-app-auth`, `-fs`, `-safe-area-context`, `-saf-x`, `@react-native-community/netinfo`) — `package=` attribute we do not own               | The library removes `package=` from its manifest (AGP already ignores the value; harmless today)                                                                                 |
+| `Setting the namespace via the package attribute … is no longer supported` (manifest)                           | AGP warning from several libs' `AndroidManifest.xml` (`react-native-keychain`, `-sqlite-storage`, `-fs`, `-safe-area-context`, `-saf-x`, `@react-native-community/netinfo`) — `package=` attribute we do not own                      | The library removes `package=` from its manifest (AGP already ignores the value; harmless today)                                                                                 |
 | `dependency.platforms.ios.project is not allowed` (invalid RN config)                                           | **Resolved** — `patches/react-native-sqlite-storage@6.0.1.patch` drops the rejected iOS `project` key from the library's `react-native.config.js` (iOS still autolinks via the shipped podspec; the Android `sourceDir` is untouched) | On any `react-native-sqlite-storage` bump, re-roll the patch (`pnpm patch`) first; upstream is unmaintained at `6.0.1`                                                           |
 | "Deprecated Gradle features … incompatible with Gradle 9.0"                                                     | Third-party libraries' Groovy `build.gradle` space-assignment DSL (`--warning-mode all` attributes each to `node_modules/<lib>/android/build.gradle`)                                                                                 | The Gradle wrapper is intentionally held at the RN-0.83 default (8.14.3); moving to Gradle 9 turns these into hard errors until every autolinked library migrates its DSL to `=` |
 
@@ -485,35 +483,34 @@ adb shell pm clear com.expensetracker
 adb install -r android\app\build\outputs\apk\release\app-release.apk
 ```
 
-### Troubleshooting PKCE Issues
+### Troubleshooting Google Sign-In Issues
 
-**"Invalid client"**
+**`DEVELOPER_ERROR` / error `10`** (the account picker opens, then closes immediately
+after you select an account)
 
-- `GOOGLE_OAUTH_CLIENT_ID` in `.env` must match the Google Cloud Console client.
-- The client type must be **Android** (not Web or iOS).
-- The SHA-1 fingerprint must be added to the client.
+- The running build's package + SHA-1 aren't registered on a matching **Android** OAuth client.
+  Remember debug and release use **different** packages: debug is `com.expensetracker.debug`, release
+  is `com.expensetracker`. Register each build's package + SHA-1 from
+  [Signing identity](#signing-identity-which-sha-1-to-register) (`pnpm signing:report`) — use the
+  project-local `android/app/debug.keystore`, not a global `~/.android/debug.keystore`.
+- Verify `GOOGLE_WEB_CLIENT_ID` in `.env` is the **Web application** client ID (not the
+  Android one). Rebuild after any `.env` change.
 
-**"Redirect URI mismatch"**
+**`PLAY_SERVICES_NOT_AVAILABLE`**
 
-- `GOOGLE_OAUTH_REDIRECT_URI` must be exactly `com.expensetracker:/oauth2redirect/google`.
+- The device/emulator lacks Google Play services. Use a "Google Play" emulator image, not
+  AOSP, or a physical device with Play services.
 
-**"Code verifier does not match challenge"**
+**`SIGN_IN_CANCELLED`**
 
-- PKCE is working; this indicates flow tampering. Clear app data and re-authenticate.
+- The user dismissed the account picker; not an error. Retry the sign-in.
 
-**No `code_challenge` in the authorization request**
+**Access blocked / `invalid_request` at the consent screen**
 
-- Confirm `usePKCE: true` in `src/security/googleAuth.ts`.
-- Confirm `react-native-app-auth` is 8.0.0+.
-- Rebuild cleanly: `cd android; .\gradlew clean; cd ..; pnpm build:android:release`.
-
-**`DEVELOPER_ERROR` / error `12501`**
-
-- Verify the client ID, SHA-1, and that the package name is `com.expensetracker` in both
-  `android/app/build.gradle` and the OAuth client. Rebuild after any `.env` change.
+- The signing-in account must be a **test user** on the OAuth consent screen while the app
+  is in "Testing", and the `drive.file` scope must be requested.
 
 ### Additional resources
 
 - [OAuth 2.0 for Mobile & Desktop Apps](https://developers.google.com/identity/protocols/oauth2/native-app)
-- [RFC 7636: PKCE Specification](https://datatracker.ietf.org/doc/html/rfc7636)
-- [react-native-app-auth](https://github.com/FormidableLabs/react-native-app-auth)
+- [@react-native-google-signin/google-signin](https://github.com/react-native-google-signin/google-signin)
