@@ -1,17 +1,21 @@
 import type { SQLiteDatabase, ResultSet } from 'react-native-sqlite-storage';
 import {
-  createExpense,
-  createExpensesBulk,
-  updateExpense,
-  deleteExpense,
-  getExpenseById,
-  listExpenses,
-} from '../expensesRepository';
-import type { NewExpenseRecord, UpdateExpenseRecord } from '../../types';
+  createTransaction,
+  createTransactionsBulk,
+  updateTransaction,
+  deleteTransaction,
+  getTransactionById,
+  listTransactions,
+} from '../transactionsRepository';
+import type {
+  NewTransactionRecord,
+  UpdateTransactionRecord,
+} from '../../types';
 
 const makeNewExpense = (
-  overrides: Partial<NewExpenseRecord> = {},
-): NewExpenseRecord => ({
+  overrides: Partial<NewTransactionRecord> = {},
+): NewTransactionRecord => ({
+  type: 'expense',
   description: 'Item',
   payee: 'Store',
   amountNative: 10,
@@ -25,7 +29,7 @@ const makeNewExpense = (
   ...overrides,
 });
 
-describe('expensesRepository', () => {
+describe('transactionsRepository', () => {
   let mockDb: jest.Mocked<SQLiteDatabase>;
 
   beforeEach(() => {
@@ -34,9 +38,10 @@ describe('expensesRepository', () => {
     } as unknown as jest.Mocked<SQLiteDatabase>;
   });
 
-  describe('createExpense', () => {
+  describe('createTransaction', () => {
     it('should create an expense and return the created record', async () => {
-      const newExpense: NewExpenseRecord = {
+      const newExpense: NewTransactionRecord = {
+        type: 'expense',
         description: 'Test expense',
         payee: 'Acme Store',
         amountNative: 100.5,
@@ -89,12 +94,13 @@ describe('expensesRepository', () => {
         .mockResolvedValueOnce([mockInsertResult])
         .mockResolvedValueOnce([mockSelectResult]);
 
-      const result = await createExpense(mockDb, newExpense);
+      const result = await createTransaction(mockDb, newExpense);
 
       expect(mockDb.executeSql).toHaveBeenCalledTimes(2);
       expect(mockDb.executeSql).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO expenses'),
+        expect.stringContaining('INSERT INTO transactions'),
         [
+          'expense',
           'Test expense',
           'Acme Store',
           100.5,
@@ -126,7 +132,8 @@ describe('expensesRepository', () => {
     });
 
     it('should handle null categoryId and notes', async () => {
-      const newExpense: NewExpenseRecord = {
+      const newExpense: NewTransactionRecord = {
+        type: 'expense',
         description: 'Test expense',
         payee: 'Acme Store',
         amountNative: 50.0,
@@ -179,11 +186,12 @@ describe('expensesRepository', () => {
         .mockResolvedValueOnce([mockInsertResult])
         .mockResolvedValueOnce([mockSelectResult]);
 
-      const result = await createExpense(mockDb, newExpense);
+      const result = await createTransaction(mockDb, newExpense);
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO expenses'),
+        expect.stringContaining('INSERT INTO transactions'),
         [
+          'expense',
           'Test expense',
           'Acme Store',
           50.0,
@@ -202,7 +210,8 @@ describe('expensesRepository', () => {
     });
 
     it('should throw error if insertId is not returned', async () => {
-      const newExpense: NewExpenseRecord = {
+      const newExpense: NewTransactionRecord = {
+        type: 'expense',
         description: 'Test expense',
         payee: 'Acme Store',
         amountNative: 100.5,
@@ -227,13 +236,14 @@ describe('expensesRepository', () => {
 
       mockDb.executeSql.mockResolvedValueOnce([mockInsertResult]);
 
-      await expect(createExpense(mockDb, newExpense)).rejects.toThrow(
-        'Failed to determine inserted expense ID',
+      await expect(createTransaction(mockDb, newExpense)).rejects.toThrow(
+        'Failed to determine inserted transaction ID',
       );
     });
 
     it('should throw error if expense cannot be loaded after insert', async () => {
-      const newExpense: NewExpenseRecord = {
+      const newExpense: NewTransactionRecord = {
+        type: 'expense',
         description: 'Test expense',
         payee: 'Acme Store',
         amountNative: 100.5,
@@ -270,15 +280,16 @@ describe('expensesRepository', () => {
         .mockResolvedValueOnce([mockInsertResult])
         .mockResolvedValueOnce([mockSelectResult]);
 
-      await expect(createExpense(mockDb, newExpense)).rejects.toThrow(
-        'Failed to load inserted expense',
+      await expect(createTransaction(mockDb, newExpense)).rejects.toThrow(
+        'Failed to load inserted transaction',
       );
     });
   });
 
-  describe('updateExpense', () => {
+  describe('updateTransaction', () => {
     it('should update an expense and return the updated record', async () => {
-      const updatePayload: UpdateExpenseRecord = {
+      const updatePayload: UpdateTransactionRecord = {
+        type: 'expense',
         id: 42,
         description: 'Updated expense',
         payee: 'Acme Store',
@@ -332,11 +343,12 @@ describe('expensesRepository', () => {
         .mockResolvedValueOnce([mockUpdateResult])
         .mockResolvedValueOnce([mockSelectResult]);
 
-      const result = await updateExpense(mockDb, updatePayload);
+      const result = await updateTransaction(mockDb, updatePayload);
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
-        expect.stringContaining('UPDATE expenses SET'),
+        expect.stringContaining('UPDATE transactions SET'),
         [
+          'expense',
           'Updated expense',
           'Acme Store',
           200.75,
@@ -369,7 +381,8 @@ describe('expensesRepository', () => {
     });
 
     it('should throw error if expense not found', async () => {
-      const updatePayload: UpdateExpenseRecord = {
+      const updatePayload: UpdateTransactionRecord = {
+        type: 'expense',
         id: 999,
         description: 'Updated expense',
         payee: 'Acme Store',
@@ -395,13 +408,14 @@ describe('expensesRepository', () => {
 
       mockDb.executeSql.mockResolvedValueOnce([mockUpdateResult]);
 
-      await expect(updateExpense(mockDb, updatePayload)).rejects.toThrow(
-        'Expense 999 not found',
+      await expect(updateTransaction(mockDb, updatePayload)).rejects.toThrow(
+        'Transaction 999 not found',
       );
     });
 
     it('should handle null categoryId and notes', async () => {
-      const updatePayload: UpdateExpenseRecord = {
+      const updatePayload: UpdateTransactionRecord = {
+        type: 'expense',
         id: 42,
         description: 'Updated expense',
         payee: 'Acme Store',
@@ -454,14 +468,14 @@ describe('expensesRepository', () => {
         .mockResolvedValueOnce([mockUpdateResult])
         .mockResolvedValueOnce([mockSelectResult]);
 
-      const result = await updateExpense(mockDb, updatePayload);
+      const result = await updateTransaction(mockDb, updatePayload);
 
       expect(result.categoryId).toBeNull();
       expect(result.notes).toBeNull();
     });
   });
 
-  describe('deleteExpense', () => {
+  describe('deleteTransaction', () => {
     it('should delete an expense', async () => {
       const mockDeleteResult: ResultSet = {
         insertId: undefined,
@@ -475,10 +489,10 @@ describe('expensesRepository', () => {
 
       mockDb.executeSql.mockResolvedValueOnce([mockDeleteResult]);
 
-      await deleteExpense(mockDb, 42);
+      await deleteTransaction(mockDb, 42);
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
-        'DELETE FROM expenses WHERE id = ?',
+        'DELETE FROM transactions WHERE id = ?',
         [42],
       );
     });
@@ -496,13 +510,13 @@ describe('expensesRepository', () => {
 
       mockDb.executeSql.mockResolvedValueOnce([mockDeleteResult]);
 
-      await expect(deleteExpense(mockDb, 999)).rejects.toThrow(
-        'Expense 999 not found',
+      await expect(deleteTransaction(mockDb, 999)).rejects.toThrow(
+        'Transaction 999 not found',
       );
     });
   });
 
-  describe('getExpenseById', () => {
+  describe('getTransactionById', () => {
     it('should return an expense by id', async () => {
       const mockExpense = {
         id: 42,
@@ -532,7 +546,7 @@ describe('expensesRepository', () => {
 
       mockDb.executeSql.mockResolvedValueOnce([mockSelectResult]);
 
-      const result = await getExpenseById(mockDb, 42);
+      const result = await getTransactionById(mockDb, 42);
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
         expect.stringContaining('SELECT'),
@@ -569,15 +583,15 @@ describe('expensesRepository', () => {
 
       mockDb.executeSql.mockResolvedValueOnce([mockSelectResult]);
 
-      const result = await getExpenseById(mockDb, 999);
+      const result = await getTransactionById(mockDb, 999);
 
       expect(result).toBeNull();
     });
   });
 
-  describe('listExpenses', () => {
+  describe('listTransactions', () => {
     it('should return all expenses with no filters', async () => {
-      const mockExpenses = [
+      const mockTransactions = [
         {
           id: 1,
           description: 'Expense 1',
@@ -611,14 +625,14 @@ describe('expensesRepository', () => {
         rowsAffected: 0,
         rows: {
           length: 2,
-          raw: () => mockExpenses,
-          item: (index: number) => mockExpenses[index] ?? null,
+          raw: () => mockTransactions,
+          item: (index: number) => mockTransactions[index] ?? null,
         },
       };
 
       mockDb.executeSql.mockResolvedValueOnce([mockSelectResult]);
 
-      const result = await listExpenses(mockDb);
+      const result = await listTransactions(mockDb);
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
         expect.stringContaining('ORDER BY date DESC, id DESC'),
@@ -657,7 +671,7 @@ describe('expensesRepository', () => {
 
       mockDb.executeSql.mockResolvedValueOnce([mockSelectResult]);
 
-      const result = await listExpenses(mockDb, { categoryId: 1 });
+      const result = await listTransactions(mockDb, { categoryId: 1 });
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
         expect.stringContaining('WHERE category_id = ?'),
@@ -695,7 +709,7 @@ describe('expensesRepository', () => {
 
       mockDb.executeSql.mockResolvedValueOnce([mockSelectResult]);
 
-      const result = await listExpenses(mockDb, {
+      const result = await listTransactions(mockDb, {
         startDate: '2025-01-10',
         endDate: '2025-01-20',
       });
@@ -709,7 +723,7 @@ describe('expensesRepository', () => {
     });
 
     it('should apply limit and offset', async () => {
-      const mockExpenses = [
+      const mockTransactions = [
         {
           id: 2,
           description: 'Expense 2',
@@ -730,14 +744,14 @@ describe('expensesRepository', () => {
         rowsAffected: 0,
         rows: {
           length: 1,
-          raw: () => mockExpenses,
-          item: (index: number) => mockExpenses[index] ?? null,
+          raw: () => mockTransactions,
+          item: (index: number) => mockTransactions[index] ?? null,
         },
       };
 
       mockDb.executeSql.mockResolvedValueOnce([mockSelectResult]);
 
-      const result = await listExpenses(mockDb, { limit: 10, offset: 5 });
+      const result = await listTransactions(mockDb, { limit: 10, offset: 5 });
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
         expect.stringContaining('LIMIT ? OFFSET ?'),
@@ -774,7 +788,7 @@ describe('expensesRepository', () => {
 
       mockDb.executeSql.mockResolvedValueOnce([mockSelectResult]);
 
-      const result = await listExpenses(mockDb, {
+      const result = await listTransactions(mockDb, {
         categoryId: 1,
         startDate: '2025-01-10',
         endDate: '2025-01-20',
@@ -792,7 +806,7 @@ describe('expensesRepository', () => {
     });
   });
 
-  describe('createExpensesBulk', () => {
+  describe('createTransactionsBulk', () => {
     const okResult = {
       insertId: undefined,
       rowsAffected: 1,
@@ -800,7 +814,7 @@ describe('expensesRepository', () => {
     };
 
     it('returns 0 and issues no SQL for an empty batch', async () => {
-      const count = await createExpensesBulk(mockDb, []);
+      const count = await createTransactionsBulk(mockDb, []);
 
       expect(count).toBe(0);
       expect(mockDb.executeSql).not.toHaveBeenCalled();
@@ -814,20 +828,21 @@ describe('expensesRepository', () => {
         makeNewExpense({ description: 'B', amountNative: 20, baseAmount: 20 }),
       ];
 
-      const count = await createExpensesBulk(mockDb, payloads);
+      const count = await createTransactionsBulk(mockDb, payloads);
 
       expect(count).toBe(2);
       expect(mockDb.executeSql).toHaveBeenCalledTimes(1);
       const call = mockDb.executeSql.mock.calls[0];
       const sql = call[0] as string;
       const params = (call[1] ?? []) as Array<string | number | null>;
-      expect(sql).toContain('INSERT INTO expenses');
+      expect(sql).toContain('INSERT INTO transactions');
       expect(
-        sql.match(/\(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/g),
+        sql.match(/\(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/g),
       ).toHaveLength(2);
-      expect(params).toHaveLength(20);
-      expect(params[0]).toBe('A');
-      expect(params[8]).toBe(5);
+      expect(params).toHaveLength(22);
+      expect(params[0]).toBe('expense');
+      expect(params[1]).toBe('A');
+      expect(params[9]).toBe(5);
     });
 
     it('splits large batches across multiple statements', async () => {
@@ -837,7 +852,7 @@ describe('expensesRepository', () => {
         makeNewExpense({ description: `E${index}` }),
       );
 
-      const count = await createExpensesBulk(mockDb, payloads);
+      const count = await createTransactionsBulk(mockDb, payloads);
 
       expect(count).toBe(95);
       // 90 per statement -> two statements

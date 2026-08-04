@@ -1,23 +1,50 @@
 import React, { useMemo, useState } from 'react';
 import { FlatList, StyleSheet } from 'react-native';
 import { Button, Dialog, List, Portal, Searchbar } from 'react-native-paper';
-import type { CategoryRecord } from '../database';
+import type {
+  CategoryRecord,
+  CategoryType,
+  TransactionType,
+} from '../database';
 
-type CategoryOption = { id: number | null; name: string };
+type CategoryOption = {
+  id: number | null;
+  name: string;
+  type: CategoryType | null;
+};
 
 export type CategoryPickerDialogProps = {
   visible: boolean;
   categories: CategoryRecord[];
   selectedId: number | null;
+  /**
+   * Restricts the list to categories usable for this direction — a matching
+   * type, or `both`. Omit to offer every category, which is what filtering a
+   * list needs as opposed to classifying an entry.
+   */
+  directionFilter?: TransactionType;
   onSelect: (categoryId: number | null) => void;
   onDismiss: () => void;
 };
 
-const buildOptions = (categories: CategoryRecord[]): CategoryOption[] => {
-  const sorted = [...categories].sort((a, b) => a.name.localeCompare(b.name));
+const buildOptions = (
+  categories: CategoryRecord[],
+  directionFilter?: TransactionType,
+): CategoryOption[] => {
+  const eligible = directionFilter
+    ? categories.filter(
+        category =>
+          category.type === directionFilter || category.type === 'both',
+      )
+    : categories;
+  const sorted = [...eligible].sort((a, b) => a.name.localeCompare(b.name));
   return [
-    { id: null, name: 'No category' },
-    ...sorted.map(category => ({ id: category.id, name: category.name })),
+    { id: null, name: 'No category', type: null },
+    ...sorted.map(category => ({
+      id: category.id,
+      name: category.name,
+      type: category.type,
+    })),
   ];
 };
 
@@ -25,12 +52,16 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
   visible,
   categories,
   selectedId,
+  directionFilter,
   onSelect,
   onDismiss,
 }) => {
   const [query, setQuery] = useState('');
 
-  const options = useMemo(() => buildOptions(categories), [categories]);
+  const options = useMemo(
+    () => buildOptions(categories, directionFilter),
+    [categories, directionFilter],
+  );
 
   const filteredOptions = useMemo(() => {
     if (!query) {
@@ -70,6 +101,7 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
             renderItem={({ item }) => (
               <List.Item
                 title={item.name}
+                description={item.type ?? undefined}
                 onPress={() => handleSelect(item.id)}
                 accessibilityRole="button"
                 accessibilityLabel={`Select ${item.name}`}

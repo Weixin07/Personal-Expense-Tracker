@@ -12,7 +12,7 @@ import {
   Text,
   TextInput,
 } from 'react-native-paper';
-import { useExpenseData } from '../context/AppContext';
+import { useTransactionData } from '../context/AppContext';
 import { pickCsvFile, readFileAsString } from '../security/storageAccess';
 import { GoogleAuthError } from '../security/googleAuth';
 import {
@@ -164,9 +164,9 @@ const describeSuspectRate = (
 
 const ImportScreen: React.FC = () => {
   const {
-    state: { settings, expenses, categories, fxRateCache },
-    actions: { importExpenses },
-  } = useExpenseData();
+    state: { settings, transactions, categories, fxRateCache },
+    actions: { importTransactions },
+  } = useTransactionData();
 
   const [step, setStep] = useState<Step>('source');
   const [busy, setBusy] = useState(false);
@@ -177,7 +177,7 @@ const ImportScreen: React.FC = () => {
   const [delimiter, setDelimiter] = useState<CsvDelimiter>(',');
   const [numberFormat, setNumberFormat] = useState<NumberFormat>('auto');
   const [negativeMeans, setNegativeMeans] =
-    useState<NegativeAmountMeaning>('income');
+    useState<NegativeAmountMeaning>('expense');
   // Null until the user edits the field, so a base currency that hydrates after
   // this screen mounts still reaches the input.
   const [defaultCurrencyEdit, setDefaultCurrencyEdit] = useState<string | null>(
@@ -362,7 +362,7 @@ const ImportScreen: React.FC = () => {
           delimiter,
           manualFxRates: rates,
           fxRateCache,
-          existingExpenses: expenses,
+          existingTransactions: transactions,
           existingCategories: categories,
         });
         // Seed only pairs the user has not answered yet: re-previewing must not
@@ -393,7 +393,7 @@ const ImportScreen: React.FC = () => {
       csvText,
       dateFormat,
       delimiter,
-      expenses,
+      transactions,
       fxRateCache,
       mapping,
       negativeMeans,
@@ -401,6 +401,14 @@ const ImportScreen: React.FC = () => {
       settings.baseCurrency,
       trimmedDefaultCurrency,
     ],
+  );
+
+  const incomeReady = useMemo(
+    () =>
+      preview
+        ? preview.valid.filter(item => item.record.type === 'income').length
+        : 0,
+    [preview],
   );
 
   const pendingRates = useMemo(
@@ -475,7 +483,7 @@ const ImportScreen: React.FC = () => {
     setDefaultCurrencyEdit(null);
     setDelimiter(',');
     setNumberFormat('auto');
-    setNegativeMeans('income');
+    setNegativeMeans('expense');
     setDateFormat('auto');
   }, []);
 
@@ -485,10 +493,11 @@ const ImportScreen: React.FC = () => {
     }
     setBusy(true);
     try {
-      const summary = await importExpenses(preview, appliedRates);
+      const summary = await importTransactions(preview, appliedRates);
       Alert.alert(
         'Import complete',
-        `${summary.inserted} expense${summary.inserted === 1 ? '' : 's'} imported` +
+        `${summary.insertedExpenses} expense${summary.insertedExpenses === 1 ? '' : 's'}` +
+          ` and ${summary.insertedIncome} income imported` +
           (summary.createdCategories
             ? `, ${summary.createdCategories} categor${summary.createdCategories === 1 ? 'y' : 'ies'} created`
             : '') +
@@ -503,12 +512,14 @@ const ImportScreen: React.FC = () => {
     } catch (error) {
       Alert.alert(
         'Import failed',
-        error instanceof Error ? error.message : 'Unable to import expenses.',
+        error instanceof Error
+          ? error.message
+          : 'Unable to import transactions.',
       );
     } finally {
       setBusy(false);
     }
-  }, [appliedRates, importExpenses, preview, resetToStart]);
+  }, [appliedRates, importTransactions, preview, resetToStart]);
 
   return (
     <Surface style={styles.container}>
@@ -671,7 +682,7 @@ const ImportScreen: React.FC = () => {
             />
 
             <Text variant="bodySmall" style={styles.muted}>
-              Negative amounts are
+              A negative amount means
             </Text>
             <SegmentedButtons
               value={negativeMeans}
@@ -721,11 +732,16 @@ const ImportScreen: React.FC = () => {
               {preview.valid.length} of {preview.totalRows} rows ready to
               import.
             </Text>
-            {preview.skippedIncome.length > 0 ? (
+            {incomeReady > 0 ? (
               <Text variant="bodySmall" style={styles.muted}>
-                {preview.totalRows} rows in file ={' '}
-                {preview.totalRows - preview.skippedIncome.length} expenses +{' '}
-                {preview.skippedIncome.length} income (not supported yet).
+                {preview.valid.length - incomeReady} expense and {incomeReady}{' '}
+                income.
+              </Text>
+            ) : null}
+            {preview.signConventionBypassed ? (
+              <Text variant="bodySmall" style={styles.muted}>
+                This file has no negative amounts, so rows without a type column
+                are imported as expenses.
               </Text>
             ) : null}
             {preview.totalRows > LARGE_IMPORT_THRESHOLD ? (
@@ -767,22 +783,12 @@ const ImportScreen: React.FC = () => {
               </View>
             ) : null}
 
-            {preview.skippedIncome.length > 0 ? (
-              <View style={styles.banner}>
-                <Text variant="bodySmall">
-                  {preview.skippedIncome.length} income row
-                  {preview.skippedIncome.length === 1 ? '' : 's'} skipped.
-                  Importing income is not supported yet.
-                </Text>
-              </View>
-            ) : null}
-
             {preview.duplicates.length > 0 ? (
               <View style={styles.banner}>
                 <Text variant="bodySmall">
                   {preview.duplicates.length} row
                   {preview.duplicates.length === 1 ? '' : 's'} look like
-                  existing expenses and will be added again.
+                  existing transactions and will be added again.
                 </Text>
               </View>
             ) : null}
@@ -874,7 +880,7 @@ const ImportScreen: React.FC = () => {
               disabled={busy || preview.valid.length === 0 || hasUnappliedRates}
               accessibilityLabel="Confirm import"
             >
-              Import {preview.valid.length} expenses
+              Import {preview.valid.length} transactions
             </Button>
             <Button onPress={() => setStep('mapping')}>Back</Button>
           </View>

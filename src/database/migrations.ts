@@ -13,6 +13,39 @@ export type Migration = {
 
 const MIGRATIONS: readonly Migration[] = [
   {
+    version: 8,
+    name: 'transaction-and-category-type',
+    statements: [
+      {
+        sql: `ALTER TABLE transactions ADD COLUMN type TEXT NOT NULL DEFAULT 'expense' CHECK (type IN ('expense','income'));`,
+      },
+      {
+        sql: `ALTER TABLE categories ADD COLUMN type TEXT NOT NULL DEFAULT 'both' CHECK (type IN ('expense','income','both'));`,
+      },
+    ],
+  },
+  {
+    version: 7,
+    name: 'rename-expenses-to-transactions',
+    statements: [
+      {
+        sql: `ALTER TABLE expenses RENAME TO transactions;`,
+      },
+      {
+        sql: `DROP INDEX IF EXISTS idx_expenses_date;`,
+      },
+      {
+        sql: `DROP INDEX IF EXISTS idx_expenses_category_id;`,
+      },
+      {
+        sql: `CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date DESC);`,
+      },
+      {
+        sql: `CREATE INDEX IF NOT EXISTS idx_transactions_category_id ON transactions(category_id);`,
+      },
+    ],
+  },
+  {
     version: 6,
     name: 'expense-payee',
     statements: [

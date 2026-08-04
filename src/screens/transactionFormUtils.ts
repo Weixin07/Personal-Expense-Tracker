@@ -9,12 +9,26 @@ import { formatMoneyAmount, formatFxRate } from '../utils/formatting';
 import type {
   CategoryRecord,
   CurrencyFxRateRecord,
-  ExpenseRecord,
-  NewExpenseRecord,
-  UpdateExpenseRecord,
+  TransactionRecord,
+  TransactionType,
+  NewTransactionRecord,
+  UpdateTransactionRecord,
 } from '../database';
 
-export type ExpenseFormValues = {
+/**
+ * Categories a transaction of this direction may be filed under: those matching
+ * the direction, plus every `both` category, which qualifies for either.
+ */
+export const categoriesForDirection = (
+  categories: readonly CategoryRecord[],
+  type: TransactionType,
+): CategoryRecord[] =>
+  categories.filter(
+    category => category.type === type || category.type === 'both',
+  );
+
+export type TransactionFormValues = {
+  type: TransactionType;
   description: string;
   payee: string;
   amountNative: string;
@@ -27,18 +41,19 @@ export type ExpenseFormValues = {
   notes: string;
 };
 
-export type ExpenseFormErrors = Partial<
+export type TransactionFormErrors = Partial<
   Record<
     'amountNative' | 'currencyCode' | 'fxRateToBase' | 'baseAmount' | 'date',
     string
   >
 > & { form?: string };
 
-export type ExpenseFormValidationResult =
-  | { ok: true; value: ValidExpensePayload }
-  | { ok: false; errors: ExpenseFormErrors };
+export type TransactionFormValidationResult =
+  | { ok: true; value: ValidTransactionPayload }
+  | { ok: false; errors: TransactionFormErrors };
 
-export type ValidExpensePayload = {
+export type ValidTransactionPayload = {
+  type: TransactionType;
   description: string;
   payee: string;
   amountNative: number;
@@ -98,14 +113,18 @@ export const resolveFxRateForCurrency = (
   return cached ? formatFxRate(cached.fxRateToBase) : '';
 };
 
-export const getDefaultExpenseFormValues = (
+export const getDefaultTransactionFormValues = (
   baseCurrency: string | null,
   categories: CategoryRecord[],
-  existing?: ExpenseRecord,
+  existing?: TransactionRecord,
   cachedRates: readonly CurrencyFxRateRecord[] = [],
-): ExpenseFormValues => {
+): TransactionFormValues => {
   if (existing) {
+    // The stored category is kept even when its type no longer matches the
+    // direction: narrowing a category must not silently rewrite transactions
+    // already filed under it.
     return {
+      type: existing.type,
       description: existing.description,
       payee: existing.payee,
       amountNative: formatMoneyAmount(existing.amountNative),
@@ -122,8 +141,10 @@ export const getDefaultExpenseFormValues = (
   const today = new Date();
   const isoDate = today.toISOString().slice(0, 10);
   const currencyCode = baseCurrency ?? '';
+  const selectable = categoriesForDirection(categories, 'expense');
 
   return {
+    type: 'expense',
     description: '',
     payee: '',
     amountNative: '',
@@ -136,7 +157,7 @@ export const getDefaultExpenseFormValues = (
     baseAmount: '',
     baseCurrencyCode: baseCurrency,
     date: isoDate,
-    categoryId: categories.length ? categories[0].id : null,
+    categoryId: selectable.length ? selectable[0].id : null,
     notes: '',
   };
 };
@@ -146,10 +167,10 @@ const ensureNotes = (value: string): string | null => {
   return trimmed.length ? trimmed : null;
 };
 
-export const validateExpenseForm = (
-  values: ExpenseFormValues,
-): ExpenseFormValidationResult => {
-  const errors: ExpenseFormErrors = {};
+export const validateTransactionForm = (
+  values: TransactionFormValues,
+): TransactionFormValidationResult => {
+  const errors: TransactionFormErrors = {};
 
   const description = values.description.trim();
   const payee = values.payee.trim();
@@ -214,6 +235,7 @@ export const validateExpenseForm = (
   return {
     ok: true,
     value: {
+      type: values.type,
       description,
       payee,
       amountNative: Number(values.amountNative),
@@ -231,8 +253,9 @@ export const validateExpenseForm = (
 };
 
 export const buildCreatePayload = (
-  value: ValidExpensePayload,
-): NewExpenseRecord => ({
+  value: ValidTransactionPayload,
+): NewTransactionRecord => ({
+  type: value.type,
   description: value.description,
   payee: value.payee,
   amountNative: value.amountNative,
@@ -247,9 +270,10 @@ export const buildCreatePayload = (
 
 export const buildUpdatePayload = (
   originalId: number,
-  value: ValidExpensePayload,
-): UpdateExpenseRecord => ({
+  value: ValidTransactionPayload,
+): UpdateTransactionRecord => ({
   id: originalId,
+  type: value.type,
   description: value.description,
   payee: value.payee,
   amountNative: value.amountNative,

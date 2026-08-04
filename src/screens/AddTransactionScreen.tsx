@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Button,
   HelperText,
+  SegmentedButtons,
   Text,
   TextInput,
 } from 'react-native-paper';
@@ -19,63 +20,70 @@ import CategoryPickerDialog from '../components/CategoryPickerDialog';
 import CurrencyPickerDialog from '../components/CurrencyPickerDialog';
 import SelectField from '../components/SelectField';
 import { findCurrencyName } from '../constants/currencyOptions';
-import { useExpenseData } from '../context/AppContext';
+import { useTransactionData } from '../context/AppContext';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import {
   buildCreatePayload,
   buildUpdatePayload,
   computeBaseAmount,
-  getDefaultExpenseFormValues,
+  getDefaultTransactionFormValues,
   resolveFxRateForCurrency,
-  validateExpenseForm,
-  type ExpenseFormErrors,
-  type ExpenseFormValues,
-} from './expenseFormUtils';
+  validateTransactionForm,
+  type TransactionFormErrors,
+  type TransactionFormValues,
+} from './transactionFormUtils';
+import type { TransactionType } from '../database';
 import { formatDateBritish, parseBritishDateInput } from '../utils/date';
 import { formatMoneyAmount } from '../utils/formatting';
 
+const TYPE_OPTIONS = [
+  { value: 'expense', label: 'Expense' },
+  { value: 'income', label: 'Income' },
+];
+
 const currencyDialogDescription =
-  'Choose the currency for this expense. This should match the currency on your receipt.';
+  'Choose the currency for this transaction. This should match the currency on your receipt.';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'AddExpense'>;
+type Props = NativeStackScreenProps<RootStackParamList, 'AddTransaction'>;
 
-const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
-  const expenseId = route.params?.expenseId ?? null;
+const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
+  const transactionId = route.params?.transactionId ?? null;
 
   const {
     state: {
       categories,
-      expenses,
+      transactions,
       settings,
       fxRateCache,
       isInitialised,
       isLoading,
       error,
     },
-    actions: { createExpense, updateExpense, deleteExpense },
-  } = useExpenseData();
+    actions: { createTransaction, updateTransaction, deleteTransaction },
+  } = useTransactionData();
 
-  const existingExpense = useMemo(
-    () => expenses.find(item => item.id === expenseId) ?? null,
-    [expenses, expenseId],
+  const existingTransaction = useMemo(
+    () => transactions.find(item => item.id === transactionId) ?? null,
+    [transactions, transactionId],
   );
 
   const initialFormValues = useMemo(
     () =>
-      getDefaultExpenseFormValues(
+      getDefaultTransactionFormValues(
         settings.baseCurrency,
         categories,
-        existingExpense ?? undefined,
+        existingTransaction ?? undefined,
         fxRateCache,
       ),
-    [settings.baseCurrency, categories, existingExpense, fxRateCache],
+    [settings.baseCurrency, categories, existingTransaction, fxRateCache],
   );
 
-  const [values, setValues] = useState<ExpenseFormValues>(initialFormValues);
+  const [values, setValues] =
+    useState<TransactionFormValues>(initialFormValues);
   const [dateInput, setDateInput] = useState<string>(
     formatDateBritish(initialFormValues.date),
   );
-  const [errors, setErrors] = useState<ExpenseFormErrors>({});
+  const [errors, setErrors] = useState<TransactionFormErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [currencyDialogVisible, setCurrencyDialogVisible] = useState(false);
   const [categoryDialogVisible, setCategoryDialogVisible] = useState(false);
@@ -100,13 +108,14 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
     return amount != null ? formatMoneyAmount(amount) : '';
   }, [values.amountNative, values.fxRateToBase]);
 
-  const handleChange = (field: keyof ExpenseFormValues) => (text: string) => {
-    setValues(prev => ({ ...prev, [field]: text }));
-    const errorField = field as keyof ExpenseFormErrors;
-    if (errors[errorField]) {
-      setErrors(prev => ({ ...prev, [errorField]: undefined }));
-    }
-  };
+  const handleChange =
+    (field: keyof TransactionFormValues) => (text: string) => {
+      setValues(prev => ({ ...prev, [field]: text }));
+      const errorField = field as keyof TransactionFormErrors;
+      if (errors[errorField]) {
+        setErrors(prev => ({ ...prev, [errorField]: undefined }));
+      }
+    };
 
   const handleDateChange = (text: string) => {
     setDateInput(text);
@@ -119,6 +128,50 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
 
   const handleCategorySelect = (categoryId: number | null) => {
     setValues(prev => ({ ...prev, categoryId }));
+  };
+
+  const applyType = (nextType: TransactionType, clearCategory: boolean) => {
+    setValues(prev => ({
+      ...prev,
+      type: nextType,
+      categoryId: clearCategory ? null : prev.categoryId,
+    }));
+  };
+
+  const handleTypeChange = (value: string) => {
+    const nextType = value as TransactionType;
+    if (nextType === values.type) {
+      return;
+    }
+
+    const selected = categories.find(
+      category => category.id === values.categoryId,
+    );
+    const stillValid =
+      !selected || selected.type === nextType || selected.type === 'both';
+    if (stillValid) {
+      applyType(nextType, false);
+      return;
+    }
+
+    // A category chosen when the record was created is worth confirming before
+    // discarding; one the form defaulted to on a new entry is not.
+    if (!existingTransaction) {
+      applyType(nextType, true);
+      return;
+    }
+
+    Alert.alert(
+      'Change type?',
+      `"${selected.name}" cannot be used for ${nextType}. Changing the type will clear the category.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Change',
+          onPress: () => applyType(nextType, true),
+        },
+      ],
+    );
   };
 
   const handleCurrencySelect = (option: { code: string }) => {
@@ -140,7 +193,7 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
 
   const handleSubmit = async () => {
     setFormError(null);
-    const validation = validateExpenseForm({
+    const validation = validateTransactionForm({
       ...values,
       baseAmount: computedBaseAmount,
     });
@@ -155,17 +208,17 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
 
     setSubmitting(true);
     try {
-      if (existingExpense) {
-        await updateExpense(
-          buildUpdatePayload(existingExpense.id, validation.value),
+      if (existingTransaction) {
+        await updateTransaction(
+          buildUpdatePayload(existingTransaction.id, validation.value),
         );
       } else {
-        await createExpense(buildCreatePayload(validation.value));
+        await createTransaction(buildCreatePayload(validation.value));
       }
       navigation.goBack();
     } catch (err) {
       setFormError(
-        err instanceof Error ? err.message : 'Failed to save expense.',
+        err instanceof Error ? err.message : 'Failed to save transaction.',
       );
     } finally {
       setSubmitting(false);
@@ -173,13 +226,13 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
   };
 
   const handleDelete = () => {
-    if (!existingExpense || deleting) {
+    if (!existingTransaction || deleting) {
       return;
     }
 
     Alert.alert(
-      'Delete expense',
-      'Are you sure you want to delete this expense?',
+      'Delete transaction',
+      'Are you sure you want to delete this transaction?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -188,14 +241,14 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
           onPress: async () => {
             setDeleting(true);
             try {
-              await deleteExpense(existingExpense.id);
+              await deleteTransaction(existingTransaction.id);
               navigation.goBack();
             } catch (deleteErr) {
               Alert.alert(
                 'Delete failed',
                 deleteErr instanceof Error
                   ? deleteErr.message
-                  : 'Unable to delete expense.',
+                  : 'Unable to delete transaction.',
               );
             } finally {
               setDeleting(false);
@@ -210,10 +263,10 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
     categories.find(category => category.id === values.categoryId) ?? null;
   const currencyName = findCurrencyName(values.currencyCode);
 
-  if (expenseId && isInitialised && !existingExpense) {
+  if (transactionId && isInitialised && !existingTransaction) {
     return (
       <View style={styles.centered}>
-        <Text variant="titleLarge">Expense not found</Text>
+        <Text variant="titleLarge">Transaction not found</Text>
         <Button
           mode="contained"
           onPress={() => navigation.goBack()}
@@ -246,12 +299,18 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.formGroup}>
+          <SegmentedButtons
+            value={values.type}
+            onValueChange={handleTypeChange}
+            buttons={TYPE_OPTIONS}
+          />
+
           <TextInput
             label="Description"
             value={values.description}
             onChangeText={handleChange('description')}
             mode="outlined"
-            accessibilityLabel="Expense description"
+            accessibilityLabel="Transaction description"
             autoCapitalize="sentences"
           />
 
@@ -260,7 +319,7 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
             value={values.payee}
             onChangeText={handleChange('payee')}
             mode="outlined"
-            accessibilityLabel="Expense payee"
+            accessibilityLabel="Transaction payee"
             autoCapitalize="words"
           />
 
@@ -328,7 +387,7 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
             onChangeText={handleDateChange}
             mode="outlined"
             keyboardType="default"
-            accessibilityLabel="Expense date"
+            accessibilityLabel="Transaction date"
             error={Boolean(errors.date)}
           />
           <HelperText type="error" visible={Boolean(errors.date)}>
@@ -350,7 +409,7 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
             mode="outlined"
             multiline
             numberOfLines={3}
-            accessibilityLabel="Expense notes"
+            accessibilityLabel="Transaction notes"
           />
         </View>
 
@@ -370,22 +429,22 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
           loading={disableSubmit}
           disabled={disableSubmit}
           accessibilityLabel={
-            existingExpense ? 'Update expense' : 'Create expense'
+            existingTransaction ? 'Update transaction' : 'Create transaction'
           }
         >
-          {existingExpense ? 'Update expense' : 'Save expense'}
+          {existingTransaction ? 'Update transaction' : 'Save transaction'}
         </Button>
 
-        {existingExpense ? (
+        {existingTransaction ? (
           <Button
             mode="text"
             onPress={handleDelete}
             disabled={deleting}
             loading={deleting}
             textColor="#b00020"
-            accessibilityLabel="Delete expense"
+            accessibilityLabel="Delete transaction"
           >
-            Delete expense
+            Delete transaction
           </Button>
         ) : null}
       </ScrollView>
@@ -401,6 +460,7 @@ const AddExpenseScreen: React.FC<Props> = ({ route, navigation }) => {
         visible={categoryDialogVisible}
         onDismiss={() => setCategoryDialogVisible(false)}
         categories={categories}
+        directionFilter={values.type}
         selectedId={values.categoryId ?? null}
         onSelect={handleCategorySelect}
       />
@@ -435,4 +495,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default AddExpenseScreen;
+export default AddTransactionScreen;

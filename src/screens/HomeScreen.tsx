@@ -22,7 +22,7 @@ import {
 import CategoryPickerDialog from '../components/CategoryPickerDialog';
 import CurrencyPickerDialog from '../components/CurrencyPickerDialog';
 import { findCurrencyName } from '../constants/currencyOptions';
-import { useExpenseData } from '../context/AppContext';
+import { useTransactionData } from '../context/AppContext';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 import {
   DATE_PRESETS,
@@ -34,6 +34,13 @@ import {
 } from './homeUtils';
 import { formatDateBritish } from '../utils/date';
 import { formatMoneyAmount } from '../utils/formatting';
+import { INCOME_COLOR_DARK, INCOME_COLOR_LIGHT } from '../theme';
+import type { TransactionType } from '../database';
+
+const TYPE_FILTERS: { value: TransactionType; label: string }[] = [
+  { value: 'income', label: 'Income' },
+  { value: 'expense', label: 'Expense' },
+];
 
 const ITEM_HEIGHT = 72;
 const baseCurrencyDialogDescription =
@@ -52,9 +59,9 @@ const HomeScreen: React.FC = () => {
       isInitialised,
       isLoading,
     },
-    selectors: { filteredExpenses, totals, hasActiveFilters },
+    selectors: { filteredTransactions, totals, hasActiveFilters },
     actions: { refresh, setFilters, setBaseCurrency },
-  } = useExpenseData();
+  } = useTransactionData();
 
   const [refreshing, setRefreshing] = useState(false);
   const [categoryDialogVisible, setCategoryDialogVisible] = useState(false);
@@ -62,9 +69,8 @@ const HomeScreen: React.FC = () => {
     useState(false);
   const defaultFiltersAppliedRef = useRef(false);
 
-  // FIRST-RUN ONBOARDING: Force base currency selection on first app launch
-  // The dialog is non-dismissable (cannot tap outside or press back) until user selects a currency
-  // This ensures all expenses have a valid base currency for totals and conversions
+  // Totals and conversions are meaningless without a base currency, so a launch
+  // that finds none opens the picker and holds it open until one is chosen.
   useEffect(() => {
     if (isInitialised && !settings.baseCurrency) {
       setBaseCurrencyDialogVisible(true);
@@ -98,6 +104,8 @@ const HomeScreen: React.FC = () => {
     [filters],
   );
   const categoryFilterId = filters.categoryId ?? null;
+  const typeFilter = filters.type ?? null;
+  const incomeColor = theme.dark ? INCOME_COLOR_DARK : INCOME_COLOR_LIGHT;
 
   const categoriesMap = useMemo(() => {
     const map = new Map<number, string>();
@@ -107,20 +115,33 @@ const HomeScreen: React.FC = () => {
     return map;
   }, [categories]);
 
-  const totalsLines = useMemo(() => {
-    if (totals.byBaseCurrency.length === 0) {
-      return [
-        formatCurrencyAmount(totals.baseAmount, settings.baseCurrency, 'base'),
-      ];
-    }
-    return totals.byBaseCurrency.map(entry =>
-      formatCurrencyAmount(
-        entry.total,
-        entry.baseCurrencyCode ?? settings.baseCurrency,
-        'base',
-      ),
-    );
-  }, [totals.byBaseCurrency, totals.baseAmount, settings.baseCurrency]);
+  // A figure is rendered only when rows contributed to it, so a single-direction
+  // ledger shows one line and an empty result shows none. The list's own empty
+  // state is what tells the user nothing matched.
+  const totalsLines = useMemo(
+    () =>
+      totals.byBaseCurrency.flatMap(entry => {
+        const code = entry.baseCurrencyCode ?? settings.baseCurrency;
+        const lines: string[] = [];
+        if (entry.expense.count > 0) {
+          lines.push(
+            `Expense: ${formatCurrencyAmount(entry.expense.total, code, 'base')}`,
+          );
+        }
+        if (entry.income.count > 0) {
+          lines.push(
+            `Income: ${formatCurrencyAmount(entry.income.total, code, 'base')}`,
+          );
+        }
+        if (entry.expense.count > 0 && entry.income.count > 0) {
+          lines.push(
+            `Net: ${formatCurrencyAmount(entry.net.total, code, 'base')}`,
+          );
+        }
+        return lines;
+      }),
+    [totals.byBaseCurrency, settings.baseCurrency],
+  );
 
   const pendingExports = useMemo(
     () => exportQueue.filter(item => item.status === 'pending').length,
@@ -158,12 +179,22 @@ const HomeScreen: React.FC = () => {
     setFilters({ categoryId: undefined });
   }, [setFilters]);
 
+  // Selecting the active direction clears it, so the pair behaves as one
+  // three-state control without needing a separate clear affordance.
+  const handleTypeSelect = useCallback(
+    (value: TransactionType) => {
+      setFilters({ type: filters.type === value ? undefined : value });
+    },
+    [filters.type, setFilters],
+  );
+
   const handleResetFilters = useCallback(() => {
     const range = computePresetRange('last30Days');
     setFilters({
       startDate: range.startDate ?? undefined,
       endDate: range.endDate ?? undefined,
       categoryId: undefined,
+      type: undefined,
     });
   }, [setFilters]);
 
@@ -195,21 +226,22 @@ const HomeScreen: React.FC = () => {
   }, [settings.baseCurrency]);
 
   const handleAddExpense = useCallback(() => {
-    navigation.navigate('AddExpense');
+    navigation.navigate('AddTransaction');
   }, [navigation]);
 
   const handleOpenQueue = useCallback(() => {
     navigation.navigate('ExportQueue');
   }, [navigation]);
 
-  const renderExpenseItem = useCallback(
-    ({ item }: { item: (typeof filteredExpenses)[number] }) => {
+  const renderTransactionItem = useCallback(
+    ({ item }: { item: (typeof filteredTransactions)[number] }) => {
       const categoryName = item.categoryId
         ? categoriesMap.get(item.categoryId)
         : null;
       const payee = item.payee.trim();
       const description = item.description.trim();
       const title = payee || description || '(no payee)';
+      const isIncome = item.type === 'income';
       const descriptionParts = [
         formatDateBritish(item.date),
         categoryName ?? 'No category',
@@ -225,12 +257,18 @@ const HomeScreen: React.FC = () => {
           description={descriptionParts.join(' | ')}
           descriptionNumberOfLines={2}
           onPress={() =>
-            navigation.navigate('AddExpense', { expenseId: item.id })
+            navigation.navigate('AddTransaction', { transactionId: item.id })
           }
-          accessibilityLabel={`Open expense ${title}`}
+          accessibilityLabel={`Open ${item.type} ${title}`}
           right={() => (
             <View style={styles.amountContainer}>
-              <Text style={styles.listAmount}>
+              <Text
+                style={[
+                  styles.listAmount,
+                  isIncome ? { color: incomeColor } : null,
+                ]}
+              >
+                {isIncome ? '+' : ''}
                 {formatCurrencyAmount(
                   item.baseAmount,
                   item.baseCurrencyCode ?? settings.baseCurrency,
@@ -242,11 +280,11 @@ const HomeScreen: React.FC = () => {
         />
       );
     },
-    [categoriesMap, navigation, settings.baseCurrency],
+    [categoriesMap, incomeColor, navigation, settings.baseCurrency],
   );
 
   const keyExtractor = useCallback(
-    (item: (typeof filteredExpenses)[number]) => item.id.toString(),
+    (item: (typeof filteredTransactions)[number]) => item.id.toString(),
     [],
   );
   const ItemSeparator = useCallback(() => <Divider />, []);
@@ -268,25 +306,27 @@ const HomeScreen: React.FC = () => {
     return (
       <View style={styles.listHeader}>
         <View style={styles.headerRow}>
-          <Text variant="headlineMedium">Expense Overview</Text>
+          <Text variant="headlineMedium">Transaction Overview</Text>
           <IconButton
             icon="refresh"
-            accessibilityLabel="Refresh expenses"
+            accessibilityLabel="Refresh transactions"
             onPress={handleRefresh}
             disabled={refreshing}
           />
         </View>
         <Text variant="bodyMedium">Base currency: {baseCurrencyLabel}</Text>
-        <Text variant="bodyMedium">
-          Total (base): {totalsLines.join('  |  ')}
-        </Text>
+        {totalsLines.map(line => (
+          <Text key={line} variant="bodyMedium">
+            {line}
+          </Text>
+        ))}
         {totals.mixedBase ? (
           <Text variant="labelSmall" style={styles.metaText}>
             Totals span multiple base currencies and are shown per base.
           </Text>
         ) : null}
         <Text variant="bodyMedium">
-          Tracked expenses: {filteredExpenses.length}
+          Tracked transactions: {filteredTransactions.length}
         </Text>
         <Text variant="labelLarge" style={styles.metaText}>
           Pending exports: {pendingExports}
@@ -335,7 +375,7 @@ const HomeScreen: React.FC = () => {
           onPress={handleAddExpense}
           style={styles.addButton}
         >
-          Add expense
+          Add transaction
         </Button>
 
         <View style={styles.filtersSection}>
@@ -349,6 +389,16 @@ const HomeScreen: React.FC = () => {
                 accessibilityLabel={`Filter ${preset.label}`}
               >
                 {preset.label}
+              </Chip>
+            ))}
+            {TYPE_FILTERS.map(option => (
+              <Chip
+                key={option.value}
+                selected={typeFilter === option.value}
+                onPress={() => handleTypeSelect(option.value)}
+                accessibilityLabel={`Filter ${option.label}`}
+              >
+                {option.label}
               </Chip>
             ))}
             <Chip
@@ -382,9 +432,11 @@ const HomeScreen: React.FC = () => {
     theme.colors.onErrorContainer,
     categoriesMap,
     categoryFilterId,
+    typeFilter,
+    handleTypeSelect,
     datePreset,
     dateRangeLabel,
-    filteredExpenses.length,
+    filteredTransactions.length,
     handleAddExpense,
     handleClearCategory,
     handlePresetSelect,
@@ -402,12 +454,13 @@ const HomeScreen: React.FC = () => {
     () =>
       isInitialised ? (
         <View style={styles.emptyState}>
-          <Text variant="titleMedium">No expenses found</Text>
+          <Text variant="titleMedium">No transactions found</Text>
           <Text variant="bodyMedium" style={styles.emptyBody}>
-            Try adjusting your filters or add a new expense to start tracking.
+            Try adjusting your filters or add a new transaction to start
+            tracking.
           </Text>
           <Button mode="outlined" onPress={handleAddExpense}>
-            Add expense
+            Add transaction
           </Button>
         </View>
       ) : null,
@@ -425,9 +478,9 @@ const HomeScreen: React.FC = () => {
   return (
     <Surface style={styles.container}>
       <FlatList
-        data={filteredExpenses}
+        data={filteredTransactions}
         keyExtractor={keyExtractor}
-        renderItem={renderExpenseItem}
+        renderItem={renderTransactionItem}
         ItemSeparatorComponent={ItemSeparator}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={listEmptyComponent}
@@ -449,8 +502,6 @@ const HomeScreen: React.FC = () => {
         onSelect={handleBaseCurrencySelect}
         title="Choose base currency"
         description={baseCurrencyDialogDescription}
-        // FIRST-RUN ENFORCEMENT: Dialog is non-dismissable until base currency is set
-        // This blocks all app interaction until user completes onboarding
         dismissable={Boolean(settings.baseCurrency)}
         showCancelButton={Boolean(settings.baseCurrency)}
       />

@@ -8,8 +8,8 @@ import {
 } from '../../__tests__/test-utils/renderWithProviders';
 import type { CategoryRecord } from '../../database';
 import HomeScreen from '../HomeScreen';
-import { useExpenseData } from '../../context/AppContext';
-import type { ExpenseRecord } from '../../database';
+import { useTransactionData } from '../../context/AppContext';
+import type { TransactionRecord } from '../../database';
 
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
@@ -17,14 +17,15 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 jest.mock('../../context/AppContext', () => ({
-  useExpenseData: jest.fn(),
+  useTransactionData: jest.fn(),
 }));
 
-const mockedUseExpenseData = useExpenseData as unknown as jest.Mock;
+const mockedUseExpenseData = useTransactionData as unknown as jest.Mock;
 
-const makeExpense = (
-  overrides: Partial<ExpenseRecord> = {},
-): ExpenseRecord => ({
+const makeTransaction = (
+  overrides: Partial<TransactionRecord> = {},
+): TransactionRecord => ({
+  type: 'expense',
   id: 1,
   description: 'Coffee',
   payee: 'Corner Cafe',
@@ -49,7 +50,7 @@ beforeEach(() => {
 describe('HomeScreen', () => {
   it('renders the overview header and totals', () => {
     renderWithProviders(<HomeScreen />);
-    expect(screen.getByText('Expense Overview')).toBeOnTheScreen();
+    expect(screen.getByText('Transaction Overview')).toBeOnTheScreen();
     expect(screen.getByText(/Base currency:/)).toBeOnTheScreen();
   });
 
@@ -63,15 +64,18 @@ describe('HomeScreen', () => {
 
   it('shows the empty state when initialised with no expenses', () => {
     renderWithProviders(<HomeScreen />);
-    expect(screen.getByText('No expenses found')).toBeOnTheScreen();
+    expect(screen.getByText('No transactions found')).toBeOnTheScreen();
   });
 
   it('renders the payee as the row title when expenses are present', () => {
-    const expense = makeExpense({ payee: 'Corner Cafe', description: 'Lunch' });
+    const transaction = makeTransaction({
+      payee: 'Corner Cafe',
+      description: 'Lunch',
+    });
     mockedUseExpenseData.mockReturnValue(
       makeContextValue({
-        state: { expenses: [expense] },
-        selectors: { filteredExpenses: [expense] },
+        state: { transactions: [transaction] },
+        selectors: { filteredTransactions: [transaction] },
       }),
     );
     renderWithProviders(<HomeScreen />);
@@ -79,11 +83,11 @@ describe('HomeScreen', () => {
   });
 
   it('falls back to the description for the title when payee is blank', () => {
-    const expense = makeExpense({ payee: '', description: 'Lunch' });
+    const transaction = makeTransaction({ payee: '', description: 'Lunch' });
     mockedUseExpenseData.mockReturnValue(
       makeContextValue({
-        state: { expenses: [expense] },
-        selectors: { filteredExpenses: [expense] },
+        state: { transactions: [transaction] },
+        selectors: { filteredTransactions: [transaction] },
       }),
     );
     renderWithProviders(<HomeScreen />);
@@ -91,11 +95,11 @@ describe('HomeScreen', () => {
   });
 
   it('shows a placeholder title when payee and description are both blank', () => {
-    const expense = makeExpense({ payee: '', description: '' });
+    const transaction = makeTransaction({ payee: '', description: '' });
     mockedUseExpenseData.mockReturnValue(
       makeContextValue({
-        state: { expenses: [expense] },
-        selectors: { filteredExpenses: [expense] },
+        state: { transactions: [transaction] },
+        selectors: { filteredTransactions: [transaction] },
       }),
     );
     renderWithProviders(<HomeScreen />);
@@ -104,8 +108,8 @@ describe('HomeScreen', () => {
 
   it('navigates to AddExpense when the add button is pressed', () => {
     renderWithProviders(<HomeScreen />);
-    fireEvent.press(screen.getAllByText('Add expense')[0]);
-    expect(mockNavigate).toHaveBeenCalledWith('AddExpense');
+    fireEvent.press(screen.getAllByText('Add transaction')[0]);
+    expect(mockNavigate).toHaveBeenCalledWith('AddTransaction');
   });
 
   it('applies a preset filter when a quick-filter chip is pressed', () => {
@@ -130,12 +134,13 @@ describe('HomeScreen', () => {
     const refresh = jest.fn().mockResolvedValue(undefined);
     const setFilters = jest.fn();
     const category: CategoryRecord = {
+      type: 'both',
       id: 1,
       name: 'Food',
       createdAt: '2025-01-10T00:00:00.000Z',
       updatedAt: '2025-01-10T00:00:00.000Z',
     };
-    const expense = makeExpense({
+    const transaction = makeTransaction({
       id: 7,
       payee: 'Bean Bar',
       description: 'Coffee',
@@ -144,7 +149,7 @@ describe('HomeScreen', () => {
     mockedUseExpenseData.mockReturnValue(
       makeContextValue({
         state: {
-          expenses: [expense],
+          transactions: [transaction],
           categories: [category],
           filters: { categoryId: 1 },
           exportQueue: Array.from({ length: 6 }, (_, index) => ({
@@ -156,13 +161,16 @@ describe('HomeScreen', () => {
             updatedAt: '2025-01-10T00:00:00.000Z',
           })),
         },
-        selectors: { filteredExpenses: [expense], hasActiveFilters: true },
+        selectors: {
+          filteredTransactions: [transaction],
+          hasActiveFilters: true,
+        },
         actions: { refresh, setFilters },
       }),
     );
     renderWithProviders(<HomeScreen />);
 
-    fireEvent.press(screen.getByLabelText('Refresh expenses'));
+    fireEvent.press(screen.getByLabelText('Refresh transactions'));
     await waitFor(() => expect(refresh).toHaveBeenCalled());
 
     fireEvent.press(screen.getByLabelText('Reset filters'));
@@ -173,7 +181,9 @@ describe('HomeScreen', () => {
     expect(setFilters).toHaveBeenCalledWith({ categoryId: 1 });
 
     fireEvent.press(screen.getByLabelText('Open expense Bean Bar'));
-    expect(mockNavigate).toHaveBeenCalledWith('AddExpense', { expenseId: 7 });
+    expect(mockNavigate).toHaveBeenCalledWith('AddTransaction', {
+      transactionId: 7,
+    });
 
     fireEvent.press(screen.getByLabelText('View export queue'));
     expect(mockNavigate).toHaveBeenCalledWith('ExportQueue');
@@ -210,5 +220,96 @@ describe('HomeScreen', () => {
     );
     renderWithProviders(<HomeScreen />);
     expect(screen.getByLabelText('View export queue')).toBeOnTheScreen();
+  });
+
+  describe('totals and direction', () => {
+    const figure = (total: number, count: number) => ({
+      rawTotal: total,
+      total,
+      count,
+    });
+
+    it('shows no totals line at all when nothing matches', () => {
+      renderWithProviders(<HomeScreen />);
+      expect(screen.queryByText(/^Expense: /)).toBeNull();
+      expect(screen.queryByText(/^Income: /)).toBeNull();
+      expect(screen.queryByText(/^Net: /)).toBeNull();
+    });
+
+    it('shows only the expense figure for an expense-only ledger', () => {
+      const expense = makeTransaction();
+      mockedUseExpenseData.mockReturnValue(
+        makeContextValue({
+          state: { transactions: [expense] },
+          selectors: {
+            filteredTransactions: [expense],
+            totals: {
+              byBaseCurrency: [
+                {
+                  baseCurrencyCode: 'USD',
+                  expense: figure(30, 1),
+                  income: figure(0, 0),
+                  net: figure(-30, 1),
+                },
+              ],
+              mixedBase: false,
+            },
+          },
+        }),
+      );
+      renderWithProviders(<HomeScreen />);
+      expect(screen.getByText(/^Expense: /)).toBeOnTheScreen();
+      expect(screen.queryByText(/^Income: /)).toBeNull();
+      expect(screen.queryByText(/^Net: /)).toBeNull();
+    });
+
+    it('shows all three figures once both directions are present', () => {
+      const expense = makeTransaction();
+      mockedUseExpenseData.mockReturnValue(
+        makeContextValue({
+          state: { transactions: [expense] },
+          selectors: {
+            filteredTransactions: [expense],
+            totals: {
+              byBaseCurrency: [
+                {
+                  baseCurrencyCode: 'USD',
+                  expense: figure(30, 1),
+                  income: figure(100, 1),
+                  net: figure(70, 2),
+                },
+              ],
+              mixedBase: false,
+            },
+          },
+        }),
+      );
+      renderWithProviders(<HomeScreen />);
+      expect(screen.getByText(/^Expense: /)).toBeOnTheScreen();
+      expect(screen.getByText(/^Income: /)).toBeOnTheScreen();
+      expect(screen.getByText(/^Net: /)).toBeOnTheScreen();
+    });
+
+    it('marks an income row with a plus sign and labels its direction', () => {
+      const income = makeTransaction({ type: 'income', payee: 'Employer' });
+      mockedUseExpenseData.mockReturnValue(
+        makeContextValue({
+          state: { transactions: [income] },
+          selectors: { filteredTransactions: [income] },
+        }),
+      );
+      renderWithProviders(<HomeScreen />);
+      expect(screen.getByLabelText('Open income Employer')).toBeOnTheScreen();
+      expect(screen.getByText(/^\+/)).toBeOnTheScreen();
+    });
+
+    it('filters by direction from the chips row', () => {
+      const value = makeContextValue();
+      mockedUseExpenseData.mockReturnValue(value);
+      renderWithProviders(<HomeScreen />);
+
+      fireEvent.press(screen.getByLabelText('Filter Income'));
+      expect(value.actions.setFilters).toHaveBeenCalledWith({ type: 'income' });
+    });
   });
 });

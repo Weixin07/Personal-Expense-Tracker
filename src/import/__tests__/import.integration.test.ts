@@ -1,19 +1,20 @@
-import { buildExpensesCsv } from '../../export/csvBuilder';
+import { buildTransactionsCsv } from '../../export/csvBuilder';
 import { parseCsv } from '../csvParser';
 import { autoDetectMapping } from '../mapping';
 import { previewImport, commitImport } from '../importManager';
 import type { ImportContext } from '../importManager';
-import type { CategoryRecord, ExpenseRecord } from '../../database';
+import type { CategoryRecord, TransactionRecord } from '../../database';
 import * as database from '../../database';
 
 jest.mock('../../database');
 
 const categories: CategoryRecord[] = [
-  { id: 1, name: 'Food', createdAt: '', updatedAt: '' },
+  { id: 1, name: 'Food', createdAt: '', updatedAt: '', type: 'both' },
 ];
 
-const expenses: ExpenseRecord[] = [
+const transactions: TransactionRecord[] = [
   {
+    type: 'expense',
     id: 1,
     description: 'Lunch, with "notes"',
     payee: 'Cafe',
@@ -29,6 +30,7 @@ const expenses: ExpenseRecord[] = [
     updatedAt: '',
   },
   {
+    type: 'expense',
     id: 2,
     description: 'Hotel',
     payee: 'Ibis',
@@ -44,6 +46,7 @@ const expenses: ExpenseRecord[] = [
     updatedAt: '',
   },
   {
+    type: 'expense',
     id: 3,
     description: 'Deposit',
     payee: 'Agent',
@@ -62,7 +65,7 @@ const expenses: ExpenseRecord[] = [
 
 describe('export -> import round trip', () => {
   it('reconstructs the same expenses from the app CSV', () => {
-    const { content } = buildExpensesCsv({ expenses, categories });
+    const { content } = buildTransactionsCsv({ transactions, categories });
     const parsed = parseCsv(content);
     const mapping = autoDetectMapping(parsed.header);
 
@@ -73,13 +76,12 @@ describe('export -> import round trip', () => {
       negativeMeans: 'income',
       numberFormat: 'auto',
       fxRateCache: [],
-      existingExpenses: [],
+      existingTransactions: [],
       existingCategories: categories,
     };
     const preview = previewImport(content, mapping, 'iso', ctx);
 
     expect(preview.invalid).toEqual([]);
-    expect(preview.skippedIncome).toEqual([]);
     expect(preview.currencyReview).toEqual([]);
     expect(parsed.delimiter).toBe(',');
     expect(preview.valid).toHaveLength(3);
@@ -106,7 +108,7 @@ describe('export -> import round trip', () => {
     });
 
     // A four-figure amount is the case the grouping heuristic could misread:
-    // buildExpensesCsv writes two decimals, never the three that would mark a
+    // buildTransactionsCsv writes two decimals, never the three that would mark a
     // separator as a thousands group.
     expect(preview.valid[2].record).toMatchObject({
       amountNative: 1234.5,
@@ -122,10 +124,10 @@ describe('export -> import round trip', () => {
       work(mockDb),
     );
     (database.getCategoryByName as jest.Mock).mockResolvedValue(categories[0]);
-    (database.createExpensesBulk as jest.Mock).mockResolvedValue(3);
+    (database.createTransactionsBulk as jest.Mock).mockResolvedValue(3);
     (database.upsertCurrencyFxRate as jest.Mock).mockResolvedValue(undefined);
 
-    const { content } = buildExpensesCsv({ expenses, categories });
+    const { content } = buildTransactionsCsv({ transactions, categories });
     const mapping = autoDetectMapping(parseCsv(content).header);
     const preview = previewImport(content, mapping, 'iso', {
       baseCurrency: 'USD',
@@ -134,14 +136,14 @@ describe('export -> import round trip', () => {
       negativeMeans: 'income',
       numberFormat: 'auto',
       fxRateCache: [],
-      existingExpenses: [],
+      existingTransactions: [],
       existingCategories: categories,
     });
 
     const summary = await commitImport(preview);
-    expect(summary.inserted).toBe(3);
+    expect(summary.insertedExpenses + summary.insertedIncome).toBe(3);
 
-    const inserted = (database.createExpensesBulk as jest.Mock).mock
+    const inserted = (database.createTransactionsBulk as jest.Mock).mock
       .calls[0][1];
     expect(inserted).toHaveLength(3);
     expect(inserted[0].categoryId).toBe(1);
@@ -149,7 +151,7 @@ describe('export -> import round trip', () => {
 });
 
 /**
- * Structural replica of a third-party expense export: unpadded M/D/YYYY dates
+ * Structural replica of a third-party transaction export: unpadded M/D/YYYY dates
  * with a clock time, an explicit Income/Expense column, unsigned amounts, note
  * text in a column the header does not call a description, repeated header
  * names where the second copy is empty, and a single foreign-currency row.
@@ -188,7 +190,7 @@ describe('third-party CSV with timed M/D dates and a type column', () => {
       negativeMeans: 'income',
       numberFormat: 'auto',
       fxRateCache: [],
-      existingExpenses: [],
+      existingTransactions: [],
       existingCategories: [],
     };
     return { mapping, preview: previewImport(content, mapping, 'auto', ctx) };
@@ -205,13 +207,15 @@ describe('third-party CSV with timed M/D dates and a type column', () => {
     expect(mapping.currencyCode).toBe(9);
   });
 
-  it('imports expenses and skips income with no date failures on auto', () => {
+  it('imports expenses and income with no date failures on auto', () => {
     const { preview } = previewThirdParty();
     expect(preview.inferredDateOrder).toBe('mdy');
     expect(preview.invalid).toEqual([]);
-    expect(preview.valid).toHaveLength(4);
+    expect(preview.valid).toHaveLength(6);
     expect(preview.needsFxRate).toHaveLength(1);
-    expect(preview.skippedIncome).toHaveLength(2);
+    expect(
+      preview.valid.filter(row => row.record.type === 'income'),
+    ).toHaveLength(2);
   });
 
   it('resolves the timed M/D dates and titles the row from the note text', () => {
@@ -229,7 +233,7 @@ describe('third-party CSV with timed M/D dates and a type column', () => {
 
 /**
  * The file's currencies are foreign to the app's base and it carries no rate
- * column, so every expense row depends on a rate the user has to supply. Covers
+ * column, so every transaction row depends on a rate the user has to supply. Covers
  * the whole route from that state to committed rows.
  */
 describe('third-party CSV whose currencies are all foreign to the base', () => {
@@ -244,24 +248,23 @@ describe('third-party CSV whose currencies are all foreign to the base', () => {
       numberFormat: 'auto',
       manualFxRates,
       fxRateCache: [],
-      existingExpenses: [],
+      existingTransactions: [],
       existingCategories: [],
     };
     return previewImport(content, mapping, 'auto', ctx);
   };
 
-  it('holds every expense row for review rather than rejecting it', () => {
+  it('holds every row for review rather than rejecting it', () => {
     const preview = previewWithRates();
     expect(preview.valid).toHaveLength(0);
     expect(preview.invalid).toEqual([]);
-    expect(preview.needsFxRate).toHaveLength(5);
-    expect(preview.skippedIncome).toHaveLength(2);
+    expect(preview.needsFxRate).toHaveLength(7);
     expect(preview.fxReview).toEqual([
       {
         baseCurrencyCode: 'MYR',
         currencyCode: 'INR',
         suggestedRate: null,
-        rowCount: 4,
+        rowCount: 6,
       },
       {
         baseCurrencyCode: 'MYR',
@@ -275,7 +278,7 @@ describe('third-party CSV whose currencies are all foreign to the base', () => {
   it('releases every row once both rates are supplied', () => {
     const preview = previewWithRates({ 'MYR|INR': 0.056, 'MYR|USD': 4.42 });
     expect(preview.needsFxRate).toHaveLength(0);
-    expect(preview.valid).toHaveLength(5);
+    expect(preview.valid).toHaveLength(7);
     expect(preview.valid[0].record.baseAmount).toBe(2.8);
     expect(preview.valid.every(row => row.fxRateSource === 'manual')).toBe(
       true,
@@ -290,15 +293,16 @@ describe('third-party CSV whose currencies are all foreign to the base', () => {
     );
     (database.getCategoryByName as jest.Mock).mockResolvedValue(null);
     (database.createCategory as jest.Mock).mockResolvedValue(categories[0]);
-    (database.createExpensesBulk as jest.Mock).mockResolvedValue(4);
+    (database.createTransactionsBulk as jest.Mock).mockResolvedValue(4);
     (database.upsertCurrencyFxRate as jest.Mock).mockResolvedValue(undefined);
 
     const preview = previewWithRates({ 'MYR|INR': 0.056 });
-    expect(preview.valid).toHaveLength(4);
+    expect(preview.valid).toHaveLength(6);
     expect(preview.needsFxRate).toHaveLength(1);
 
     const summary = await commitImport(preview);
-    expect(summary.inserted).toBe(4);
+    expect(summary.insertedExpenses).toBe(4);
+    expect(summary.insertedIncome).toBe(2);
     expect(summary.skippedNeedsFxRate).toBe(1);
     expect(summary.skippedInvalid).toBe(0);
   });
@@ -310,7 +314,7 @@ describe('third-party CSV whose currencies are all foreign to the base', () => {
       work(mockDb),
     );
     (database.getCategoryByName as jest.Mock).mockResolvedValue(categories[0]);
-    (database.createExpensesBulk as jest.Mock).mockResolvedValue(5);
+    (database.createTransactionsBulk as jest.Mock).mockResolvedValue(5);
     (database.upsertCurrencyFxRate as jest.Mock).mockClear();
     (database.upsertCurrencyFxRate as jest.Mock).mockResolvedValue(undefined);
 
@@ -328,5 +332,67 @@ describe('third-party CSV whose currencies are all foreign to the base', () => {
       'USD',
       4.42,
     );
+  });
+});
+
+describe('a backup exported before the type column existed', () => {
+  // Byte-for-byte the header this app wrote up to schema v6: no type column,
+  // and every amount a positive magnitude.
+  const LEGACY_HEADER =
+    'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,' +
+    'date,category,notes,base_currency_code,payee';
+
+  const legacyCsv =
+    `\uFEFF${LEGACY_HEADER}\r\n` +
+    '1,Lunch,12.50,USD,1.000000,12.50,2024-01-05,Food,,USD,Cafe\r\n' +
+    '2,Fuel,40.00,USD,1.000000,40.00,2024-01-06,Food,,USD,Shell\r\n';
+
+  it('imports every row as an expense under the bank-statement default', () => {
+    const parsed = parseCsv(legacyCsv);
+    const mapping = autoDetectMapping(parsed.header, parsed.rows);
+
+    const preview = previewImport(legacyCsv, mapping, 'iso', {
+      baseCurrency: 'USD',
+      defaultCurrency: null,
+      currencyChoices: {},
+      // The shipped default. Without the no-negatives rule this alone would
+      // flip every row in the file to income.
+      negativeMeans: 'expense',
+      numberFormat: 'auto',
+      fxRateCache: [],
+      existingTransactions: [],
+      existingCategories: categories,
+    });
+
+    expect(preview.invalid).toEqual([]);
+    expect(preview.valid).toHaveLength(2);
+    expect(preview.signConventionBypassed).toBe(true);
+    expect(preview.valid.every(row => row.record.type === 'expense')).toBe(
+      true,
+    );
+  });
+
+  it('still honours the sign convention once the file carries a negative', () => {
+    const withNegative =
+      `\uFEFF${LEGACY_HEADER}\r\n` +
+      '1,Lunch,-12.50,USD,1.000000,12.50,2024-01-05,Food,,USD,Cafe\r\n' +
+      '2,Refund,40.00,USD,1.000000,40.00,2024-01-06,Food,,USD,Shell\r\n';
+    const parsed = parseCsv(withNegative);
+    const mapping = autoDetectMapping(parsed.header, parsed.rows);
+
+    const preview = previewImport(withNegative, mapping, 'iso', {
+      baseCurrency: 'USD',
+      defaultCurrency: null,
+      currencyChoices: {},
+      negativeMeans: 'expense',
+      numberFormat: 'auto',
+      fxRateCache: [],
+      existingTransactions: [],
+      existingCategories: categories,
+    });
+
+    expect(preview.signConventionBypassed).toBe(false);
+    expect(preview.valid[0].record.type).toBe('expense');
+    expect(preview.valid[1].record.type).toBe('income');
   });
 });

@@ -8,13 +8,13 @@ import {
   waitFor,
 } from '../../__tests__/test-utils/renderWithProviders';
 import ImportScreen from '../ImportScreen';
-import { useExpenseData } from '../../context/AppContext';
+import { useTransactionData } from '../../context/AppContext';
 import { pickCsvFile, readFileAsString } from '../../security/storageAccess';
 import { listBackupFiles, downloadFileContent } from '../../export';
-import type { ExpenseRecord } from '../../database';
+import type { TransactionRecord } from '../../database';
 
 jest.mock('../../context/AppContext', () => ({
-  useExpenseData: jest.fn(),
+  useTransactionData: jest.fn(),
 }));
 jest.mock('../../security/storageAccess', () => ({
   pickCsvFile: jest.fn(),
@@ -25,7 +25,7 @@ jest.mock('../../export', () => ({
   downloadFileContent: jest.fn(),
 }));
 
-const mockedUseExpenseData = useExpenseData as unknown as jest.Mock;
+const mockedUseExpenseData = useTransactionData as unknown as jest.Mock;
 const mockedPickCsvFile = pickCsvFile as jest.Mock;
 const mockedReadFileAsString = readFileAsString as jest.Mock;
 const mockedListBackupFiles = listBackupFiles as jest.Mock;
@@ -35,18 +35,19 @@ const APP_CSV =
   'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee\r\n' +
   '1,Lunch,10.00,USD,1.000000,10.00,2024-01-01,Food,,USD,Cafe\r\n';
 
-let importExpenses: jest.Mock;
+let importTransactions: jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
-  importExpenses = jest.fn().mockResolvedValue({
-    inserted: 1,
+  importTransactions = jest.fn().mockResolvedValue({
+    insertedExpenses: 1,
+    insertedIncome: 0,
     skippedInvalid: 0,
     skippedNeedsFxRate: 0,
     createdCategories: 1,
   });
   mockedUseExpenseData.mockReturnValue(
-    makeContextValue({ actions: { importExpenses } }),
+    makeContextValue({ actions: { importTransactions } }),
   );
 });
 
@@ -73,13 +74,13 @@ describe('ImportScreen', () => {
 
     fireEvent.press(screen.getByLabelText('Confirm import'));
 
-    await waitFor(() => expect(importExpenses).toHaveBeenCalled());
-    const [preview] = importExpenses.mock.calls[0];
+    await waitFor(() => expect(importTransactions).toHaveBeenCalled());
+    const [preview] = importTransactions.mock.calls[0];
     expect(preview.valid).toHaveLength(1);
     await waitFor(() =>
       expect(alertSpy).toHaveBeenCalledWith(
         'Import complete',
-        expect.stringContaining('1 expense imported'),
+        expect.stringContaining('1 expense and 0 income imported'),
       ),
     );
   });
@@ -221,7 +222,8 @@ describe('ImportScreen', () => {
   it('reports duplicates and skipped rows and surfaces a commit failure', async () => {
     const alertSpy = jest.spyOn(Alert, 'alert');
     const failingImport = jest.fn().mockRejectedValue(new Error('db down'));
-    const existing: ExpenseRecord = {
+    const existing: TransactionRecord = {
+      type: 'expense',
       id: 99,
       description: 'Lunch',
       payee: 'Cafe',
@@ -238,8 +240,8 @@ describe('ImportScreen', () => {
     };
     mockedUseExpenseData.mockReturnValue(
       makeContextValue({
-        state: { expenses: [existing] },
-        actions: { importExpenses: failingImport },
+        state: { transactions: [existing] },
+        actions: { importTransactions: failingImport },
       }),
     );
     mockedPickCsvFile.mockResolvedValue({ ok: true, uri: 'content://x.csv' });
@@ -261,7 +263,9 @@ describe('ImportScreen', () => {
         screen.getByText('1 of 2 rows ready to import.'),
       ).toBeOnTheScreen(),
     );
-    expect(screen.getByText(/look like existing expenses/)).toBeOnTheScreen();
+    expect(
+      screen.getByText(/look like existing transactions/),
+    ).toBeOnTheScreen();
     expect(screen.getByText('1 row skipped')).toBeOnTheScreen();
 
     fireEvent.press(screen.getByLabelText('Confirm import'));
@@ -270,7 +274,7 @@ describe('ImportScreen', () => {
     );
   });
 
-  it('imports a semicolon file with decorated amounts and skips income rows', async () => {
+  it('imports a semicolon file with decorated amounts and reads both directions', async () => {
     mockedPickCsvFile.mockResolvedValue({ ok: true, uri: 'content://x.csv' });
     mockedReadFileAsString.mockResolvedValue(
       'Transaction Date;Merchant;Amount;Currency\r\n' +
@@ -286,16 +290,18 @@ describe('ImportScreen', () => {
 
     fireEvent.press(screen.getByLabelText('Preview import'));
 
+    // The file carries a negative, so the sign convention applies: negatives are
+    // expenses and positives income under the default.
     await waitFor(() =>
       expect(
-        screen.getByText('1 of 2 rows ready to import.'),
+        screen.getByText('2 of 2 rows ready to import.'),
       ).toBeOnTheScreen(),
     );
-    expect(screen.getByText(/1 income row skipped/)).toBeOnTheScreen();
+    expect(screen.getByText('1 expense and 1 income.')).toBeOnTheScreen();
 
     fireEvent.press(screen.getByLabelText('Confirm import'));
-    await waitFor(() => expect(importExpenses).toHaveBeenCalled());
-    const [preview] = importExpenses.mock.calls[0];
+    await waitFor(() => expect(importTransactions).toHaveBeenCalled());
+    const [preview] = importTransactions.mock.calls[0];
     expect(preview.valid[0].record.amountNative).toBe(1234.56);
     expect(preview.valid[0].record.payee).toBe('Cafe');
   });
@@ -368,8 +374,8 @@ describe('ImportScreen', () => {
     );
     fireEvent.press(screen.getByLabelText('Confirm import'));
 
-    await waitFor(() => expect(importExpenses).toHaveBeenCalled());
-    const [preview] = importExpenses.mock.calls[0];
+    await waitFor(() => expect(importTransactions).toHaveBeenCalled());
+    const [preview] = importTransactions.mock.calls[0];
     expect(preview.valid[0].record.amountNative).toBe(1.234);
   });
 
@@ -424,8 +430,8 @@ describe('ImportScreen', () => {
     );
 
     fireEvent.press(screen.getByLabelText('Confirm import'));
-    await waitFor(() => expect(importExpenses).toHaveBeenCalled());
-    const [preview] = importExpenses.mock.calls[0];
+    await waitFor(() => expect(importTransactions).toHaveBeenCalled());
+    const [preview] = importTransactions.mock.calls[0];
     expect(preview.valid[0].record.currencyCode).toBe('USD');
   });
 
@@ -433,7 +439,7 @@ describe('ImportScreen', () => {
     mockedUseExpenseData.mockReturnValue(
       makeContextValue({
         state: { settings: { baseCurrency: null } },
-        actions: { importExpenses },
+        actions: { importTransactions },
       }),
     );
     mockedPickCsvFile.mockResolvedValue({ ok: true, uri: 'content://x.csv' });
@@ -451,7 +457,7 @@ describe('ImportScreen', () => {
     mockedUseExpenseData.mockReturnValue(
       makeContextValue({
         state: { settings: { baseCurrency: 'SGD' } },
-        actions: { importExpenses },
+        actions: { importTransactions },
       }),
     );
     rerender(<ImportScreen />);
@@ -647,8 +653,8 @@ describe('ImportScreen', () => {
 
       fireEvent.press(screen.getByLabelText('Confirm import'));
 
-      await waitFor(() => expect(importExpenses).toHaveBeenCalled());
-      expect(importExpenses.mock.calls[0][1]).toEqual({ 'USD|EUR': 1.25 });
+      await waitFor(() => expect(importTransactions).toHaveBeenCalled());
+      expect(importTransactions.mock.calls[0][1]).toEqual({ 'USD|EUR': 1.25 });
     });
 
     it('leaves Apply disabled until a usable rate is entered', async () => {
@@ -674,7 +680,7 @@ describe('ImportScreen', () => {
               },
             ],
           },
-          actions: { importExpenses },
+          actions: { importTransactions },
         }),
       );
       await reachFxReview();
@@ -703,7 +709,7 @@ describe('ImportScreen', () => {
               },
             ],
           },
-          actions: { importExpenses },
+          actions: { importTransactions },
         }),
       );
       await reachFxReview();

@@ -151,7 +151,10 @@ export const formatDuration = (ms: number): string => {
   return `${(ms / 60000).toFixed(2)}min`;
 };
 
-export const generateMockExpenses = (count: number) => {
+export const generateMockTransactions = (
+  count: number,
+  { incomeRatio = 0.2 }: { incomeRatio?: number } = {},
+) => {
   const categories = [
     'Food',
     'Transport',
@@ -182,7 +185,7 @@ export const generateMockExpenses = (count: number) => {
     'NHS Clinic',
   ];
 
-  const expenses = [];
+  const transactions = [];
   const startDate = new Date('2020-01-01');
   const endDate = new Date();
   const dateRange = endDate.getTime() - startDate.getTime();
@@ -193,8 +196,11 @@ export const generateMockExpenses = (count: number) => {
     const currency = currencies[Math.floor(Math.random() * currencies.length)];
     const fxRate = currency === 'USD' ? 1.0 : 0.8 + Math.random() * 0.4;
 
-    expenses.push({
+    transactions.push({
       id: i + 1,
+      type: (i % Math.max(1, Math.round(1 / incomeRatio)) === 0
+        ? 'income'
+        : 'expense') as 'income' | 'expense',
       description:
         descriptions[Math.floor(Math.random() * descriptions.length)],
       payee: payees[Math.floor(Math.random() * payees.length)],
@@ -205,13 +211,13 @@ export const generateMockExpenses = (count: number) => {
       baseCurrencyCode: 'USD',
       date: date.toISOString().split('T')[0],
       categoryId: Math.floor(Math.random() * categories.length) + 1,
-      notes: Math.random() > 0.5 ? `Note for expense ${i + 1}` : null,
+      notes: Math.random() > 0.5 ? `Note for transaction ${i + 1}` : null,
       createdAt: date.toISOString(),
       updatedAt: date.toISOString(),
     });
   }
 
-  return expenses;
+  return transactions;
 };
 
 export const generateMockCategories = () => {
@@ -219,36 +225,42 @@ export const generateMockCategories = () => {
     {
       id: 1,
       name: 'Food',
+      type: 'both' as const,
       createdAt: '2020-01-01T00:00:00.000Z',
       updatedAt: '2020-01-01T00:00:00.000Z',
     },
     {
       id: 2,
       name: 'Transport',
+      type: 'both' as const,
       createdAt: '2020-01-01T00:00:00.000Z',
       updatedAt: '2020-01-01T00:00:00.000Z',
     },
     {
       id: 3,
       name: 'Entertainment',
+      type: 'both' as const,
       createdAt: '2020-01-01T00:00:00.000Z',
       updatedAt: '2020-01-01T00:00:00.000Z',
     },
     {
       id: 4,
       name: 'Shopping',
+      type: 'both' as const,
       createdAt: '2020-01-01T00:00:00.000Z',
       updatedAt: '2020-01-01T00:00:00.000Z',
     },
     {
       id: 5,
       name: 'Bills',
+      type: 'both' as const,
       createdAt: '2020-01-01T00:00:00.000Z',
       updatedAt: '2020-01-01T00:00:00.000Z',
     },
     {
       id: 6,
       name: 'Healthcare',
+      type: 'both' as const,
       createdAt: '2020-01-01T00:00:00.000Z',
       updatedAt: '2020-01-01T00:00:00.000Z',
     },

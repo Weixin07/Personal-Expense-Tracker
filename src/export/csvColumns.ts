@@ -1,4 +1,4 @@
-export const EXPENSE_CSV_COLUMNS = [
+export const TRANSACTION_CSV_COLUMNS = [
   'id',
   'description',
   'amount_native',
@@ -10,6 +10,7 @@ export const EXPENSE_CSV_COLUMNS = [
   'notes',
   'base_currency_code',
   'payee',
+  'type',
 ] as const;
 
-export type ExpenseCsvColumn = (typeof EXPENSE_CSV_COLUMNS)[number];
+export type TransactionCsvColumn = (typeof TRANSACTION_CSV_COLUMNS)[number];

@@ -1,7 +1,7 @@
 import {
   withDatabase,
   withTransaction,
-  createExpensesBulk,
+  createTransactionsBulk,
   getCategoryByName,
   createCategory,
   upsertCurrencyFxRate,
@@ -9,8 +9,9 @@ import {
 import type {
   CategoryRecord,
   CurrencyFxRateRecord,
-  ExpenseRecord,
-  NewExpenseRecord,
+  TransactionRecord,
+  TransactionType,
+  NewTransactionRecord,
 } from '../database';
 import {
   normalizeCurrency,
@@ -19,7 +20,7 @@ import {
   validatePositiveRate,
   validateIsoDateWithinFutureWindow,
 } from '../utils/validation';
-import { computeBaseAmount } from '../screens/expenseFormUtils';
+import { computeBaseAmount } from '../screens/transactionFormUtils';
 import { parseCsv } from './csvParser';
 import {
   applyMapping,
@@ -43,12 +44,10 @@ import type {
   ImportSummary,
   NegativeAmountMeaning,
   NumberFormat,
-  PreparedExpense,
+  PreparedTransaction,
 } from './types';
 
 const UNKNOWN_PAYEE = 'Unknown';
-const INCOME_SKIP_REASON =
-  'Income row — importing income is not supported yet.';
 
 export type ImportContext = {
   baseCurrency: string | null;
@@ -72,7 +71,7 @@ export type ImportContext = {
    */
   manualFxRates?: Record<string, number>;
   fxRateCache: readonly CurrencyFxRateRecord[];
-  existingExpenses: readonly ExpenseRecord[];
+  existingTransactions: readonly TransactionRecord[];
   existingCategories: readonly CategoryRecord[];
 };
 
@@ -85,14 +84,19 @@ export type ImportContext = {
 const foldIdentityText = (value: string): string =>
   value.trim().toLowerCase().replace(/\s+/g, ' ');
 
+/**
+ * Direction is part of the key: a refund and a purchase can share a date,
+ * amount and payee without being the same row.
+ */
 const duplicateKey = (
+  type: TransactionType,
   date: string,
   amountNative: number,
   currencyCode: string,
   payee: string,
   description: string,
 ): string =>
-  `${date}|${amountNative.toFixed(2)}|${currencyCode}|${foldIdentityText(payee)}|${foldIdentityText(description)}`;
+  `${type}|${date}|${amountNative.toFixed(2)}|${currencyCode}|${foldIdentityText(payee)}|${foldIdentityText(description)}`;
 
 const findCachedRate = (
   cache: readonly CurrencyFxRateRecord[],
@@ -239,12 +243,16 @@ const resolveCurrency = (
  * confirmed via `ctx.manualFxRates`, the cached rate for the pair, or parity when
  * native and base currency match. A row that exhausts all four is collected in
  * `needsFxRate` — it is well-formed and becomes importable once a rate arrives,
- * so it is kept apart from `invalid` the way `skippedIncome` is.
+ * so it is kept apart from `invalid`.
  *
- * Income rows are likewise collected in `skippedIncome`; direction comes from a
- * mapped transaction-type column when the row carries a recognised value, and
- * from the sign convention otherwise. Duplicates are flagged against both stored
- * expenses and earlier rows in the same file, and are never rejected.
+ * Direction comes from a mapped transaction-type column when the row carries a
+ * recognised value. Otherwise it comes from the sign convention — except when
+ * the file holds no negative amount at all, in which case the row is an expense
+ * whatever `ctx.negativeMeans` says, and `signConventionBypassed` records that.
+ * A convention about negatives cannot classify a file that contains none.
+ *
+ * Duplicates are flagged against both stored transactions and earlier rows in
+ * the same file, and are never rejected.
  *
  * Performs no database writes. Throws only when required columns are unmapped —
  * individual bad rows are reported in `invalid`, never thrown.
@@ -273,16 +281,17 @@ export const previewImport = (
     : null;
 
   const existingKeys = new Map<string, number>();
-  ctx.existingExpenses.forEach(expense => {
+  ctx.existingTransactions.forEach(transaction => {
     existingKeys.set(
       duplicateKey(
-        expense.date,
-        expense.amountNative,
-        expense.currencyCode,
-        expense.payee,
-        expense.description,
+        transaction.type,
+        transaction.date,
+        transaction.amountNative,
+        transaction.currencyCode,
+        transaction.payee,
+        transaction.description,
       ),
-      expense.id,
+      transaction.id,
     );
   });
 
@@ -301,11 +310,24 @@ export const previewImport = (
   }
   const effectiveDateFormat: DateFormat = inferredDateOrder ?? dateFormat;
 
+  // Whole-file property, so it is settled before any row is classified. Rows
+  // that fail later validation still count: whether the file carries sign
+  // information does not depend on which rows survive.
+  const amountColumn = mapping.amountNative;
+  const fileHasAnyNegativeAmount =
+    amountColumn !== undefined &&
+    rows.some(row => {
+      const parsed = normalizeAmount(
+        row.cells[amountColumn] ?? '',
+        ctx.numberFormat,
+      );
+      return parsed != null && parsed < 0;
+    });
+
   const manualFxRates = ctx.manualFxRates ?? {};
 
-  const valid: PreparedExpense[] = [];
+  const valid: PreparedTransaction[] = [];
   const invalid: ImportRowError[] = [];
-  const skippedIncome: ImportRowError[] = [];
   const needsFxRate: ImportRowError[] = [];
   const fxReview = new Map<string, FxSuggestion>();
   const currencyReview = new Map<string, AmbiguousCurrency>();
@@ -334,14 +356,15 @@ export const previewImport = (
 
     const isNegative = parsedAmount < 0;
     const declaredType = resolveTransactionType(raw.transactionType ?? '');
-    const isIncome = declaredType
-      ? declaredType === 'income'
-      : ctx.negativeMeans === 'income'
-        ? isNegative
-        : !isNegative;
-    if (isIncome) {
-      skippedIncome.push({ line, reason: INCOME_SKIP_REASON });
-      return;
+    let transactionType: TransactionType;
+    if (declaredType) {
+      transactionType = declaredType;
+    } else if (!fileHasAnyNegativeAmount) {
+      transactionType = 'expense';
+    } else if (ctx.negativeMeans === 'income') {
+      transactionType = isNegative ? 'income' : 'expense';
+    } else {
+      transactionType = isNegative ? 'expense' : 'income';
     }
 
     const rawCurrency = raw.currencyCode ?? '';
@@ -488,6 +511,7 @@ export const previewImport = (
     // Must follow the payee fallback: the placeholder is what gets stored, so
     // it is what a later import will match against.
     const key = duplicateKey(
+      transactionType,
       normalizedDate,
       magnitude,
       currencyCode,
@@ -497,9 +521,13 @@ export const previewImport = (
     const dupId = existingKeys.get(key);
     const seenLine = seenKeys.get(key);
     if (dupId !== undefined) {
-      duplicates.push({ line, matchesExpenseId: dupId });
+      duplicates.push({ line, matchesTransactionId: dupId });
     } else if (seenLine !== undefined) {
-      duplicates.push({ line, matchesExpenseId: null, matchesLine: seenLine });
+      duplicates.push({
+        line,
+        matchesTransactionId: null,
+        matchesLine: seenLine,
+      });
     }
     if (seenLine === undefined) {
       seenKeys.set(key, line);
@@ -515,6 +543,7 @@ export const previewImport = (
     valid.push({
       line,
       record: {
+        type: transactionType,
         description,
         payee,
         amountNative: magnitude,
@@ -533,7 +562,6 @@ export const previewImport = (
   return {
     valid,
     invalid,
-    skippedIncome,
     needsFxRate,
     fxReview: [...fxReview.values()],
     currencyReview: [...currencyReview.values()],
@@ -541,6 +569,7 @@ export const previewImport = (
     newCategoryNames: [...newCategoryNames],
     totalRows: rows.length,
     inferredDateOrder,
+    signConventionBypassed: !fileHasAnyNegativeAmount,
   };
 };
 
@@ -556,8 +585,7 @@ export const previewImport = (
  * untouched, having no currency pair to key an override against.
  *
  * Every committed pair is written to the FX-rate cache, so a rate confirmed here
- * becomes the prefill for later manual entry. This is the contract, not a side
- * effect — a rate confirmed across a whole import is the best one the app knows.
+ * becomes the prefill for later manual entry.
  */
 export const commitImport = async (
   preview: ImportPreview,
@@ -580,13 +608,13 @@ export const commitImport = async (
         if (existing) {
           nameToId.set(name.toLowerCase(), existing.id);
         } else {
-          const created = await createCategory(db, { name });
+          const created = await createCategory(db, { name, type: 'both' });
           nameToId.set(name.toLowerCase(), created.id);
           createdCategories += 1;
         }
       }
 
-      const records: NewExpenseRecord[] = preview.valid.map(item => {
+      const records: NewTransactionRecord[] = preview.valid.map(item => {
         let { fxRateToBase, baseAmount } = item.record;
         const overridable =
           item.fxRateSource === 'manual' || item.fxRateSource === 'cached';
@@ -613,7 +641,10 @@ export const commitImport = async (
         };
       });
 
-      const inserted = await createExpensesBulk(db, records);
+      await createTransactionsBulk(db, records);
+      const insertedIncome = records.filter(
+        record => record.type === 'income',
+      ).length;
 
       const seeded = new Set<string>();
       for (const record of records) {
@@ -634,7 +665,8 @@ export const commitImport = async (
       }
 
       return {
-        inserted,
+        insertedExpenses: records.length - insertedIncome,
+        insertedIncome,
         skippedInvalid: preview.invalid.length,
         skippedNeedsFxRate: preview.needsFxRate.length,
         createdCategories,

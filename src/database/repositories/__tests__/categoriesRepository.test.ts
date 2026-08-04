@@ -22,6 +22,7 @@ describe('categoriesRepository', () => {
   describe('createCategory', () => {
     it('should create a category and return the created record', async () => {
       const newCategory: NewCategoryRecord = {
+        type: 'both',
         name: 'Food',
       };
 
@@ -60,7 +61,7 @@ describe('categoriesRepository', () => {
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO categories'),
-        ['Food'],
+        ['Food', 'both'],
       );
 
       expect(result).toEqual({
@@ -73,6 +74,7 @@ describe('categoriesRepository', () => {
 
     it('should trim the category name', async () => {
       const newCategory: NewCategoryRecord = {
+        type: 'both',
         name: '  Food  ',
       };
 
@@ -111,12 +113,13 @@ describe('categoriesRepository', () => {
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO categories'),
-        ['Food'],
+        ['Food', 'both'],
       );
     });
 
     it('should throw error if insertId is not returned', async () => {
       const newCategory: NewCategoryRecord = {
+        type: 'both',
         name: 'Food',
       };
 
@@ -139,6 +142,7 @@ describe('categoriesRepository', () => {
 
     it('should throw error if category cannot be loaded after insert', async () => {
       const newCategory: NewCategoryRecord = {
+        type: 'both',
         name: 'Food',
       };
 
@@ -175,6 +179,7 @@ describe('categoriesRepository', () => {
   describe('updateCategory', () => {
     it('should update a category and return the updated record', async () => {
       const updatePayload: UpdateCategoryRecord = {
+        type: 'both',
         id: 1,
         name: 'Updated Food',
       };
@@ -214,7 +219,7 @@ describe('categoriesRepository', () => {
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
         expect.stringContaining('UPDATE categories'),
-        ['Updated Food', 1],
+        ['Updated Food', 'both', 1],
       );
 
       expect(result).toEqual({
@@ -227,6 +232,7 @@ describe('categoriesRepository', () => {
 
     it('should trim the category name', async () => {
       const updatePayload: UpdateCategoryRecord = {
+        type: 'both',
         id: 1,
         name: '  Updated Food  ',
       };
@@ -266,12 +272,13 @@ describe('categoriesRepository', () => {
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
         expect.stringContaining('UPDATE categories'),
-        ['Updated Food', 1],
+        ['Updated Food', 'both', 1],
       );
     });
 
     it('should throw error if category not found', async () => {
       const updatePayload: UpdateCategoryRecord = {
+        type: 'both',
         id: 999,
         name: 'Non-existent',
       };
@@ -295,6 +302,7 @@ describe('categoriesRepository', () => {
 
     it('should throw error if category cannot be loaded after update', async () => {
       const updatePayload: UpdateCategoryRecord = {
+        type: 'both',
         id: 1,
         name: 'Updated Food',
       };
@@ -364,7 +372,6 @@ describe('categoriesRepository', () => {
 
       mockDb.executeSql.mockResolvedValueOnce([mockDeleteResult]);
 
-      // Should not throw
       await expect(deleteCategory(mockDb, 999)).resolves.toBeUndefined();
     });
   });
@@ -611,7 +618,7 @@ describe('categoriesRepository', () => {
       expect(result.id).toBe(9);
       expect(mockDb.executeSql).toHaveBeenCalledWith(
         expect.stringContaining('INSERT INTO categories'),
-        ['Travel'],
+        ['Travel', 'both'],
       );
     });
   });

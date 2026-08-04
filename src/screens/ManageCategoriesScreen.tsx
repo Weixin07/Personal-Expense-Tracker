@@ -8,17 +8,45 @@ import {
   IconButton,
   List,
   Portal,
+  SegmentedButtons,
   Surface,
   Text,
   TextInput,
 } from 'react-native-paper';
-import { useExpenseData } from '../context/AppContext';
+import { useTransactionData } from '../context/AppContext';
+import type { CategoryType } from '../database';
+
+type DirectionUsage = { expense: number; income: number };
+
+const TYPE_OPTIONS = [
+  { value: 'expense', label: 'Expense' },
+  { value: 'income', label: 'Income' },
+  { value: 'both', label: 'Both' },
+];
+
+const TYPE_LABELS: Record<CategoryType, string> = {
+  expense: 'Expense only',
+  income: 'Income only',
+  both: 'Expense and income',
+};
+
+/**
+ * Directions a category would stop covering under `next`. Transactions already
+ * filed under those directions keep the category; they simply stop being
+ * offered it, so the count is worth stating before the change is applied.
+ */
+const strandedCount = (usage: DirectionUsage, next: CategoryType): number => {
+  if (next === 'both') {
+    return 0;
+  }
+  return next === 'expense' ? usage.income : usage.expense;
+};
 
 const ManageCategoriesScreen: React.FC = () => {
   const {
-    state: { categories, expenses },
+    state: { categories, transactions },
     actions: { createCategory, updateCategory, deleteCategory },
-  } = useExpenseData();
+  } = useTransactionData();
 
   const sortedCategories = useMemo(
     () => [...categories].sort((a, b) => a.name.localeCompare(b.name)),
@@ -26,21 +54,25 @@ const ManageCategoriesScreen: React.FC = () => {
   );
 
   const usageCount = useMemo(() => {
-    const counts = new Map<number, number>();
-    expenses.forEach(expense => {
-      if (expense.categoryId != null) {
-        counts.set(
-          expense.categoryId,
-          (counts.get(expense.categoryId) ?? 0) + 1,
-        );
+    const counts = new Map<number, DirectionUsage>();
+    transactions.forEach(transaction => {
+      if (transaction.categoryId == null) {
+        return;
       }
+      const current = counts.get(transaction.categoryId) ?? {
+        expense: 0,
+        income: 0,
+      };
+      current[transaction.type] += 1;
+      counts.set(transaction.categoryId, current);
     });
     return counts;
-  }, [expenses]);
+  }, [transactions]);
 
   const [dialogVisible, setDialogVisible] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [name, setName] = useState('');
+  const [type, setType] = useState<CategoryType>('both');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -48,6 +80,7 @@ const ManageCategoriesScreen: React.FC = () => {
     setDialogVisible(false);
     setEditingId(null);
     setName('');
+    setType('both');
     setError(null);
     setSubmitting(false);
   }, []);
@@ -55,6 +88,7 @@ const ManageCategoriesScreen: React.FC = () => {
   const openCreateDialog = () => {
     setEditingId(null);
     setName('');
+    setType('both');
     setError(null);
     setDialogVisible(true);
   };
@@ -67,6 +101,7 @@ const ManageCategoriesScreen: React.FC = () => {
       }
       setEditingId(categoryId);
       setName(category.name);
+      setType(category.type);
       setError(null);
       setDialogVisible(true);
     },
@@ -99,24 +134,51 @@ const ManageCategoriesScreen: React.FC = () => {
       return;
     }
 
-    setSubmitting(true);
-    try {
-      if (editingId != null) {
-        await updateCategory({ id: editingId, name: name.trim() });
-      } else {
-        await createCategory({ name: name.trim() });
+    const persist = async () => {
+      setSubmitting(true);
+      try {
+        if (editingId != null) {
+          await updateCategory({ id: editingId, name: name.trim(), type });
+        } else {
+          await createCategory({ name: name.trim(), type });
+        }
+        resetDialogState();
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : 'Failed to save category.',
+        );
+        setSubmitting(false);
       }
-      resetDialogState();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save category.');
-      setSubmitting(false);
+    };
+
+    const stranded =
+      editingId != null
+        ? strandedCount(
+            usageCount.get(editingId) ?? { expense: 0, income: 0 },
+            type,
+          )
+        : 0;
+    if (stranded > 0) {
+      Alert.alert(
+        'Change category type?',
+        `${stranded} transaction${stranded === 1 ? '' : 's'} already use this category in the direction you are removing. They keep it, but it will no longer be offered for them.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Change', onPress: () => void persist() },
+        ],
+      );
+      return;
     }
+
+    await persist();
   }, [
     createCategory,
     editingId,
     name,
     resetDialogState,
+    type,
     updateCategory,
+    usageCount,
     validateName,
   ]);
 
@@ -127,11 +189,12 @@ const ManageCategoriesScreen: React.FC = () => {
         return;
       }
 
-      const inUseCount = usageCount.get(categoryId) ?? 0;
+      const usage = usageCount.get(categoryId) ?? { expense: 0, income: 0 };
+      const inUseCount = usage.expense + usage.income;
       if (inUseCount > 0) {
         Alert.alert(
           'Cannot delete category',
-          `This category is used by ${inUseCount} expense${inUseCount === 1 ? '' : 's'}. Move those expenses to another category before deleting.`,
+          `This category is used by ${inUseCount} transaction${inUseCount === 1 ? '' : 's'}. Move those transactions to another category before deleting.`,
         );
         return;
       }
@@ -161,13 +224,24 @@ const ManageCategoriesScreen: React.FC = () => {
 
   const renderItem = useCallback(
     ({ item }: { item: (typeof sortedCategories)[number] }) => {
-      const usage = usageCount.get(item.id) ?? 0;
+      const usage = usageCount.get(item.id) ?? { expense: 0, income: 0 };
+      const usageParts: string[] = [];
+      if (usage.expense > 0) {
+        usageParts.push(
+          `${usage.expense} expense${usage.expense === 1 ? '' : 's'}`,
+        );
+      }
+      if (usage.income > 0) {
+        usageParts.push(`${usage.income} income`);
+      }
       return (
         <List.Item
           title={item.name}
           titleStyle={styles.listTitle}
           description={
-            usage > 0 ? `${usage} expense${usage === 1 ? '' : 's'}` : 'Unused'
+            usageParts.length
+              ? `${TYPE_LABELS[item.type]} · ${usageParts.join(', ')}`
+              : `${TYPE_LABELS[item.type]} · Unused`
           }
           descriptionStyle={styles.listDescription}
           right={() => (
@@ -208,7 +282,7 @@ const ManageCategoriesScreen: React.FC = () => {
               Add category
             </Button>
             <Text variant="bodySmall" style={styles.helperText}>
-              Categories help you group expenses. Names must be unique.
+              Categories help you group transactions. Names must be unique.
             </Text>
           </View>
         }
@@ -216,7 +290,7 @@ const ManageCategoriesScreen: React.FC = () => {
           <View style={styles.emptyState}>
             <Text variant="titleMedium">No categories yet</Text>
             <Text variant="bodyMedium" style={styles.emptyBody}>
-              Create your first category to organise expenses.
+              Create your first category to organise transactions.
             </Text>
             <Button mode="contained" onPress={openCreateDialog}>
               Create category
@@ -248,6 +322,14 @@ const ManageCategoriesScreen: React.FC = () => {
             <HelperText type="error" visible={Boolean(error)}>
               {error}
             </HelperText>
+            <Text variant="bodySmall" style={styles.helperText}>
+              Used for
+            </Text>
+            <SegmentedButtons
+              value={type}
+              onValueChange={value => setType(value as CategoryType)}
+              buttons={TYPE_OPTIONS}
+            />
           </Dialog.Content>
           <Dialog.Actions>
             <Button

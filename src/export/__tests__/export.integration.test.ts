@@ -1,15 +1,17 @@
-import type { CategoryRecord, ExpenseRecord } from '../../database/types';
-import { buildExpensesCsv } from '../csvBuilder';
+import type { CategoryRecord, TransactionRecord } from '../../database/types';
+import { buildTransactionsCsv } from '../csvBuilder';
 
 describe('CSV Export Integration Tests', () => {
   const mockCategories: CategoryRecord[] = [
     {
+      type: 'both',
       id: 1,
       name: 'Groceries',
       createdAt: '2025-01-01T00:00:00.000Z',
       updatedAt: '2025-01-01T00:00:00.000Z',
     },
     {
+      type: 'both',
       id: 2,
       name: 'Transport',
       createdAt: '2025-01-01T00:00:00.000Z',
@@ -17,8 +19,9 @@ describe('CSV Export Integration Tests', () => {
     },
   ];
 
-  const mockExpenses: ExpenseRecord[] = [
+  const mockTransactions: TransactionRecord[] = [
     {
+      type: 'expense',
       id: 1,
       description: 'Weekly groceries',
       payee: 'Tesco',
@@ -34,6 +37,7 @@ describe('CSV Export Integration Tests', () => {
       updatedAt: '2025-01-15T10:00:00.000Z',
     },
     {
+      type: 'expense',
       id: 2,
       description: 'Uber to airport',
       payee: 'Uber',
@@ -49,6 +53,7 @@ describe('CSV Export Integration Tests', () => {
       updatedAt: '2025-01-20T08:30:00.000Z',
     },
     {
+      type: 'expense',
       id: 3,
       description: 'Coffee with "special" quotes',
       payee: 'Costa',
@@ -65,65 +70,58 @@ describe('CSV Export Integration Tests', () => {
     },
   ];
 
-  describe('buildExpensesCsv', () => {
+  describe('buildTransactionsCsv', () => {
     it('should build valid CSV with UTF-8 BOM header', () => {
-      const result = buildExpensesCsv({
-        expenses: mockExpenses,
+      const result = buildTransactionsCsv({
+        transactions: mockTransactions,
         categories: mockCategories,
       });
       const csv = result.content;
 
-      // Check BOM
       expect(csv.charCodeAt(0)).toBe(0xfeff);
 
       const lines = csv.split('\r\n');
       expect(lines[0]).toBe(
-        '\uFEFFid,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee',
+        '\uFEFFid,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee,type',
       );
     });
 
     it('should format amounts with correct decimal places', () => {
-      const result = buildExpensesCsv({
-        expenses: mockExpenses,
+      const result = buildTransactionsCsv({
+        transactions: mockTransactions,
         categories: mockCategories,
       });
       const csv = result.content;
       const lines = csv.split('\r\n');
 
-      // First expense: 45.50 (2dp), 1.000000 (6dp), 45.50 (2dp)
       expect(lines[1]).toContain('45.50');
       expect(lines[1]).toContain('1.000000');
       expect(lines[1]).toMatch(/45\.50,GBP,1\.000000,45\.50/);
 
-      // Second expense: 25.00 (2dp), 1.270000 (6dp), 31.75 (2dp)
       expect(lines[2]).toContain('25.00');
       expect(lines[2]).toContain('1.270000');
       expect(lines[2]).toMatch(/25\.00,USD,1\.270000,31\.75/);
 
-      // Third expense: 3.50 (2dp), 1.150000 (6dp), 4.03 (2dp, rounded)
       expect(lines[3]).toContain('3.50');
       expect(lines[3]).toContain('1.150000');
       expect(lines[3]).toMatch(/3\.50,EUR,1\.150000,4\.03/);
     });
 
     it('should properly quote fields with special characters', () => {
-      const result = buildExpensesCsv({
-        expenses: mockExpenses,
+      const result = buildTransactionsCsv({
+        transactions: mockTransactions,
         categories: mockCategories,
       });
       const csv = result.content;
       const lines = csv.split('\r\n');
 
-      // Description with quotes should be escaped
       expect(lines[3]).toContain('"Coffee with ""special"" quotes"');
-
-      // Notes with newlines should be quoted
       expect(lines[3]).toContain('"Line 1\nLine 2"');
     });
 
     it('should map category IDs to names correctly', () => {
-      const result = buildExpensesCsv({
-        expenses: mockExpenses,
+      const result = buildTransactionsCsv({
+        transactions: mockTransactions,
         categories: mockCategories,
       });
       const csv = result.content;
@@ -135,23 +133,24 @@ describe('CSV Export Integration Tests', () => {
     });
 
     it('should handle null notes as empty string', () => {
-      const result = buildExpensesCsv({
-        expenses: mockExpenses,
+      const result = buildTransactionsCsv({
+        transactions: mockTransactions,
         categories: mockCategories,
       });
       const csv = result.content;
       const lines = csv.split('\r\n');
 
-      // Trailing columns are: notes, base_currency_code, payee.
+      // Trailing columns are: notes, base_currency_code, payee, type.
       const secondExpense = lines[2].split(',');
-      expect(secondExpense[secondExpense.length - 3]).toBe('');
+      expect(secondExpense[secondExpense.length - 4]).toBe('');
     });
 
     it('should handle large datasets efficiently', () => {
-      const largeDataset: ExpenseRecord[] = Array.from(
+      const largeDataset: TransactionRecord[] = Array.from(
         { length: 10000 },
         (_, i) => ({
           id: i + 1,
+          type: 'expense' as const,
           description: `Expense ${i + 1}`,
           payee: `Vendor ${i + 1}`,
           amountNative: Math.random() * 1000,
@@ -168,14 +167,13 @@ describe('CSV Export Integration Tests', () => {
       );
 
       const startTime = Date.now();
-      const result = buildExpensesCsv({
-        expenses: largeDataset,
+      const result = buildTransactionsCsv({
+        transactions: largeDataset,
         categories: mockCategories,
       });
       const csv = result.content;
       const endTime = Date.now();
 
-      // Should complete within 1 second for 10k records
       expect(endTime - startTime).toBeLessThan(1000);
 
       // Should have 10,001 lines (header + 10,000 records) + 1 empty from trailing CRLF
@@ -184,20 +182,22 @@ describe('CSV Export Integration Tests', () => {
     });
 
     it('should use CRLF line endings for RFC 4180 compliance', () => {
-      const result = buildExpensesCsv({
-        expenses: mockExpenses,
+      const result = buildTransactionsCsv({
+        transactions: mockTransactions,
         categories: mockCategories,
       });
       const csv = result.content;
 
-      // Check that record separators use CRLF (note: newlines inside quoted fields are preserved as-is)
+      // Only record separators are CRLF: newlines inside quoted fields are
+      // preserved as they were written.
       const lines = csv.split('\r\n');
       expect(lines.length).toBeGreaterThan(1);
       expect(csv).toMatch(/\r\n/);
     });
 
     it('should format amounts consistently in CSV export', () => {
-      const preciseExpense: ExpenseRecord = {
+      const preciseExpense: TransactionRecord = {
+        type: 'expense',
         id: 100,
         description: 'Precision test',
         payee: 'Vendor',
@@ -213,22 +213,21 @@ describe('CSV Export Integration Tests', () => {
         updatedAt: '2025-01-01T00:00:00.000Z',
       };
 
-      const result = buildExpensesCsv({
-        expenses: [preciseExpense],
+      const result = buildTransactionsCsv({
+        transactions: [preciseExpense],
         categories: mockCategories,
       });
       const csv = result.content;
       const lines = csv.split('\r\n');
 
-      // Base amount should be formatted to 2 decimal places for display
       expect(lines[1]).toContain('152.42');
     });
   });
 
   describe('CSV Column Order', () => {
     it('should maintain exact column order as specified', () => {
-      const result = buildExpensesCsv({
-        expenses: mockExpenses,
+      const result = buildTransactionsCsv({
+        transactions: mockTransactions,
         categories: mockCategories,
       });
       const csv = result.content;
@@ -236,10 +235,9 @@ describe('CSV Export Integration Tests', () => {
 
       const header = lines[0].replace('\uFEFF', '');
       expect(header).toBe(
-        'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee',
+        'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee,type',
       );
 
-      // Verify data row column positions
       const firstDataRow = lines[1].split(',');
       expect(firstDataRow[0]).toBe('1'); // id
       expect(firstDataRow[1]).toBe('Weekly groceries'); // description
@@ -257,8 +255,8 @@ describe('CSV Export Integration Tests', () => {
 
   describe('Edge Cases', () => {
     it('should handle empty expense list', () => {
-      const result = buildExpensesCsv({
-        expenses: [],
+      const result = buildTransactionsCsv({
+        transactions: [],
         categories: mockCategories,
       });
       const csv = result.content;
@@ -270,37 +268,36 @@ describe('CSV Export Integration Tests', () => {
     });
 
     it('should handle expense with missing category mapping', () => {
-      const expenseWithUnknownCategory: ExpenseRecord = {
-        ...mockExpenses[0],
+      const expenseWithUnknownCategory: TransactionRecord = {
+        ...mockTransactions[0],
         categoryId: 999, // Non-existent category
       };
 
-      const result = buildExpensesCsv({
-        expenses: [expenseWithUnknownCategory],
+      const result = buildTransactionsCsv({
+        transactions: [expenseWithUnknownCategory],
         categories: mockCategories,
       });
       const csv = result.content;
       const lines = csv.split('\r\n');
 
-      // Should output empty string for unknown category
+      // Column 7 is `category`.
       const columns = lines[1].split(',');
       expect(columns[7]).toBe('');
     });
 
     it('should handle description with commas', () => {
-      const expenseWithComma: ExpenseRecord = {
-        ...mockExpenses[0],
+      const expenseWithComma: TransactionRecord = {
+        ...mockTransactions[0],
         description: 'Groceries, including milk, bread, and eggs',
       };
 
-      const result = buildExpensesCsv({
-        expenses: [expenseWithComma],
+      const result = buildTransactionsCsv({
+        transactions: [expenseWithComma],
         categories: mockCategories,
       });
       const csv = result.content;
       const lines = csv.split('\r\n');
 
-      // Description should be quoted due to commas
       expect(lines[1]).toContain(
         '"Groceries, including milk, bread, and eggs"',
       );
@@ -308,13 +305,13 @@ describe('CSV Export Integration Tests', () => {
 
     it('should handle very long descriptions', () => {
       const longDescription = 'A'.repeat(1000);
-      const expenseWithLongDesc: ExpenseRecord = {
-        ...mockExpenses[0],
+      const expenseWithLongDesc: TransactionRecord = {
+        ...mockTransactions[0],
         description: longDescription,
       };
 
-      const result = buildExpensesCsv({
-        expenses: [expenseWithLongDesc],
+      const result = buildTransactionsCsv({
+        transactions: [expenseWithLongDesc],
         categories: mockCategories,
       });
       const csv = result.content;
@@ -324,33 +321,32 @@ describe('CSV Export Integration Tests', () => {
     });
 
     it('should handle zero amounts correctly', () => {
-      const zeroExpense: ExpenseRecord = {
-        ...mockExpenses[0],
+      const zeroExpense: TransactionRecord = {
+        ...mockTransactions[0],
         amountNative: 0.0,
         baseAmount: 0.0,
       };
 
-      const result = buildExpensesCsv({
-        expenses: [zeroExpense],
+      const result = buildTransactionsCsv({
+        transactions: [zeroExpense],
         categories: mockCategories,
       });
       const csv = result.content;
       const lines = csv.split('\r\n');
 
       expect(lines[1]).toContain('0.00');
-      // Base amount also 2 decimal places
       expect(lines[1]).toMatch(/0\.00,GBP,1\.000000,0\.00/);
     });
 
     it('should handle very large amounts', () => {
-      const largeExpense: ExpenseRecord = {
-        ...mockExpenses[0],
+      const largeExpense: TransactionRecord = {
+        ...mockTransactions[0],
         amountNative: 999999999.99,
         baseAmount: 999999999.99,
       };
 
-      const result = buildExpensesCsv({
-        expenses: [largeExpense],
+      const result = buildTransactionsCsv({
+        transactions: [largeExpense],
         categories: mockCategories,
       });
       const csv = result.content;
@@ -363,7 +359,7 @@ describe('CSV Export Integration Tests', () => {
   describe('Filename Generation', () => {
     it('should generate filename with correct UTC timestamp format', () => {
       const now = new Date('2025-01-25T14:30:45.123Z');
-      const expected = 'expenses_backup_20250125_143045.csv';
+      const expected = 'transactions_backup_20250125_143045.csv';
 
       const year = now.getUTCFullYear();
       const month = String(now.getUTCMonth() + 1).padStart(2, '0');
@@ -372,20 +368,20 @@ describe('CSV Export Integration Tests', () => {
       const minutes = String(now.getUTCMinutes()).padStart(2, '0');
       const seconds = String(now.getUTCSeconds()).padStart(2, '0');
 
-      const filename = `expenses_backup_${year}${month}${day}_${hours}${minutes}${seconds}.csv`;
+      const filename = `transactions_backup_${year}${month}${day}_${hours}${minutes}${seconds}.csv`;
 
       expect(filename).toBe(expected);
     });
 
-    it('should test filename generation from buildExpensesCsv', () => {
+    it('should test filename generation from buildTransactionsCsv', () => {
       const now = new Date('2025-01-25T14:30:45.123Z');
-      const result = buildExpensesCsv({
-        expenses: [],
+      const result = buildTransactionsCsv({
+        transactions: [],
         categories: [],
         generatedAt: now,
       });
 
-      expect(result.filename).toBe('expenses_backup_20250125_143045.csv');
+      expect(result.filename).toBe('transactions_backup_20250125_143045.csv');
     });
   });
 });

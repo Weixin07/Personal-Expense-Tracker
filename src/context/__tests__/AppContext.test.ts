@@ -1,13 +1,14 @@
 import {
-  expenseDataReducer,
+  transactionDataReducer,
   initialState,
-  type ExpenseDataAction,
+  type TransactionDataAction,
 } from '../AppContext';
-import type { ExpenseRecord, CategoryRecord } from '../../database';
+import type { TransactionRecord, CategoryRecord } from '../../database';
 
-const makeExpense = (
-  overrides: Partial<ExpenseRecord> = {},
-): ExpenseRecord => ({
+const makeTransaction = (
+  overrides: Partial<TransactionRecord> = {},
+): TransactionRecord => ({
+  type: 'expense',
   id: 1,
   description: 'Coffee',
   payee: 'Corner Cafe',
@@ -27,6 +28,7 @@ const makeExpense = (
 const makeCategory = (
   overrides: Partial<CategoryRecord> = {},
 ): CategoryRecord => ({
+  type: 'both',
   id: 1,
   name: 'Food',
   createdAt: '2025-01-10T00:00:00.000Z',
@@ -34,10 +36,10 @@ const makeCategory = (
   ...overrides,
 });
 
-describe('expenseDataReducer', () => {
+describe('transactionDataReducer', () => {
   describe('load lifecycle', () => {
     it('load/start sets loading and clears error', () => {
-      const next = expenseDataReducer(
+      const next = transactionDataReducer(
         { ...initialState, error: 'boom' },
         { type: 'load/start' },
       );
@@ -47,7 +49,7 @@ describe('expenseDataReducer', () => {
 
     it('load/success populates data and marks initialised', () => {
       const payload = {
-        expenses: [makeExpense()],
+        transactions: [makeTransaction()],
         categories: [makeCategory()],
         settings: {
           baseCurrency: 'USD',
@@ -58,11 +60,11 @@ describe('expenseDataReducer', () => {
         },
         fxRateCache: [],
       };
-      const next = expenseDataReducer(
+      const next = transactionDataReducer(
         { ...initialState, isLoading: true },
         { type: 'load/success', payload },
       );
-      expect(next.expenses).toEqual(payload.expenses);
+      expect(next.transactions).toEqual(payload.transactions);
       expect(next.categories).toEqual(payload.categories);
       expect(next.settings).toEqual(payload.settings);
       expect(next.isInitialised).toBe(true);
@@ -71,7 +73,7 @@ describe('expenseDataReducer', () => {
     });
 
     it('load/error records the message and stops loading', () => {
-      const next = expenseDataReducer(
+      const next = transactionDataReducer(
         { ...initialState, isLoading: true },
         {
           type: 'load/error',
@@ -84,7 +86,7 @@ describe('expenseDataReducer', () => {
     });
 
     it('load/error applies the fail-closed biometric flag', () => {
-      const next = expenseDataReducer(
+      const next = transactionDataReducer(
         { ...initialState, isLoading: true },
         {
           type: 'load/error',
@@ -97,7 +99,7 @@ describe('expenseDataReducer', () => {
 
   describe('operation lifecycle', () => {
     it('operation/start sets loading and clears error', () => {
-      const next = expenseDataReducer(
+      const next = transactionDataReducer(
         { ...initialState, error: 'old' },
         { type: 'operation/start' },
       );
@@ -106,7 +108,7 @@ describe('expenseDataReducer', () => {
     });
 
     it('operation/end stops loading', () => {
-      const next = expenseDataReducer(
+      const next = transactionDataReducer(
         { ...initialState, isLoading: true },
         { type: 'operation/end' },
       );
@@ -114,7 +116,7 @@ describe('expenseDataReducer', () => {
     });
 
     it('operation/error records the message and stops loading', () => {
-      const next = expenseDataReducer(
+      const next = transactionDataReducer(
         { ...initialState, isLoading: true },
         { type: 'operation/error', payload: 'nope' },
       );
@@ -123,7 +125,7 @@ describe('expenseDataReducer', () => {
     });
 
     it('error/clear nulls the error', () => {
-      const next = expenseDataReducer(
+      const next = transactionDataReducer(
         { ...initialState, error: 'boom' },
         { type: 'error/clear' },
       );
@@ -133,7 +135,7 @@ describe('expenseDataReducer', () => {
 
   describe('filters', () => {
     it('filters/set merges into existing filters', () => {
-      const next = expenseDataReducer(
+      const next = transactionDataReducer(
         { ...initialState, filters: { startDate: '2025-01-01' } },
         { type: 'filters/set', payload: { categoryId: 5 } },
       );
@@ -141,7 +143,7 @@ describe('expenseDataReducer', () => {
     });
 
     it('filters/set deletes categoryId when explicitly undefined', () => {
-      const next = expenseDataReducer(
+      const next = transactionDataReducer(
         {
           ...initialState,
           filters: { categoryId: 5, startDate: '2025-01-01' },
@@ -153,7 +155,7 @@ describe('expenseDataReducer', () => {
     });
 
     it('filters/set deletes startDate when explicitly undefined', () => {
-      const next = expenseDataReducer(
+      const next = transactionDataReducer(
         { ...initialState, filters: { startDate: '2025-01-01' } },
         { type: 'filters/set', payload: { startDate: undefined } },
       );
@@ -161,7 +163,7 @@ describe('expenseDataReducer', () => {
     });
 
     it('filters/set deletes endDate when explicitly undefined', () => {
-      const next = expenseDataReducer(
+      const next = transactionDataReducer(
         { ...initialState, filters: { endDate: '2025-01-31' } },
         { type: 'filters/set', payload: { endDate: undefined } },
       );
@@ -169,7 +171,7 @@ describe('expenseDataReducer', () => {
     });
 
     it('filters/clear resets to empty', () => {
-      const next = expenseDataReducer(
+      const next = transactionDataReducer(
         { ...initialState, filters: { categoryId: 1 } },
         { type: 'filters/clear' },
       );
@@ -179,50 +181,50 @@ describe('expenseDataReducer', () => {
 
   describe('expenses', () => {
     it('expenses/set-all replaces the list', () => {
-      const expenses = [makeExpense({ id: 9 })];
-      const next = expenseDataReducer(initialState, {
-        type: 'expenses/set-all',
-        payload: expenses,
+      const transactions = [makeTransaction({ id: 9 })];
+      const next = transactionDataReducer(initialState, {
+        type: 'transactions/set-all',
+        payload: transactions,
       });
-      expect(next.expenses).toEqual(expenses);
+      expect(next.transactions).toEqual(transactions);
     });
 
     it('expense/add prepends', () => {
-      const existing = makeExpense({ id: 1 });
-      const added = makeExpense({ id: 2 });
-      const next = expenseDataReducer(
-        { ...initialState, expenses: [existing] },
-        { type: 'expense/add', payload: added },
+      const existing = makeTransaction({ id: 1 });
+      const added = makeTransaction({ id: 2 });
+      const next = transactionDataReducer(
+        { ...initialState, transactions: [existing] },
+        { type: 'transaction/add', payload: added },
       );
-      expect(next.expenses).toEqual([added, existing]);
+      expect(next.transactions).toEqual([added, existing]);
     });
 
     it('expense/update replaces matching id only', () => {
-      const a = makeExpense({ id: 1, description: 'A' });
-      const b = makeExpense({ id: 2, description: 'B' });
-      const updated = makeExpense({ id: 2, description: 'B2' });
-      const next = expenseDataReducer(
-        { ...initialState, expenses: [a, b] },
-        { type: 'expense/update', payload: updated },
+      const a = makeTransaction({ id: 1, description: 'A' });
+      const b = makeTransaction({ id: 2, description: 'B' });
+      const updated = makeTransaction({ id: 2, description: 'B2' });
+      const next = transactionDataReducer(
+        { ...initialState, transactions: [a, b] },
+        { type: 'transaction/update', payload: updated },
       );
-      expect(next.expenses).toEqual([a, updated]);
+      expect(next.transactions).toEqual([a, updated]);
     });
 
     it('expense/delete removes matching id', () => {
-      const a = makeExpense({ id: 1 });
-      const b = makeExpense({ id: 2 });
-      const next = expenseDataReducer(
-        { ...initialState, expenses: [a, b] },
-        { type: 'expense/delete', payload: 1 },
+      const a = makeTransaction({ id: 1 });
+      const b = makeTransaction({ id: 2 });
+      const next = transactionDataReducer(
+        { ...initialState, transactions: [a, b] },
+        { type: 'transaction/delete', payload: 1 },
       );
-      expect(next.expenses).toEqual([b]);
+      expect(next.transactions).toEqual([b]);
     });
   });
 
   describe('categories', () => {
     it('categories/set-all replaces the list', () => {
       const categories = [makeCategory({ id: 3, name: 'Travel' })];
-      const next = expenseDataReducer(initialState, {
+      const next = transactionDataReducer(initialState, {
         type: 'categories/set-all',
         payload: categories,
       });
@@ -232,7 +234,7 @@ describe('expenseDataReducer', () => {
 
   describe('settings', () => {
     it('settings/set-base-currency updates only baseCurrency', () => {
-      const next = expenseDataReducer(initialState, {
+      const next = transactionDataReducer(initialState, {
         type: 'settings/set-base-currency',
         payload: 'EUR',
       });
@@ -241,7 +243,7 @@ describe('expenseDataReducer', () => {
     });
 
     it('settings/set-biometric updates only biometricGateEnabled', () => {
-      const next = expenseDataReducer(initialState, {
+      const next = transactionDataReducer(initialState, {
         type: 'settings/set-biometric',
         payload: true,
       });
@@ -249,7 +251,7 @@ describe('expenseDataReducer', () => {
     });
 
     it('settings/set-cred-version updates only biometricCredentialVersion', () => {
-      const next = expenseDataReducer(initialState, {
+      const next = transactionDataReducer(initialState, {
         type: 'settings/set-cred-version',
         payload: 2,
       });
@@ -257,7 +259,7 @@ describe('expenseDataReducer', () => {
     });
 
     it('settings/set-drive-folder updates only driveFolderId', () => {
-      const next = expenseDataReducer(initialState, {
+      const next = transactionDataReducer(initialState, {
         type: 'settings/set-drive-folder',
         payload: 'folder-9',
       });
@@ -265,7 +267,7 @@ describe('expenseDataReducer', () => {
     });
 
     it('settings/set-export-directory updates only exportDirectoryUri', () => {
-      const next = expenseDataReducer(initialState, {
+      const next = transactionDataReducer(initialState, {
         type: 'settings/set-export-directory',
         payload: 'content://dir',
       });
@@ -274,15 +276,18 @@ describe('expenseDataReducer', () => {
   });
 
   it('returns the same state for an unknown action', () => {
-    const next = expenseDataReducer(initialState, {
+    const next = transactionDataReducer(initialState, {
       type: 'totally/unknown',
-    } as unknown as ExpenseDataAction);
+    } as unknown as TransactionDataAction);
     expect(next).toBe(initialState);
   });
 
   it('does not mutate the input state', () => {
-    const state = { ...initialState, expenses: [] };
-    expenseDataReducer(state, { type: 'expense/add', payload: makeExpense() });
-    expect(state.expenses).toEqual([]);
+    const state = { ...initialState, transactions: [] };
+    transactionDataReducer(state, {
+      type: 'transaction/add',
+      payload: makeTransaction(),
+    });
+    expect(state.transactions).toEqual([]);
   });
 });

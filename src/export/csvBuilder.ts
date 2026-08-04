@@ -1,8 +1,8 @@
-import type { CategoryRecord, ExpenseRecord } from '../database';
-import { EXPENSE_CSV_COLUMNS } from './csvColumns';
+import type { CategoryRecord, TransactionRecord } from '../database';
+import { TRANSACTION_CSV_COLUMNS } from './csvColumns';
 
 type BuildCsvInput = {
-  expenses: readonly ExpenseRecord[];
+  transactions: readonly TransactionRecord[];
   categories?: readonly CategoryRecord[];
   generatedAt?: Date;
 };
@@ -12,7 +12,7 @@ type BuildCsvOutput = {
   content: string;
 };
 
-const HEADER_COLUMNS = EXPENSE_CSV_COLUMNS;
+const HEADER_COLUMNS = TRANSACTION_CSV_COLUMNS;
 
 const UTF8_BOM = '\uFEFF';
 const LINE_ENDING = '\r\n';
@@ -46,8 +46,8 @@ const formatAmountNative = (amount: number): string => amount.toFixed(2);
 const formatFxRate = (rate: number): string => rate.toFixed(6);
 const formatBaseAmount = (amount: number): string => amount.toFixed(2);
 
-export const buildExpensesCsv = ({
-  expenses,
+export const buildTransactionsCsv = ({
+  transactions,
   categories = [],
   generatedAt = new Date(),
 }: BuildCsvInput): BuildCsvOutput => {
@@ -56,28 +56,29 @@ export const buildExpensesCsv = ({
     categoryMap.set(category.id, category.name);
   });
 
-  const filename = `expenses_backup_${formatTimestamp(generatedAt)}.csv`;
+  const filename = `transactions_backup_${formatTimestamp(generatedAt)}.csv`;
 
   const lines: string[] = [];
   lines.push(HEADER_COLUMNS.join(','));
 
-  expenses.forEach(expense => {
-    const categoryName = expense.categoryId
-      ? (categoryMap.get(expense.categoryId) ?? '')
+  transactions.forEach(transaction => {
+    const categoryName = transaction.categoryId
+      ? (categoryMap.get(transaction.categoryId) ?? '')
       : '';
 
     const row = [
-      expense.id.toString(),
-      expense.description,
-      formatAmountNative(expense.amountNative),
-      expense.currencyCode,
-      formatFxRate(expense.fxRateToBase),
-      formatBaseAmount(expense.baseAmount),
-      expense.date,
+      transaction.id.toString(),
+      transaction.description,
+      formatAmountNative(transaction.amountNative),
+      transaction.currencyCode,
+      formatFxRate(transaction.fxRateToBase),
+      formatBaseAmount(transaction.baseAmount),
+      transaction.date,
       categoryName,
-      expense.notes ?? '',
-      expense.baseCurrencyCode ?? '',
-      expense.payee,
+      transaction.notes ?? '',
+      transaction.baseCurrencyCode ?? '',
+      transaction.payee,
+      transaction.type,
     ].map(escapeCell);
 
     lines.push(row.join(','));

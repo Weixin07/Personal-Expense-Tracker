@@ -11,7 +11,7 @@ import {
 } from '../database';
 import type {
   ExportQueueRecord,
-  ExpenseRecord,
+  TransactionRecord,
   CategoryRecord,
 } from '../database';
 import { writeExportFile, uploadPendingExports } from '../export';
@@ -34,7 +34,7 @@ export type ExportQueueItem = {
 
 export type UseExportSyncParams = {
   isInitialised: boolean;
-  expenses: ExpenseRecord[];
+  transactions: TransactionRecord[];
   categories: CategoryRecord[];
   initialQueueRecords: readonly ExportQueueRecord[];
   ensureExportDirectoryUri: () => Promise<string>;
@@ -118,7 +118,7 @@ const removeQueueFileIfExists = async (location: {
 
 export const useExportSync = ({
   isInitialised,
-  expenses,
+  transactions,
   categories,
   initialQueueRecords,
   ensureExportDirectoryUri,
@@ -205,7 +205,7 @@ export const useExportSync = ({
       const directoryUri = await ensureExportDirectoryUri();
       const { filename, filePath, fileUri } = await writeExportFile({
         directoryUri,
-        expenses,
+        transactions,
         categories,
       });
       const storedFilePath = filePath ?? fileUri;
@@ -237,7 +237,7 @@ export const useExportSync = ({
     categories,
     endOperation,
     ensureExportDirectoryUri,
-    expenses,
+    transactions,
     failOperation,
     isInitialised,
     runDriveUpload,
@@ -255,7 +255,7 @@ export const useExportSync = ({
         const directoryUri = await ensureExportDirectoryUri();
         const regenerated = await writeExportFile({
           directoryUri,
-          expenses,
+          transactions,
           categories,
         });
         const nextFilePath = regenerated.filePath ?? regenerated.fileUri;
@@ -295,7 +295,7 @@ export const useExportSync = ({
       categories,
       endOperation,
       ensureExportDirectoryUri,
-      expenses,
+      transactions,
       exportQueue,
       failOperation,
       runDriveUpload,

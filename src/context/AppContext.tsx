@@ -13,10 +13,10 @@ import type { ImportPreview, ImportSummary } from '../import';
 import { requestDirectorySelection } from '../security/storageAccess';
 import {
   withDatabase,
-  listExpenses as dbListExpenses,
-  createExpense as dbCreateExpense,
-  updateExpense as dbUpdateExpense,
-  deleteExpense as dbDeleteExpense,
+  listTransactions as dbListTransactions,
+  createTransaction as dbCreateTransaction,
+  updateTransaction as dbUpdateTransaction,
+  deleteTransaction as dbDeleteTransaction,
   listCategories as dbListCategories,
   createCategory as dbCreateCategory,
   updateCategory as dbUpdateCategory,
@@ -28,15 +28,16 @@ import {
   upsertCurrencyFxRate as dbUpsertCurrencyFxRate,
 } from '../database';
 import type {
-  ExpenseRecord,
+  TransactionRecord,
   CategoryRecord,
-  NewExpenseRecord,
-  UpdateExpenseRecord,
+  NewTransactionRecord,
+  UpdateTransactionRecord,
   NewCategoryRecord,
   UpdateCategoryRecord,
   AppSettingRecord,
   ExportQueueRecord,
   CurrencyFxRateRecord,
+  TransactionType,
 } from '../database';
 import { bankersRound } from '../utils/math';
 import { toError, toErrorMessage } from '../utils/errors';
@@ -50,13 +51,18 @@ import { BiometricGateModal } from '../components/BiometricGateModal';
 
 export type { ExportQueueItem } from '../hooks';
 
-export type ExpenseFilters = {
+export type TransactionFilters = {
+  /**
+   * Unlike `categoryId`, this has no null form: every transaction carries a
+   * direction, so there is no "untyped" set to filter for.
+   */
+  type?: TransactionType;
   categoryId?: number | null;
   startDate?: string;
   endDate?: string;
 };
 
-export type ExpenseDataSettings = {
+export type TransactionDataSettings = {
   baseCurrency: string | null;
   biometricGateEnabled: boolean;
   biometricCredentialVersion: number;
@@ -65,52 +71,64 @@ export type ExpenseDataSettings = {
 };
 
 type CoreState = {
-  expenses: ExpenseRecord[];
+  transactions: TransactionRecord[];
   categories: CategoryRecord[];
-  settings: ExpenseDataSettings;
+  settings: TransactionDataSettings;
   fxRateCache: CurrencyFxRateRecord[];
-  filters: ExpenseFilters;
+  filters: TransactionFilters;
   isInitialised: boolean;
   isLoading: boolean;
   error: string | null;
 };
 
-export type ExpenseDataState = CoreState & {
+export type TransactionDataState = CoreState & {
   exportQueue: ExportQueueItem[];
   biometric: BiometricGateState;
 };
 
-export type TotalsByCategory = {
-  categoryId: number | null;
+export type TotalsFigure = {
   rawTotal: number;
   total: number;
+  /**
+   * Rows contributing to this figure. Distinguishes "nothing here" from "rows
+   * that happen to sum to zero", which a total alone cannot.
+   */
+  count: number;
 };
 
 export type TotalsByBaseCurrency = {
   baseCurrencyCode: string | null;
-  rawTotal: number;
-  total: number;
+  expense: TotalsFigure;
+  income: TotalsFigure;
+  /** Income minus expense: positive is a surplus. */
+  net: TotalsFigure;
 };
 
-export type ExpenseTotals = {
-  rawBaseAmount: number;
-  baseAmount: number;
-  byCategory: TotalsByCategory[];
+/**
+ * Every figure is scoped to a base currency, which is the only scope in which
+ * summing is meaningful — amounts captured against different base currencies
+ * cannot be added together.
+ */
+export type TransactionTotals = {
   byBaseCurrency: TotalsByBaseCurrency[];
   mixedBase: boolean;
 };
 
-export type ExpenseDataSelectors = {
-  filteredExpenses: ExpenseRecord[];
-  totals: ExpenseTotals;
+export type TransactionDataSelectors = {
+  filteredTransactions: TransactionRecord[];
+  totals: TransactionTotals;
   hasActiveFilters: boolean;
 };
 
-export type ExpenseDataActions = {
+export type TransactionDataActions = {
   refresh: () => Promise<void>;
-  createExpense: (payload: NewExpenseRecord) => Promise<ExpenseRecord>;
-  updateExpense: (payload: UpdateExpenseRecord) => Promise<ExpenseRecord>;
-  deleteExpense: (id: number) => Promise<void>;
+  createTransaction: (
+    payload: NewTransactionRecord,
+  ) => Promise<TransactionRecord>;
+  updateTransaction: (
+    payload: UpdateTransactionRecord,
+  ) => Promise<TransactionRecord>;
+  deleteTransaction: (id: number) => Promise<void>;
   createCategory: (payload: NewCategoryRecord) => Promise<CategoryRecord>;
   updateCategory: (payload: UpdateCategoryRecord) => Promise<CategoryRecord>;
   deleteCategory: (id: number) => Promise<void>;
@@ -118,7 +136,7 @@ export type ExpenseDataActions = {
   setBiometricGateEnabled: (enabled: boolean) => Promise<void>;
   setDriveFolderId: (folderId: string | null) => Promise<void>;
   setExportDirectoryUri: (directoryUri: string | null) => Promise<void>;
-  setFilters: (filters: ExpenseFilters) => void;
+  setFilters: (filters: TransactionFilters) => void;
   clearFilters: () => void;
   clearError: () => void;
   queueExport: () => Promise<void>;
@@ -129,27 +147,27 @@ export type ExpenseDataActions = {
     interactive?: boolean;
   }) => Promise<UploadPendingExportsResult | null>;
   /** `acceptedRates` is keyed by `fxPairKey`, matching `commitImport`. */
-  importExpenses: (
+  importTransactions: (
     preview: ImportPreview,
     acceptedRates?: Record<string, number>,
   ) => Promise<ImportSummary>;
   unlockWithBiometrics: () => Promise<boolean>;
 };
 
-export type ExpenseDataContextValue = {
-  state: ExpenseDataState;
-  actions: ExpenseDataActions;
-  selectors: ExpenseDataSelectors;
+export type TransactionDataContextValue = {
+  state: TransactionDataState;
+  actions: TransactionDataActions;
+  selectors: TransactionDataSelectors;
 };
 
-export type ExpenseDataAction =
+export type TransactionDataAction =
   | { type: 'load/start' }
   | {
       type: 'load/success';
       payload: {
-        expenses: ExpenseRecord[];
+        transactions: TransactionRecord[];
         categories: CategoryRecord[];
-        settings: ExpenseDataSettings;
+        settings: TransactionDataSettings;
         fxRateCache: CurrencyFxRateRecord[];
       };
     }
@@ -161,12 +179,12 @@ export type ExpenseDataAction =
   | { type: 'operation/end' }
   | { type: 'operation/error'; payload: string }
   | { type: 'error/clear' }
-  | { type: 'filters/set'; payload: ExpenseFilters }
+  | { type: 'filters/set'; payload: TransactionFilters }
   | { type: 'filters/clear' }
-  | { type: 'expenses/set-all'; payload: ExpenseRecord[] }
-  | { type: 'expense/add'; payload: ExpenseRecord }
-  | { type: 'expense/update'; payload: ExpenseRecord }
-  | { type: 'expense/delete'; payload: number }
+  | { type: 'transactions/set-all'; payload: TransactionRecord[] }
+  | { type: 'transaction/add'; payload: TransactionRecord }
+  | { type: 'transaction/update'; payload: TransactionRecord }
+  | { type: 'transaction/delete'; payload: number }
   | { type: 'categories/set-all'; payload: CategoryRecord[] }
   | { type: 'fx-cache/upsert'; payload: CurrencyFxRateRecord }
   | { type: 'settings/set-base-currency'; payload: string | null }
@@ -184,7 +202,7 @@ const EXPORT_DIRECTORY_URI_KEY = 'export_directory_uri';
 const BIOMETRIC_CRED_VERSION = 2;
 
 export const initialState: CoreState = {
-  expenses: [],
+  transactions: [],
   categories: [],
   settings: {
     baseCurrency: null,
@@ -200,11 +218,13 @@ export const initialState: CoreState = {
   error: null,
 };
 
-const ExpenseDataContext = createContext<ExpenseDataContextValue | undefined>(
-  undefined,
-);
+const TransactionDataContext = createContext<
+  TransactionDataContextValue | undefined
+>(undefined);
 
-const parseSettings = (records: AppSettingRecord[]): ExpenseDataSettings => {
+const parseSettings = (
+  records: AppSettingRecord[],
+): TransactionDataSettings => {
   const baseCurrency =
     records.find(setting => setting.key === BASE_CURRENCY_KEY)?.value ?? null;
   const biometricGateSetting = records.find(
@@ -232,11 +252,17 @@ const parseSettings = (records: AppSettingRecord[]): ExpenseDataSettings => {
 };
 
 const normalizeFilters = (
-  current: ExpenseFilters,
-  update: ExpenseFilters,
-): ExpenseFilters => {
-  const next: ExpenseFilters = { ...current, ...update };
+  current: TransactionFilters,
+  update: TransactionFilters,
+): TransactionFilters => {
+  const next: TransactionFilters = { ...current, ...update };
 
+  if (
+    Object.prototype.hasOwnProperty.call(update, 'type') &&
+    update.type === undefined
+  ) {
+    delete next.type;
+  }
   if (
     Object.prototype.hasOwnProperty.call(update, 'categoryId') &&
     update.categoryId === undefined
@@ -259,9 +285,9 @@ const normalizeFilters = (
   return next;
 };
 
-export const expenseDataReducer = (
+export const transactionDataReducer = (
   state: CoreState,
-  action: ExpenseDataAction,
+  action: TransactionDataAction,
 ): CoreState => {
   switch (action.type) {
     case 'load/start':
@@ -273,7 +299,7 @@ export const expenseDataReducer = (
     case 'load/success':
       return {
         ...state,
-        expenses: action.payload.expenses,
+        transactions: action.payload.transactions,
         categories: action.payload.categories,
         settings: action.payload.settings,
         fxRateCache: action.payload.fxRateCache,
@@ -324,28 +350,28 @@ export const expenseDataReducer = (
         ...state,
         filters: {},
       };
-    case 'expenses/set-all':
+    case 'transactions/set-all':
       return {
         ...state,
-        expenses: action.payload,
+        transactions: action.payload,
       };
-    case 'expense/add':
+    case 'transaction/add':
       return {
         ...state,
-        expenses: [action.payload, ...state.expenses],
+        transactions: [action.payload, ...state.transactions],
       };
-    case 'expense/update':
+    case 'transaction/update':
       return {
         ...state,
-        expenses: state.expenses.map(expense =>
-          expense.id === action.payload.id ? action.payload : expense,
+        transactions: state.transactions.map(transaction =>
+          transaction.id === action.payload.id ? action.payload : transaction,
         ),
       };
-    case 'expense/delete':
+    case 'transaction/delete':
       return {
         ...state,
-        expenses: state.expenses.filter(
-          expense => expense.id !== action.payload,
+        transactions: state.transactions.filter(
+          transaction => transaction.id !== action.payload,
         ),
       };
     case 'categories/set-all':
@@ -413,35 +439,42 @@ export const expenseDataReducer = (
 };
 
 const applyFilters = (
-  expenses: ExpenseRecord[],
-  filters: ExpenseFilters,
-): ExpenseRecord[] => {
-  if (!expenses.length) {
-    return expenses;
+  transactions: TransactionRecord[],
+  filters: TransactionFilters,
+): TransactionRecord[] => {
+  if (!transactions.length) {
+    return transactions;
   }
 
   const hasCategoryFilter = Object.prototype.hasOwnProperty.call(
     filters,
     'categoryId',
   );
-  const { categoryId, startDate, endDate } = filters;
+  const { type, categoryId, startDate, endDate } = filters;
 
-  return expenses.filter(expense => {
+  return transactions.filter(transaction => {
+    if (type !== undefined && transaction.type !== type) {
+      return false;
+    }
+
     if (hasCategoryFilter) {
       if (categoryId == null) {
-        if (expense.categoryId !== null && expense.categoryId !== undefined) {
+        if (
+          transaction.categoryId !== null &&
+          transaction.categoryId !== undefined
+        ) {
           return false;
         }
-      } else if (expense.categoryId !== categoryId) {
+      } else if (transaction.categoryId !== categoryId) {
         return false;
       }
     }
 
-    if (startDate && expense.date < startDate) {
+    if (startDate && transaction.date < startDate) {
       return false;
     }
 
-    if (endDate && expense.date > endDate) {
+    if (endDate && transaction.date > endDate) {
       return false;
     }
 
@@ -449,61 +482,64 @@ const applyFilters = (
   });
 };
 
-const calculateTotals = (expenses: ExpenseRecord[]): ExpenseTotals => {
-  if (!expenses.length) {
-    return {
-      rawBaseAmount: 0,
-      baseAmount: 0,
-      byCategory: [],
-      byBaseCurrency: [],
-      mixedBase: false,
+const toFigure = (rawTotal: number, count: number): TotalsFigure => ({
+  rawTotal,
+  total: bankersRound(rawTotal, 2),
+  count,
+});
+
+type DirectionAccumulator = {
+  expenseRaw: number;
+  expenseCount: number;
+  incomeRaw: number;
+  incomeCount: number;
+};
+
+const calculateTotals = (
+  transactions: TransactionRecord[],
+): TransactionTotals => {
+  const perBaseCurrency = new Map<string | null, DirectionAccumulator>();
+
+  transactions.forEach(transaction => {
+    const baseKey = transaction.baseCurrencyCode ?? null;
+    const accumulator = perBaseCurrency.get(baseKey) ?? {
+      expenseRaw: 0,
+      expenseCount: 0,
+      incomeRaw: 0,
+      incomeCount: 0,
     };
-  }
-
-  const rawBaseAmount = expenses.reduce(
-    (total, expense) => total + expense.baseAmount,
-    0,
-  );
-  const baseAmount = bankersRound(rawBaseAmount, 2);
-  const categoryTotals = new Map<number | null, number>();
-  const baseCurrencyTotals = new Map<string | null, number>();
-
-  expenses.forEach(expense => {
-    const key = expense.categoryId ?? null;
-    const current = categoryTotals.get(key) ?? 0;
-    categoryTotals.set(key, current + expense.baseAmount);
-
-    const baseKey = expense.baseCurrencyCode ?? null;
-    const baseCurrent = baseCurrencyTotals.get(baseKey) ?? 0;
-    baseCurrencyTotals.set(baseKey, baseCurrent + expense.baseAmount);
+    if (transaction.type === 'income') {
+      accumulator.incomeRaw += transaction.baseAmount;
+      accumulator.incomeCount += 1;
+    } else {
+      accumulator.expenseRaw += transaction.baseAmount;
+      accumulator.expenseCount += 1;
+    }
+    perBaseCurrency.set(baseKey, accumulator);
   });
 
-  const byCategory: TotalsByCategory[] = Array.from(
-    categoryTotals.entries(),
-  ).map(([categoryId, value]) => ({
-    categoryId,
-    rawTotal: value,
-    total: bankersRound(value, 2),
-  }));
-
   const byBaseCurrency: TotalsByBaseCurrency[] = Array.from(
-    baseCurrencyTotals.entries(),
-  ).map(([baseCurrencyCode, value]) => ({
+    perBaseCurrency.entries(),
+  ).map(([baseCurrencyCode, accumulator]) => ({
     baseCurrencyCode,
-    rawTotal: value,
-    total: bankersRound(value, 2),
+    expense: toFigure(accumulator.expenseRaw, accumulator.expenseCount),
+    income: toFigure(accumulator.incomeRaw, accumulator.incomeCount),
+    net: toFigure(
+      accumulator.incomeRaw - accumulator.expenseRaw,
+      accumulator.expenseCount + accumulator.incomeCount,
+    ),
   }));
 
   return {
-    rawBaseAmount,
-    baseAmount,
-    byCategory,
     byBaseCurrency,
     mixedBase: byBaseCurrency.length > 1,
   };
 };
 
-const hasActiveFilters = (filters: ExpenseFilters): boolean => {
+const hasActiveFilters = (filters: TransactionFilters): boolean => {
+  if (filters.type !== undefined) {
+    return true;
+  }
   if (Object.prototype.hasOwnProperty.call(filters, 'categoryId')) {
     return true;
   }
@@ -513,10 +549,10 @@ const hasActiveFilters = (filters: ExpenseFilters): boolean => {
   return false;
 };
 
-export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
+export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
   children,
 }) => {
-  const [state, dispatch] = useReducer(expenseDataReducer, initialState);
+  const [state, dispatch] = useReducer(transactionDataReducer, initialState);
   const [loadedQueueRecords, setLoadedQueueRecords] = useState<
     readonly ExportQueueRecord[]
   >([]);
@@ -526,20 +562,20 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
     try {
       const snapshot = await withDatabase(async db => {
         const [
-          expenses,
+          transactions,
           categories,
           settings,
           exportQueueRecords,
           fxRateCache,
         ] = await Promise.all([
-          dbListExpenses(db),
+          dbListTransactions(db),
           dbListCategories(db),
           dbGetAllSettings(db),
           dbListExportQueue(db),
           dbListCurrencyFxRates(db),
         ]);
         return {
-          expenses,
+          transactions,
           categories,
           settings,
           exportQueueRecords,
@@ -550,7 +586,7 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
       dispatch({
         type: 'load/success',
         payload: {
-          expenses: snapshot.expenses,
+          transactions: snapshot.transactions,
           categories: snapshot.categories,
           settings: parseSettings(snapshot.settings),
           fxRateCache: snapshot.fxRateCache,
@@ -624,101 +660,98 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
     ensureBiometricCredential,
   ]);
 
-  const createExpense = useCallback<ExpenseDataActions['createExpense']>(
-    async payload => {
-      dispatch({ type: 'operation/start' });
-      try {
-        const expense = await withDatabase(async db => {
-          const created = await dbCreateExpense(db, payload);
-          if (created.baseCurrencyCode) {
-            await dbUpsertCurrencyFxRate(
-              db,
-              created.baseCurrencyCode,
-              created.currencyCode,
-              created.fxRateToBase,
-            );
-          }
-          return created;
-        });
-        dispatch({ type: 'expense/add', payload: expense });
-        if (expense.baseCurrencyCode) {
-          dispatch({
-            type: 'fx-cache/upsert',
-            payload: {
-              baseCurrencyCode: expense.baseCurrencyCode,
-              currencyCode: expense.currencyCode,
-              fxRateToBase: expense.fxRateToBase,
-              updatedAt: expense.updatedAt,
-            },
-          });
+  const createTransaction = useCallback<
+    TransactionDataActions['createTransaction']
+  >(async payload => {
+    dispatch({ type: 'operation/start' });
+    try {
+      const transaction = await withDatabase(async db => {
+        const created = await dbCreateTransaction(db, payload);
+        if (created.baseCurrencyCode) {
+          await dbUpsertCurrencyFxRate(
+            db,
+            created.baseCurrencyCode,
+            created.currencyCode,
+            created.fxRateToBase,
+          );
         }
-        return expense;
-      } catch (error) {
-        dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
-        throw toError(error);
-      } finally {
-        dispatch({ type: 'operation/end' });
-      }
-    },
-    [],
-  );
-
-  const updateExpense = useCallback<ExpenseDataActions['updateExpense']>(
-    async payload => {
-      dispatch({ type: 'operation/start' });
-      try {
-        const expense = await withDatabase(async db => {
-          const updated = await dbUpdateExpense(db, payload);
-          if (updated.baseCurrencyCode) {
-            await dbUpsertCurrencyFxRate(
-              db,
-              updated.baseCurrencyCode,
-              updated.currencyCode,
-              updated.fxRateToBase,
-            );
-          }
-          return updated;
+        return created;
+      });
+      dispatch({ type: 'transaction/add', payload: transaction });
+      if (transaction.baseCurrencyCode) {
+        dispatch({
+          type: 'fx-cache/upsert',
+          payload: {
+            baseCurrencyCode: transaction.baseCurrencyCode,
+            currencyCode: transaction.currencyCode,
+            fxRateToBase: transaction.fxRateToBase,
+            updatedAt: transaction.updatedAt,
+          },
         });
-        dispatch({ type: 'expense/update', payload: expense });
-        if (expense.baseCurrencyCode) {
-          dispatch({
-            type: 'fx-cache/upsert',
-            payload: {
-              baseCurrencyCode: expense.baseCurrencyCode,
-              currencyCode: expense.currencyCode,
-              fxRateToBase: expense.fxRateToBase,
-              updatedAt: expense.updatedAt,
-            },
-          });
+      }
+      return transaction;
+    } catch (error) {
+      dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
+      throw toError(error);
+    } finally {
+      dispatch({ type: 'operation/end' });
+    }
+  }, []);
+
+  const updateTransaction = useCallback<
+    TransactionDataActions['updateTransaction']
+  >(async payload => {
+    dispatch({ type: 'operation/start' });
+    try {
+      const transaction = await withDatabase(async db => {
+        const updated = await dbUpdateTransaction(db, payload);
+        if (updated.baseCurrencyCode) {
+          await dbUpsertCurrencyFxRate(
+            db,
+            updated.baseCurrencyCode,
+            updated.currencyCode,
+            updated.fxRateToBase,
+          );
         }
-        return expense;
-      } catch (error) {
-        dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
-        throw toError(error);
-      } finally {
-        dispatch({ type: 'operation/end' });
+        return updated;
+      });
+      dispatch({ type: 'transaction/update', payload: transaction });
+      if (transaction.baseCurrencyCode) {
+        dispatch({
+          type: 'fx-cache/upsert',
+          payload: {
+            baseCurrencyCode: transaction.baseCurrencyCode,
+            currencyCode: transaction.currencyCode,
+            fxRateToBase: transaction.fxRateToBase,
+            updatedAt: transaction.updatedAt,
+          },
+        });
       }
-    },
-    [],
-  );
+      return transaction;
+    } catch (error) {
+      dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
+      throw toError(error);
+    } finally {
+      dispatch({ type: 'operation/end' });
+    }
+  }, []);
 
-  const deleteExpense = useCallback<ExpenseDataActions['deleteExpense']>(
-    async id => {
-      dispatch({ type: 'operation/start' });
-      try {
-        await withDatabase(db => dbDeleteExpense(db, id));
-        dispatch({ type: 'expense/delete', payload: id });
-      } catch (error) {
-        dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
-        throw toError(error);
-      } finally {
-        dispatch({ type: 'operation/end' });
-      }
-    },
-    [],
-  );
+  const deleteTransaction = useCallback<
+    TransactionDataActions['deleteTransaction']
+  >(async id => {
+    dispatch({ type: 'operation/start' });
+    try {
+      await withDatabase(db => dbDeleteTransaction(db, id));
+      dispatch({ type: 'transaction/delete', payload: id });
+    } catch (error) {
+      dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
+      throw toError(error);
+    } finally {
+      dispatch({ type: 'operation/end' });
+    }
+  }, []);
 
-  const createCategory = useCallback<ExpenseDataActions['createCategory']>(
+  const createCategory = useCallback<TransactionDataActions['createCategory']>(
     async payload => {
       dispatch({ type: 'operation/start' });
       try {
@@ -739,7 +772,7 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
     [],
   );
 
-  const updateCategory = useCallback<ExpenseDataActions['updateCategory']>(
+  const updateCategory = useCallback<TransactionDataActions['updateCategory']>(
     async payload => {
       dispatch({ type: 'operation/start' });
       try {
@@ -760,20 +793,20 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
     [],
   );
 
-  const deleteCategory = useCallback<ExpenseDataActions['deleteCategory']>(
+  const deleteCategory = useCallback<TransactionDataActions['deleteCategory']>(
     async id => {
       dispatch({ type: 'operation/start' });
       try {
-        const { categories, expenses } = await withDatabase(async db => {
+        const { categories, transactions } = await withDatabase(async db => {
           await dbDeleteCategory(db, id);
-          const [allCategories, allExpenses] = await Promise.all([
+          const [allCategories, allTransactions] = await Promise.all([
             dbListCategories(db),
-            dbListExpenses(db),
+            dbListTransactions(db),
           ]);
-          return { categories: allCategories, expenses: allExpenses };
+          return { categories: allCategories, transactions: allTransactions };
         });
         dispatch({ type: 'categories/set-all', payload: categories });
-        dispatch({ type: 'expenses/set-all', payload: expenses });
+        dispatch({ type: 'transactions/set-all', payload: transactions });
       } catch (error) {
         dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
         throw toError(error);
@@ -784,26 +817,25 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
     [],
   );
 
-  const setBaseCurrency = useCallback<ExpenseDataActions['setBaseCurrency']>(
-    async currencyCode => {
-      dispatch({ type: 'operation/start' });
-      try {
-        await withDatabase(db =>
-          dbSetSetting(db, BASE_CURRENCY_KEY, currencyCode),
-        );
-        dispatch({ type: 'settings/set-base-currency', payload: currencyCode });
-      } catch (error) {
-        dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
-        throw toError(error);
-      } finally {
-        dispatch({ type: 'operation/end' });
-      }
-    },
-    [],
-  );
+  const setBaseCurrency = useCallback<
+    TransactionDataActions['setBaseCurrency']
+  >(async currencyCode => {
+    dispatch({ type: 'operation/start' });
+    try {
+      await withDatabase(db =>
+        dbSetSetting(db, BASE_CURRENCY_KEY, currencyCode),
+      );
+      dispatch({ type: 'settings/set-base-currency', payload: currencyCode });
+    } catch (error) {
+      dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
+      throw toError(error);
+    } finally {
+      dispatch({ type: 'operation/end' });
+    }
+  }, []);
 
   const setBiometricGateEnabled = useCallback<
-    ExpenseDataActions['setBiometricGateEnabled']
+    TransactionDataActions['setBiometricGateEnabled']
   >(
     async enabled => {
       dispatch({ type: 'operation/start' });
@@ -846,23 +878,20 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
     ],
   );
 
-  const setDriveFolderId = useCallback<ExpenseDataActions['setDriveFolderId']>(
-    async folderId => {
-      dispatch({ type: 'operation/start' });
-      try {
-        await withDatabase(db =>
-          dbSetSetting(db, DRIVE_FOLDER_ID_KEY, folderId),
-        );
-        dispatch({ type: 'settings/set-drive-folder', payload: folderId });
-      } catch (error) {
-        dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
-        throw toError(error);
-      } finally {
-        dispatch({ type: 'operation/end' });
-      }
-    },
-    [],
-  );
+  const setDriveFolderId = useCallback<
+    TransactionDataActions['setDriveFolderId']
+  >(async folderId => {
+    dispatch({ type: 'operation/start' });
+    try {
+      await withDatabase(db => dbSetSetting(db, DRIVE_FOLDER_ID_KEY, folderId));
+      dispatch({ type: 'settings/set-drive-folder', payload: folderId });
+    } catch (error) {
+      dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
+      throw toError(error);
+    } finally {
+      dispatch({ type: 'operation/end' });
+    }
+  }, []);
 
   const persistExportDirectoryUri = useCallback(
     async (directoryUri: string | null) => {
@@ -878,7 +907,7 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
   );
 
   const setExportDirectoryUri = useCallback<
-    ExpenseDataActions['setExportDirectoryUri']
+    TransactionDataActions['setExportDirectoryUri']
   >(
     async directoryUri => {
       dispatch({ type: 'operation/start' });
@@ -940,7 +969,7 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
     uploadQueuedExports,
   } = useExportSync({
     isInitialised: state.isInitialised,
-    expenses: state.expenses,
+    transactions: state.transactions,
     categories: state.categories,
     initialQueueRecords: loadedQueueRecords,
     ensureExportDirectoryUri,
@@ -950,9 +979,12 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
     failOperation,
   });
 
-  const setFilters = useCallback<ExpenseDataActions['setFilters']>(filters => {
-    dispatch({ type: 'filters/set', payload: filters });
-  }, []);
+  const setFilters = useCallback<TransactionDataActions['setFilters']>(
+    filters => {
+      dispatch({ type: 'filters/set', payload: filters });
+    },
+    [],
+  );
 
   const clearFilters = useCallback(() => {
     dispatch({ type: 'filters/clear' });
@@ -965,7 +997,9 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
 
   const refresh = useCallback(() => loadFromDatabase(), [loadFromDatabase]);
 
-  const importExpenses = useCallback<ExpenseDataActions['importExpenses']>(
+  const importTransactions = useCallback<
+    TransactionDataActions['importTransactions']
+  >(
     async (preview, acceptedRates) => {
       dispatch({ type: 'operation/start' });
       try {
@@ -982,31 +1016,31 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
     [loadFromDatabase],
   );
 
-  const filteredExpenses = useMemo(
-    () => applyFilters(state.expenses, state.filters),
-    [state.expenses, state.filters],
+  const filteredTransactions = useMemo(
+    () => applyFilters(state.transactions, state.filters),
+    [state.transactions, state.filters],
   );
 
   const totals = useMemo(
-    () => calculateTotals(filteredExpenses),
-    [filteredExpenses],
+    () => calculateTotals(filteredTransactions),
+    [filteredTransactions],
   );
 
-  const selectors = useMemo<ExpenseDataSelectors>(
+  const selectors = useMemo<TransactionDataSelectors>(
     () => ({
-      filteredExpenses,
+      filteredTransactions,
       totals,
       hasActiveFilters: hasActiveFilters(state.filters),
     }),
-    [filteredExpenses, totals, state.filters],
+    [filteredTransactions, totals, state.filters],
   );
 
-  const actions = useMemo<ExpenseDataActions>(
+  const actions = useMemo<TransactionDataActions>(
     () => ({
       refresh,
-      createExpense,
-      updateExpense,
-      deleteExpense,
+      createTransaction,
+      updateTransaction,
+      deleteTransaction,
       createCategory,
       updateCategory,
       deleteCategory,
@@ -1022,14 +1056,14 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
       removeExport,
       clearCompletedExports,
       uploadQueuedExports,
-      importExpenses,
+      importTransactions,
       unlockWithBiometrics,
     }),
     [
       refresh,
-      createExpense,
-      updateExpense,
-      deleteExpense,
+      createTransaction,
+      updateTransaction,
+      deleteTransaction,
       createCategory,
       updateCategory,
       deleteCategory,
@@ -1045,12 +1079,12 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
       removeExport,
       clearCompletedExports,
       uploadQueuedExports,
-      importExpenses,
+      importTransactions,
       unlockWithBiometrics,
     ],
   );
 
-  const aggregateState = useMemo<ExpenseDataState>(
+  const aggregateState = useMemo<TransactionDataState>(
     () => ({
       ...state,
       exportQueue,
@@ -1062,7 +1096,7 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
     [state, exportQueue, biometricIsLocked, biometricLastError],
   );
 
-  const value = useMemo<ExpenseDataContextValue>(
+  const value = useMemo<TransactionDataContextValue>(
     () => ({
       state: aggregateState,
       actions,
@@ -1072,7 +1106,7 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
   );
 
   return (
-    <ExpenseDataContext.Provider value={value}>
+    <TransactionDataContext.Provider value={value}>
       {children}
       {state.settings.biometricGateEnabled && biometricIsLocked ? (
         <BiometricGateModal
@@ -1080,16 +1114,18 @@ export const ExpenseDataProvider: React.FC<React.PropsWithChildren> = ({
           onRetry={() => void unlockWithBiometrics()}
         />
       ) : null}
-    </ExpenseDataContext.Provider>
+    </TransactionDataContext.Provider>
   );
 };
 
-export const useExpenseData = (): ExpenseDataContextValue => {
-  const context = useContext(ExpenseDataContext);
+export const useTransactionData = (): TransactionDataContextValue => {
+  const context = useContext(TransactionDataContext);
   if (!context) {
-    throw new Error('useExpenseData must be used within ExpenseDataProvider');
+    throw new Error(
+      'useTransactionData must be used within TransactionDataProvider',
+    );
   }
   return context;
 };
 
-export const AppProvider = ExpenseDataProvider;
+export const AppProvider = TransactionDataProvider;

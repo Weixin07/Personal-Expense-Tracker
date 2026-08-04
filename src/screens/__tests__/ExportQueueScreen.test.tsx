@@ -8,14 +8,14 @@ import {
   waitFor,
 } from '../../__tests__/test-utils/renderWithProviders';
 import ExportQueueScreen from '../ExportQueueScreen';
-import { useExpenseData } from '../../context/AppContext';
+import { useTransactionData } from '../../context/AppContext';
 import type { ExportQueueItem } from '../../context/AppContext';
 
 jest.mock('../../context/AppContext', () => ({
-  useExpenseData: jest.fn(),
+  useTransactionData: jest.fn(),
 }));
 
-const mockedUseExpenseData = useExpenseData as unknown as jest.Mock;
+const mockedUseExpenseData = useTransactionData as unknown as jest.Mock;
 
 const makeItem = (
   overrides: Partial<ExportQueueItem> = {},

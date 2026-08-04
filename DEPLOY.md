@@ -313,6 +313,36 @@ build's archived `mapping.txt` (see [Step 5](#retaining-the-r8-mapping-file-deob
 
 ---
 
+## Schema migrations are forward-only
+
+`runMigrations` applies pending migrations in ascending order and records each in
+`schema_migrations`. There is no `down` step: **a release that ships a migration cannot
+be rolled back on a device that has already run it.**
+
+Two migrations in the current schema make that consequential:
+
+| Version | Change                                                  | What an older APK does after it has run                                                                                   |
+| ------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **7**   | `expenses` renamed to `transactions`                    | Queries a table that no longer exists — every read fails at launch. Breaks loudly.                                        |
+| **8**   | `type` columns added to `transactions` and `categories` | Inserts omit `type`, so the column default silently records new **income** as an expense. Breaks quietly, which is worse. |
+
+Practical rules:
+
+- Do not distribute a build containing a new migration to anyone you may need to roll
+  back. Test the upgrade path first (see below).
+- Verify an upgrade on a device holding **real data from the previous version**, not a
+  fresh install. `migrations.test.ts` mocks SQLite rather than executing it, so the
+  suite cannot exercise a migration against actual rows.
+- After upgrading across v8, confirm existing rows read back as expenses and existing
+  categories as `both`, and that re-importing a CSV exported by the _previous_ version
+  still lands every row as an expense.
+
+A device that commits one migration and fails the next recovers on its own: the failure
+propagates out of `openDatabase`, the app shows its normal load-error state, and only
+the committed version is recorded — so the next launch retries the outstanding one.
+
+---
+
 ## Distribution options
 
 | Option                          | Audience          | Mechanism                                                                                                           | Updates                  |

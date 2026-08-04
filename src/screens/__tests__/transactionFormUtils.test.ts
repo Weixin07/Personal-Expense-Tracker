@@ -1,16 +1,16 @@
-import type { CategoryRecord, ExpenseRecord } from '../../database';
+import type { CategoryRecord, TransactionRecord } from '../../database';
 import {
   buildCreatePayload,
   buildUpdatePayload,
   computeBaseAmount,
-  getDefaultExpenseFormValues,
-  validateExpenseForm,
-} from '../expenseFormUtils';
+  getDefaultTransactionFormValues,
+  validateTransactionForm,
+} from '../transactionFormUtils';
 
-describe('expenseFormUtils', () => {
+describe('transactionFormUtils', () => {
   const categories: CategoryRecord[] = [
-    { id: 1, name: 'Essentials', createdAt: '', updatedAt: '' },
-    { id: 2, name: 'Travel', createdAt: '', updatedAt: '' },
+    { id: 1, name: 'Essentials', createdAt: '', updatedAt: '', type: 'both' },
+    { id: 2, name: 'Travel', createdAt: '', updatedAt: '', type: 'both' },
   ];
 
   describe('computeBaseAmount', () => {
@@ -24,16 +24,17 @@ describe('expenseFormUtils', () => {
     });
   });
 
-  describe('getDefaultExpenseFormValues', () => {
+  describe('getDefaultTransactionFormValues', () => {
     it('prefills using base currency when no existing expense provided', () => {
-      const values = getDefaultExpenseFormValues('USD', categories);
+      const values = getDefaultTransactionFormValues('USD', categories);
       expect(values.currencyCode).toBe('USD');
       expect(values.description).toBe('');
       expect(values.payee).toBe('');
     });
 
     it('hydrates from existing expense', () => {
-      const existing: ExpenseRecord = {
+      const existing: TransactionRecord = {
+        type: 'expense',
         id: 42,
         description: 'Lunch',
         payee: 'Cafe Rio',
@@ -48,21 +49,25 @@ describe('expenseFormUtils', () => {
         createdAt: '',
         updatedAt: '',
       };
-      const values = getDefaultExpenseFormValues(null, categories, existing);
+      const values = getDefaultTransactionFormValues(
+        null,
+        categories,
+        existing,
+      );
       expect(values.description).toBe('Lunch');
       expect(values.payee).toBe('Cafe Rio');
       expect(values.baseAmount).toBe('10.00');
     });
   });
 
-  describe('validateExpenseForm', () => {
+  describe('validateTransactionForm', () => {
     it('returns errors for invalid form', () => {
-      // Use a future date to trigger validation error
       const futureDate = new Date();
-      futureDate.setDate(futureDate.getDate() + 10); // 10 days in future (exceeds 3-day limit)
+      futureDate.setDate(futureDate.getDate() + 10); // Exceeds the 3-day future limit.
       const futureDateStr = futureDate.toISOString().slice(0, 10);
 
-      const result = validateExpenseForm({
+      const result = validateTransactionForm({
+        type: 'expense',
         description: '',
         payee: '',
         amountNative: '0',
@@ -92,7 +97,8 @@ describe('expenseFormUtils', () => {
     });
 
     it('passes with valid data', () => {
-      const result = validateExpenseForm({
+      const result = validateTransactionForm({
+        type: 'expense',
         description: 'Dinner',
         payee: 'Bistro',
         amountNative: '20.50',
@@ -112,6 +118,7 @@ describe('expenseFormUtils', () => {
     });
 
     const validBase = {
+      type: 'expense',
       amountNative: '20.50',
       currencyCode: 'USD',
       fxRateToBase: '1.123456',
@@ -122,7 +129,7 @@ describe('expenseFormUtils', () => {
     } as const;
 
     it('accepts a category-only expense with blank description and payee', () => {
-      const result = validateExpenseForm({
+      const result = validateTransactionForm({
         ...validBase,
         description: '',
         payee: '',
@@ -136,7 +143,7 @@ describe('expenseFormUtils', () => {
     });
 
     it('accepts a description-only expense with no payee or category', () => {
-      const result = validateExpenseForm({
+      const result = validateTransactionForm({
         ...validBase,
         description: 'Lunch',
         payee: '',
@@ -146,7 +153,7 @@ describe('expenseFormUtils', () => {
     });
 
     it('accepts a payee-only expense with no description or category', () => {
-      const result = validateExpenseForm({
+      const result = validateTransactionForm({
         ...validBase,
         description: '',
         payee: 'Cafe',
@@ -156,7 +163,7 @@ describe('expenseFormUtils', () => {
     });
 
     it('rejects an expense with no description, payee, or category', () => {
-      const result = validateExpenseForm({
+      const result = validateTransactionForm({
         ...validBase,
         description: '   ',
         payee: '',
@@ -173,6 +180,7 @@ describe('expenseFormUtils', () => {
 
   describe('build payload helpers', () => {
     const valid = {
+      type: 'expense',
       description: 'Groceries',
       payee: 'Local Market',
       amountNative: 50,

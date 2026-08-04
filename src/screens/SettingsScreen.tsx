@@ -15,21 +15,21 @@ import {
 } from 'react-native-paper';
 import CurrencyPickerDialog from '../components/CurrencyPickerDialog';
 import { findCurrencyName } from '../constants/currencyOptions';
-import { useExpenseData } from '../context/AppContext';
+import { useTransactionData } from '../context/AppContext';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 
 const SettingsScreen: React.FC = () => {
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const {
-    state: { settings, isLoading, exportQueue, expenses },
+    state: { settings, isLoading, exportQueue, transactions },
     actions: {
       setBiometricGateEnabled,
       setBaseCurrency,
       setDriveFolderId,
       uploadQueuedExports,
     },
-  } = useExpenseData();
+  } = useTransactionData();
 
   const [currencyDialogVisible, setCurrencyDialogVisible] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -58,10 +58,10 @@ const SettingsScreen: React.FC = () => {
   const handleCurrencySelect = async (option: { code: string }) => {
     const isChange =
       Boolean(settings.baseCurrency) && option.code !== settings.baseCurrency;
-    if (isChange && expenses.length > 0) {
+    if (isChange && transactions.length > 0) {
       Alert.alert(
         'Change base currency?',
-        `Existing expenses keep the base currency and FX rate they were saved with. Only new expenses will use ${option.code}, so totals may be shown separately per base currency.`,
+        `Existing transactions keep the base currency and FX rate they were saved with. Only new transactions will use ${option.code}, so totals may be shown separately per base currency.`,
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -198,7 +198,7 @@ const SettingsScreen: React.FC = () => {
         />
         <List.Item
           title="Categories"
-          description="Create, rename, or delete categories"
+          description="Create, rename, or delete categories and set what each is used for"
           right={() => <List.Icon icon="chevron-right" />}
           onPress={() => navigation.navigate('ManageCategories')}
           accessibilityRole="button"
@@ -213,12 +213,12 @@ const SettingsScreen: React.FC = () => {
           accessibilityLabel="Open export queue"
         />
         <List.Item
-          title="Import expenses"
-          description="Load expenses from a CSV file or Drive backup"
+          title="Import transactions"
+          description="Load transactions from a CSV file or Drive backup"
           right={() => <List.Icon icon="chevron-right" />}
           onPress={() => navigation.navigate('Import')}
           accessibilityRole="button"
-          accessibilityLabel="Import expenses"
+          accessibilityLabel="Import transactions"
         />
         <List.Item
           title="Drive backup folder"

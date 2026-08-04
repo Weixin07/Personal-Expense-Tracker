@@ -1,5 +1,15 @@
-export type ExpenseRecord = {
+/** Direction a transaction moves money. */
+export type TransactionType = 'expense' | 'income';
+
+/**
+ * Directions a category may be used for. `both` is the default, and is what a
+ * category carries unless someone chooses otherwise.
+ */
+export type CategoryType = 'expense' | 'income' | 'both';
+
+export type TransactionRecord = {
   id: number;
+  type: TransactionType;
   description: string;
   payee: string;
   amountNative: number;
@@ -14,17 +24,18 @@ export type ExpenseRecord = {
   updatedAt: string;
 };
 
-export type NewExpenseRecord = Omit<
-  ExpenseRecord,
+export type NewTransactionRecord = Omit<
+  TransactionRecord,
   'id' | 'createdAt' | 'updatedAt'
 >;
 
-export type UpdateExpenseRecord = Omit<
-  ExpenseRecord,
+export type UpdateTransactionRecord = Omit<
+  TransactionRecord,
   'createdAt' | 'updatedAt'
 >;
 
-export type ExpenseQueryFilters = {
+export type TransactionQueryFilters = {
+  type?: TransactionType;
   categoryId?: number;
   startDate?: string;
   endDate?: string;
@@ -35,6 +46,7 @@ export type ExpenseQueryFilters = {
 export type CategoryRecord = {
   id: number;
   name: string;
+  type: CategoryType;
   createdAt: string;
   updatedAt: string;
 };

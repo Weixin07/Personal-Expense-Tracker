@@ -1,13 +1,14 @@
 import { writeExportFile } from '../exportQueueManager';
 import { createCsvFileInDirectory } from '../../security/storageAccess';
-import type { ExpenseRecord, CategoryRecord } from '../../database';
+import type { TransactionRecord, CategoryRecord } from '../../database';
 
 jest.mock('../../security/storageAccess');
 
 const mockCreate = createCsvFileInDirectory as jest.Mock;
 
-const expenses: ExpenseRecord[] = [
+const transactions: TransactionRecord[] = [
   {
+    type: 'expense',
     id: 1,
     description: 'Weekly groceries',
     payee: 'Tesco',
@@ -26,6 +27,7 @@ const expenses: ExpenseRecord[] = [
 
 const categories: CategoryRecord[] = [
   {
+    type: 'both',
     id: 1,
     name: 'Groceries',
     createdAt: '2025-01-01T00:00:00.000Z',
@@ -42,13 +44,13 @@ describe('writeExportFile', () => {
   it('builds the CSV and writes it to the chosen directory', async () => {
     const result = await writeExportFile({
       directoryUri: 'content://mock/tree',
-      expenses,
+      transactions,
       categories,
     });
 
     const [directoryUri, filename, content] = mockCreate.mock.calls[0];
     expect(directoryUri).toBe('content://mock/tree');
-    expect(filename).toMatch(/^expenses_backup_\d{8}_\d{6}\.csv$/);
+    expect(filename).toMatch(/^transactions_backup_\d{8}_\d{6}\.csv$/);
     expect(content).toContain('Groceries');
 
     expect(result).toEqual({
@@ -62,7 +64,7 @@ describe('writeExportFile', () => {
   it('defaults categories to an empty list when omitted', async () => {
     const result = await writeExportFile({
       directoryUri: 'content://mock/tree',
-      expenses,
+      transactions,
     });
 
     expect(mockCreate).toHaveBeenCalledTimes(1);
@@ -75,7 +77,7 @@ describe('writeExportFile', () => {
 
     const result = await writeExportFile({
       directoryUri: 'content://mock/tree',
-      expenses,
+      transactions,
       categories,
     });
 

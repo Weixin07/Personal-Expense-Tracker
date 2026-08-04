@@ -1,4 +1,4 @@
-export * from './expensesRepository';
+export * from './transactionsRepository';
 export * from './categoriesRepository';
 export * from './settingsRepository';
 export * from './exportQueueRepository';

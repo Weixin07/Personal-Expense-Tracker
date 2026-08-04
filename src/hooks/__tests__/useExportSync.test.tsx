@@ -49,7 +49,7 @@ const makeParams = (
   overrides: Partial<UseExportSyncParams> = {},
 ): UseExportSyncParams => ({
   isInitialised: true,
-  expenses: [],
+  transactions: [],
   categories: [],
   initialQueueRecords: [],
   ensureExportDirectoryUri: jest.fn().mockResolvedValue('content://dir'),

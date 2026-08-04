@@ -2,10 +2,10 @@ import React from 'react';
 import { render, type RenderOptions } from '@testing-library/react-native';
 import { MD3LightTheme, Provider as PaperProvider } from 'react-native-paper';
 import type {
-  ExpenseDataActions,
-  ExpenseDataContextValue,
-  ExpenseDataSelectors,
-  ExpenseDataState,
+  TransactionDataActions,
+  TransactionDataContextValue,
+  TransactionDataSelectors,
+  TransactionDataState,
 } from '../../context/AppContext';
 
 // react-native maps requestAnimationFrame to setTimeout; Paper's transition
@@ -31,16 +31,16 @@ export const renderWithProviders = (
   options?: Omit<RenderOptions, 'wrapper'>,
 ) => render(ui, { wrapper: AllProviders, ...options });
 
-export type StateOverrides = Partial<Omit<ExpenseDataState, 'settings'>> & {
-  settings?: Partial<ExpenseDataState['settings']>;
+export type StateOverrides = Partial<Omit<TransactionDataState, 'settings'>> & {
+  settings?: Partial<TransactionDataState['settings']>;
 };
 
 export const makeContextState = (
   overrides: StateOverrides = {},
-): ExpenseDataState => {
+): TransactionDataState => {
   const { settings, ...rest } = overrides;
   return {
-    expenses: [],
+    transactions: [],
     categories: [],
     exportQueue: [],
     fxRateCache: [],
@@ -62,13 +62,10 @@ export const makeContextState = (
 };
 
 export const makeContextSelectors = (
-  overrides: Partial<ExpenseDataSelectors> = {},
-): ExpenseDataSelectors => ({
-  filteredExpenses: [],
+  overrides: Partial<TransactionDataSelectors> = {},
+): TransactionDataSelectors => ({
+  filteredTransactions: [],
   totals: {
-    rawBaseAmount: 0,
-    baseAmount: 0,
-    byCategory: [],
     byBaseCurrency: [],
     mixedBase: false,
   },
@@ -77,12 +74,12 @@ export const makeContextSelectors = (
 });
 
 export const makeContextActions = (
-  overrides: Partial<ExpenseDataActions> = {},
-): ExpenseDataActions => ({
+  overrides: Partial<TransactionDataActions> = {},
+): TransactionDataActions => ({
   refresh: jest.fn().mockResolvedValue(undefined),
-  createExpense: jest.fn().mockResolvedValue(undefined),
-  updateExpense: jest.fn().mockResolvedValue(undefined),
-  deleteExpense: jest.fn().mockResolvedValue(undefined),
+  createTransaction: jest.fn().mockResolvedValue(undefined),
+  updateTransaction: jest.fn().mockResolvedValue(undefined),
+  deleteTransaction: jest.fn().mockResolvedValue(undefined),
   createCategory: jest.fn().mockResolvedValue(undefined),
   updateCategory: jest.fn().mockResolvedValue(undefined),
   deleteCategory: jest.fn().mockResolvedValue(undefined),
@@ -98,7 +95,7 @@ export const makeContextActions = (
   removeExport: jest.fn().mockResolvedValue(undefined),
   clearCompletedExports: jest.fn().mockResolvedValue(undefined),
   uploadQueuedExports: jest.fn().mockResolvedValue(null),
-  importExpenses: jest.fn().mockResolvedValue({
+  importTransactions: jest.fn().mockResolvedValue({
     inserted: 0,
     skippedInvalid: 0,
     skippedNeedsFxRate: 0,
@@ -111,10 +108,10 @@ export const makeContextActions = (
 export const makeContextValue = (
   overrides: Partial<{
     state: StateOverrides;
-    selectors: Partial<ExpenseDataSelectors>;
-    actions: Partial<ExpenseDataActions>;
+    selectors: Partial<TransactionDataSelectors>;
+    actions: Partial<TransactionDataActions>;
   }> = {},
-): ExpenseDataContextValue => ({
+): TransactionDataContextValue => ({
   state: makeContextState(overrides.state),
   selectors: makeContextSelectors(overrides.selectors),
   actions: makeContextActions(overrides.actions),

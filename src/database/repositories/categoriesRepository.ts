@@ -1,6 +1,7 @@
 import type { ResultSet, SQLiteDatabase } from 'react-native-sqlite-storage';
 import type {
   CategoryRecord,
+  CategoryType,
   NewCategoryRecord,
   UpdateCategoryRecord,
 } from '../types';
@@ -8,15 +9,17 @@ import type {
 type RawCategoryRow = {
   id: number;
   name: string;
+  type: string;
   created_at: string;
   updated_at: string;
 };
 
-const CATEGORY_COLUMNS = 'id, name, created_at, updated_at';
+const CATEGORY_COLUMNS = 'id, name, type, created_at, updated_at';
 
 const toCategoryRecord = (row: RawCategoryRow): CategoryRecord => ({
   id: row.id,
   name: row.name,
+  type: row.type as CategoryType,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
@@ -35,8 +38,8 @@ export const createCategory = async (
   payload: NewCategoryRecord,
 ): Promise<CategoryRecord> => {
   const result = await db.executeSql(
-    `INSERT INTO categories (name) VALUES (?)`,
-    [payload.name.trim()],
+    `INSERT INTO categories (name, type) VALUES (?, ?)`,
+    [payload.name.trim(), payload.type],
   );
   const insertedId = result[0].insertId;
   if (typeof insertedId !== 'number') {
@@ -56,9 +59,10 @@ export const updateCategory = async (
   const result = await db.executeSql(
     `UPDATE categories
       SET name = ?,
+          type = ?,
           updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
       WHERE id = ?`,
-    [payload.name.trim(), payload.id],
+    [payload.name.trim(), payload.type, payload.id],
   );
   if (result[0].rowsAffected === 0) {
     throw new Error(`Category ${payload.id} not found`);
@@ -107,6 +111,11 @@ export const getCategoryByName = async (
   return toCategoryRecord(result.rows.item(0) as RawCategoryRow);
 };
 
+/**
+ * Categories created here are typed `both`: a bulk-imported name carries no
+ * evidence of which directions the user intends it for, and a narrower guess
+ * would silently hide it from one of the pickers.
+ */
 export const getOrCreateCategoryByName = async (
   db: SQLiteDatabase,
   name: string,
@@ -115,7 +124,7 @@ export const getOrCreateCategoryByName = async (
   if (existing) {
     return existing;
   }
-  return createCategory(db, { name });
+  return createCategory(db, { name, type: 'both' });
 };
 
 export const listCategories = async (

@@ -9,17 +9,25 @@ import type { CategoryRecord } from '../../database';
 
 const categories: CategoryRecord[] = [
   {
+    type: 'both',
     id: 1,
     name: 'Food',
     createdAt: '2025-01-10T00:00:00.000Z',
     updatedAt: '2025-01-10T00:00:00.000Z',
   },
   {
+    type: 'both',
     id: 2,
     name: 'Travel',
     createdAt: '2025-01-10T00:00:00.000Z',
     updatedAt: '2025-01-10T00:00:00.000Z',
   },
+];
+
+const typedCategories: CategoryRecord[] = [
+  { ...categories[0], id: 10, name: 'Groceries', type: 'expense' },
+  { ...categories[0], id: 11, name: 'Salary', type: 'income' },
+  { ...categories[0], id: 12, name: 'Gifts', type: 'both' },
 ];
 
 describe('CategoryPickerDialog', () => {
@@ -83,5 +91,54 @@ describe('CategoryPickerDialog', () => {
     );
     fireEvent.press(screen.getByLabelText('Cancel category selection'));
     expect(onDismiss).toHaveBeenCalled();
+  });
+
+  describe('directionFilter', () => {
+    it('offers every category when no direction is given', () => {
+      renderWithProviders(
+        <CategoryPickerDialog
+          visible
+          categories={typedCategories}
+          selectedId={null}
+          onSelect={jest.fn()}
+          onDismiss={jest.fn()}
+        />,
+      );
+      expect(screen.getByText('Groceries')).toBeOnTheScreen();
+      expect(screen.getByText('Salary')).toBeOnTheScreen();
+      expect(screen.getByText('Gifts')).toBeOnTheScreen();
+    });
+
+    it('keeps matching and both-typed categories for an expense', () => {
+      renderWithProviders(
+        <CategoryPickerDialog
+          visible
+          categories={typedCategories}
+          selectedId={null}
+          directionFilter="expense"
+          onSelect={jest.fn()}
+          onDismiss={jest.fn()}
+        />,
+      );
+      expect(screen.getByText('Groceries')).toBeOnTheScreen();
+      expect(screen.getByText('Gifts')).toBeOnTheScreen();
+      expect(screen.queryByText('Salary')).toBeNull();
+    });
+
+    it('keeps matching and both-typed categories for income', () => {
+      renderWithProviders(
+        <CategoryPickerDialog
+          visible
+          categories={typedCategories}
+          selectedId={null}
+          directionFilter="income"
+          onSelect={jest.fn()}
+          onDismiss={jest.fn()}
+        />,
+      );
+      expect(screen.getByText('Salary')).toBeOnTheScreen();
+      expect(screen.getByText('Gifts')).toBeOnTheScreen();
+      expect(screen.queryByText('Groceries')).toBeNull();
+    });
   });
 });

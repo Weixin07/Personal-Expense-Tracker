@@ -93,16 +93,16 @@ describe('createCsvFileInDirectory', () => {
   it('writes the CSV under the directory uri and returns the child uri', async () => {
     const fileUri = await createCsvFileInDirectory(
       'content://mock/tree',
-      'expenses.csv',
+      'transactions.csv',
       'a,b,c',
     );
 
     expect(mockWriteFile).toHaveBeenCalledWith(
-      'content://mock/tree/expenses.csv',
+      'content://mock/tree/transactions.csv',
       'a,b,c',
       { encoding: 'utf8', mimeType: 'text/csv' },
     );
-    expect(fileUri).toBe('content://mock/tree/expenses.csv');
+    expect(fileUri).toBe('content://mock/tree/transactions.csv');
   });
 });
 

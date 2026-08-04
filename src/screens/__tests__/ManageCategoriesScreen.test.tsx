@@ -8,18 +8,19 @@ import {
   waitFor,
 } from '../../__tests__/test-utils/renderWithProviders';
 import ManageCategoriesScreen from '../ManageCategoriesScreen';
-import { useExpenseData } from '../../context/AppContext';
-import type { CategoryRecord, ExpenseRecord } from '../../database';
+import { useTransactionData } from '../../context/AppContext';
+import type { CategoryRecord, TransactionRecord } from '../../database';
 
 jest.mock('../../context/AppContext', () => ({
-  useExpenseData: jest.fn(),
+  useTransactionData: jest.fn(),
 }));
 
-const mockedUseExpenseData = useExpenseData as unknown as jest.Mock;
+const mockedUseExpenseData = useTransactionData as unknown as jest.Mock;
 
 const makeCategory = (
   overrides: Partial<CategoryRecord> = {},
 ): CategoryRecord => ({
+  type: 'both',
   id: 1,
   name: 'Food',
   createdAt: '2025-01-10T00:00:00.000Z',
@@ -27,9 +28,10 @@ const makeCategory = (
   ...overrides,
 });
 
-const makeExpense = (
-  overrides: Partial<ExpenseRecord> = {},
-): ExpenseRecord => ({
+const makeTransaction = (
+  overrides: Partial<TransactionRecord> = {},
+): TransactionRecord => ({
+  type: 'expense',
   id: 1,
   description: 'Coffee',
   payee: 'Corner Cafe',
@@ -75,7 +77,10 @@ describe('ManageCategoriesScreen', () => {
     fireEvent.changeText(screen.getByLabelText('Category name'), 'Travel');
     fireEvent.press(screen.getByLabelText('Create category'));
     await waitFor(() =>
-      expect(createCategory).toHaveBeenCalledWith({ name: 'Travel' }),
+      expect(createCategory).toHaveBeenCalledWith({
+        name: 'Travel',
+        type: 'both',
+      }),
     );
   });
 
@@ -120,7 +125,11 @@ describe('ManageCategoriesScreen', () => {
     fireEvent.changeText(screen.getByLabelText('Category name'), 'Dining');
     fireEvent.press(screen.getByLabelText('Save category name'));
     await waitFor(() =>
-      expect(updateCategory).toHaveBeenCalledWith({ id: 1, name: 'Dining' }),
+      expect(updateCategory).toHaveBeenCalledWith({
+        id: 1,
+        name: 'Dining',
+        type: 'both',
+      }),
     );
   });
 
@@ -150,7 +159,7 @@ describe('ManageCategoriesScreen', () => {
       makeContextValue({
         state: {
           categories: [makeCategory({ id: 1, name: 'Food' })],
-          expenses: [makeExpense({ categoryId: 1 })],
+          transactions: [makeTransaction({ categoryId: 1 })],
         },
         actions: { deleteCategory },
       }),
@@ -162,5 +171,60 @@ describe('ManageCategoriesScreen', () => {
       expect.any(String),
     );
     expect(deleteCategory).not.toHaveBeenCalled();
+  });
+
+  describe('category type', () => {
+    it('preloads the stored type when renaming and keeps it on save', async () => {
+      const category = makeCategory({ id: 4, name: 'Salary', type: 'income' });
+      const updateCategory = jest.fn().mockResolvedValue(category);
+      mockedUseExpenseData.mockReturnValue(
+        makeContextValue({
+          state: { categories: [category] },
+          actions: { updateCategory },
+        }),
+      );
+      renderWithProviders(<ManageCategoriesScreen />);
+
+      fireEvent.press(screen.getByLabelText('Rename Salary'));
+      fireEvent.press(screen.getByLabelText('Save category name'));
+
+      await waitFor(() =>
+        expect(updateCategory).toHaveBeenCalledWith({
+          id: 4,
+          name: 'Salary',
+          type: 'income',
+        }),
+      );
+    });
+
+    it('warns before narrowing a type that still has usage on the other side', () => {
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const category = makeCategory({ id: 5, name: 'Gifts', type: 'both' });
+      const income = makeTransaction({
+        id: 30,
+        type: 'income',
+        categoryId: 5,
+      });
+      const updateCategory = jest.fn();
+      mockedUseExpenseData.mockReturnValue(
+        makeContextValue({
+          state: { categories: [category], transactions: [income] },
+          actions: { updateCategory },
+        }),
+      );
+      renderWithProviders(<ManageCategoriesScreen />);
+
+      fireEvent.press(screen.getByLabelText('Rename Gifts'));
+      fireEvent.press(screen.getByText('Expense'));
+      fireEvent.press(screen.getByLabelText('Save category name'));
+
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Change category type?',
+        expect.stringContaining('1 transaction'),
+        expect.any(Array),
+      );
+      expect(updateCategory).not.toHaveBeenCalled();
+      alertSpy.mockRestore();
+    });
   });
 });

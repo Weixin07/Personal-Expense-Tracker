@@ -9,7 +9,7 @@ import {
   Surface,
   Text,
 } from 'react-native-paper';
-import { useExpenseData } from '../context/AppContext';
+import { useTransactionData } from '../context/AppContext';
 
 const statusLabels: Record<string, string> = {
   pending: 'Pending upload',
@@ -28,7 +28,7 @@ const ExportQueueScreen: React.FC = () => {
       clearCompletedExports,
       uploadQueuedExports,
     },
-  } = useExpenseData();
+  } = useTransactionData();
 
   const [isQueueing, setIsQueueing] = useState(false);
   const [isClearing, setIsClearing] = useState(false);

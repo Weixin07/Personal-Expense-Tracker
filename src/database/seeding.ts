@@ -48,8 +48,11 @@ const ensureDefaultCategories = async (db: SQLiteDatabase): Promise<void> => {
   await new Promise<void>((resolve, reject) => {
     db.transaction(
       (tx: Transaction) => {
-        DEFAULT_CATEGORIES.forEach(name => {
-          tx.executeSql(`INSERT INTO categories (name) VALUES (?)`, [name]);
+        DEFAULT_CATEGORIES.forEach(({ name, type }) => {
+          tx.executeSql(`INSERT INTO categories (name, type) VALUES (?, ?)`, [
+            name,
+            type,
+          ]);
         });
       },
       error => reject(error),

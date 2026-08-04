@@ -6,12 +6,12 @@ import {
   normalizeDate,
   resolveTransactionType,
 } from '../mapping';
-import { EXPENSE_CSV_COLUMNS } from '../../export/csvColumns';
+import { TRANSACTION_CSV_COLUMNS } from '../../export/csvColumns';
 
 describe('autoDetectMapping', () => {
   it('maps the app export header to target fields', () => {
     const mapping = autoDetectMapping(
-      EXPENSE_CSV_COLUMNS as unknown as string[],
+      TRANSACTION_CSV_COLUMNS as unknown as string[],
     );
     expect(mapping.amountNative).toBe(2);
     expect(mapping.currencyCode).toBe(3);
@@ -107,10 +107,10 @@ describe('autoDetectMapping', () => {
 
     it('keeps the app export mapping intact', () => {
       const mapping = autoDetectMapping(
-        EXPENSE_CSV_COLUMNS as unknown as string[],
+        TRANSACTION_CSV_COLUMNS as unknown as string[],
       );
-      const description = EXPENSE_CSV_COLUMNS.indexOf('description');
-      const notes = EXPENSE_CSV_COLUMNS.indexOf('notes');
+      const description = TRANSACTION_CSV_COLUMNS.indexOf('description');
+      const notes = TRANSACTION_CSV_COLUMNS.indexOf('notes');
       expect(mapping.description).toBe(description);
       expect(mapping.notes).toBe(notes);
     });

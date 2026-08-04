@@ -1,4 +1,4 @@
-import type { NewExpenseRecord } from '../database';
+import type { NewTransactionRecord, TransactionType } from '../database';
 
 export type ImportTargetField =
   | 'description'
@@ -37,18 +37,20 @@ export type DateFormat = 'auto' | 'iso' | 'dmy' | 'mdy';
 export type NumberFormat = 'auto' | 'us' | 'eu';
 
 /**
- * How to read a negative amount in the source file. Expense trackers export
- * income as the negative side; bank statements use negative for money leaving
- * the account. Whichever side is not the expense is skipped until income is
- * supported.
+ * Which direction a negative amount denotes in the source file. Expense
+ * trackers export income as the negative side; bank statements use negative for
+ * money leaving the account.
  *
  * Consulted only when the row carries no usable transaction-type value: a
- * mapped type column is authoritative over the sign.
+ * mapped type column is authoritative over the sign. It is also bypassed when
+ * the file contains no negative amount at all — a sign convention cannot
+ * classify rows in a file that carries no signs, so those rows are read as
+ * expenses whatever this is set to.
  */
 export type NegativeAmountMeaning = 'income' | 'expense';
 
 /** Direction a row moves money, read from an explicit transaction-type column. */
-export type TransactionDirection = 'income' | 'expense';
+export type TransactionDirection = TransactionType;
 
 /**
  * Where a prepared row's FX rate came from, in the order the resolver prefers:
@@ -113,10 +115,10 @@ export type AmbiguousCurrency = {
 export type DuplicateFlag = {
   line: number;
   /**
-   * Existing expense this row matches, or null when the match is an earlier row
+   * Existing transaction this row matches, or null when the match is an earlier row
    * in the same file rather than something already stored.
    */
-  matchesExpenseId: number | null;
+  matchesTransactionId: number | null;
   /**
    * Earlier line in the same file carrying the same date, amount, currency,
    * payee and description.
@@ -124,26 +126,20 @@ export type DuplicateFlag = {
   matchesLine?: number;
 };
 
-export type PreparedExpense = {
+export type PreparedTransaction = {
   line: number;
-  record: Omit<NewExpenseRecord, 'categoryId'>;
+  record: Omit<NewTransactionRecord, 'categoryId'>;
   categoryName: string | null;
   fxRateSource: FxRateSource;
 };
 
 export type ImportPreview = {
-  valid: PreparedExpense[];
+  valid: PreparedTransaction[];
   invalid: ImportRowError[];
   /**
-   * Rows recognised as income rather than expenses. Reported separately from
-   * `invalid` because the file is not at fault: these rows are well-formed and
-   * become importable once income is supported.
-   */
-  skippedIncome: ImportRowError[];
-  /**
    * Rows held back only because the rate for their currency pair is unknown.
-   * Reported separately from `invalid` for the same reason as `skippedIncome`:
-   * the file is not at fault, and supplying the rate makes the row importable.
+   * Reported separately from `invalid` because the file is not at fault, and
+   * supplying the rate makes the row importable.
    */
   needsFxRate: ImportRowError[];
   fxReview: FxSuggestion[];
@@ -157,10 +153,21 @@ export type ImportPreview = {
    * chose an explicit format or the column offered no conclusive evidence.
    */
   inferredDateOrder: DateOrder | null;
+  /**
+   * True when the file carried no negative amount anywhere, so rows without a
+   * declared type were read as expenses rather than through the sign
+   * convention. Lets the caller say why, instead of the result looking arbitrary.
+   */
+  signConventionBypassed: boolean;
 };
 
 export type ImportSummary = {
-  inserted: number;
+  /**
+   * Counted per direction rather than as one total so a mixed import can state
+   * what it read each row as, which is the thing worth checking afterwards.
+   */
+  insertedExpenses: number;
+  insertedIncome: number;
   skippedInvalid: number;
   /**
    * Rows left behind because their pair still had no rate when the import ran.

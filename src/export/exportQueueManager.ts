@@ -1,10 +1,10 @@
-import { buildExpensesCsv } from './csvBuilder';
-import type { ExpenseRecord, CategoryRecord } from '../database';
+import { buildTransactionsCsv } from './csvBuilder';
+import type { TransactionRecord, CategoryRecord } from '../database';
 import { createCsvFileInDirectory } from '../security/storageAccess';
 
 export type QueueExportPayload = {
   directoryUri: string;
-  expenses: readonly ExpenseRecord[];
+  transactions: readonly TransactionRecord[];
   categories?: readonly CategoryRecord[];
 };
 
@@ -17,10 +17,13 @@ export type QueueExportResult = {
 
 export const writeExportFile = async ({
   directoryUri,
-  expenses,
+  transactions,
   categories = [],
 }: QueueExportPayload): Promise<QueueExportResult> => {
-  const { filename, content } = buildExpensesCsv({ expenses, categories });
+  const { filename, content } = buildTransactionsCsv({
+    transactions,
+    categories,
+  });
   const fileUri = await createCsvFileInDirectory(
     directoryUri,
     filename,

@@ -61,11 +61,15 @@ export default [
         'error',
         {
           tolerance: 4,
-          ignoreContent: ['example', 'sample'],
+          ignoreContent: [
+            'example',
+            'sample',
+            'transactions_backup',
+            'TransactionFormValues',
+          ],
         },
       ],
 
-      // --- DO NOT LAZY LOAD (enforced) ---
       'no-restricted-syntax': [
         'error',
         {
@@ -109,7 +113,6 @@ export default [
       sourceType: 'script',
     },
     rules: {
-      // Allow require() in these Node-side config files
       '@typescript-eslint/no-require-imports': 'off',
       // Only forbid truly dynamic requires; static literal requires are fine here
       'import/no-dynamic-require': 'off',

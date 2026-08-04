@@ -1,5 +1,12 @@
 import { MD3DarkTheme, MD3LightTheme, type MD3Theme } from 'react-native-paper';
 
+/**
+ * Colour applied to income amounts. It accompanies a `+` sign rather than
+ * replacing it, so direction never depends on colour alone.
+ */
+export const INCOME_COLOR_LIGHT = '#1b6b3a';
+export const INCOME_COLOR_DARK = '#7fd6a0';
+
 export const lightTheme: MD3Theme = {
   ...MD3LightTheme,
   colors: {

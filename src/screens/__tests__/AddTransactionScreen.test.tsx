@@ -9,19 +9,20 @@ import {
   waitFor,
   act,
 } from '../../__tests__/test-utils/renderWithProviders';
-import AddExpenseScreen from '../AddExpenseScreen';
-import { useExpenseData } from '../../context/AppContext';
-import type { CategoryRecord, ExpenseRecord } from '../../database';
+import AddTransactionScreen from '../AddTransactionScreen';
+import { useTransactionData } from '../../context/AppContext';
+import type { CategoryRecord, TransactionRecord } from '../../database';
 
 jest.mock('../../context/AppContext', () => ({
-  useExpenseData: jest.fn(),
+  useTransactionData: jest.fn(),
 }));
 
-const mockedUseExpenseData = useExpenseData as unknown as jest.Mock;
+const mockedUseExpenseData = useTransactionData as unknown as jest.Mock;
 
-const makeExpense = (
-  overrides: Partial<ExpenseRecord> = {},
-): ExpenseRecord => ({
+const makeTransaction = (
+  overrides: Partial<TransactionRecord> = {},
+): TransactionRecord => ({
+  type: 'expense',
   id: 1,
   description: 'Coffee',
   payee: 'Corner Cafe',
@@ -41,6 +42,7 @@ const makeExpense = (
 const makeCategory = (
   overrides: Partial<CategoryRecord> = {},
 ): CategoryRecord => ({
+  type: 'both',
   id: 1,
   name: 'Food',
   createdAt: '2025-01-10T00:00:00.000Z',
@@ -48,10 +50,10 @@ const makeCategory = (
   ...overrides,
 });
 
-type ScreenProps = React.ComponentProps<typeof AddExpenseScreen>;
+type ScreenProps = React.ComponentProps<typeof AddTransactionScreen>;
 
 const renderScreen = (
-  params: { expenseId?: number } | undefined,
+  params: { transactionId?: number } | undefined,
   contextOverrides: Parameters<typeof makeContextValue>[0] = {},
 ) => {
   const value = makeContextValue(contextOverrides);
@@ -61,7 +63,7 @@ const renderScreen = (
     route: { params },
     navigation,
   } as unknown as ScreenProps;
-  renderWithProviders(<AddExpenseScreen {...props} />);
+  renderWithProviders(<AddTransactionScreen {...props} />);
   return { navigation, value };
 };
 
@@ -73,43 +75,46 @@ beforeEach(() => {
   jest.clearAllMocks();
 });
 
-describe('AddExpenseScreen', () => {
+describe('AddTransactionScreen', () => {
   it('renders the create form by default', () => {
     renderScreen(undefined);
-    expect(screen.getByText('Save expense')).toBeOnTheScreen();
-    expect(screen.getByLabelText('Expense description')).toBeOnTheScreen();
-    expect(screen.getByLabelText('Expense payee')).toBeOnTheScreen();
+    expect(screen.getByText('Save transaction')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Transaction description')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Transaction payee')).toBeOnTheScreen();
   });
 
   it('shows a spinner until the data is initialised', () => {
     renderScreen(undefined, { state: { isInitialised: false } });
-    expect(screen.queryByText('Save expense')).toBeNull();
+    expect(screen.queryByText('Save transaction')).toBeNull();
   });
 
   it('shows a not-found message for a missing expense id', () => {
-    renderScreen({ expenseId: 99 });
-    expect(screen.getByText('Expense not found')).toBeOnTheScreen();
+    renderScreen({ transactionId: 99 });
+    expect(screen.getByText('Transaction not found')).toBeOnTheScreen();
   });
 
   it('renders the edit form for an existing expense', () => {
-    const expense = makeExpense({ id: 1, description: 'Lunch' });
-    renderScreen({ expenseId: 1 }, { state: { expenses: [expense] } });
-    expect(screen.getByText('Update expense')).toBeOnTheScreen();
-    expect(screen.getByLabelText('Delete expense')).toBeOnTheScreen();
+    const transaction = makeTransaction({ id: 1, description: 'Lunch' });
+    renderScreen(
+      { transactionId: 1 },
+      { state: { transactions: [transaction] } },
+    );
+    expect(screen.getByText('Update transaction')).toBeOnTheScreen();
+    expect(screen.getByLabelText('Delete transaction')).toBeOnTheScreen();
   });
 
   it('creates an expense and navigates back on valid submit', async () => {
-    const createExpense = jest.fn().mockResolvedValue(makeExpense());
+    const createTransaction = jest.fn().mockResolvedValue(makeTransaction());
     const { navigation } = renderScreen(undefined, {
-      actions: { createExpense },
+      actions: { createTransaction },
     });
 
     fireEvent.changeText(
-      screen.getByLabelText('Expense description'),
+      screen.getByLabelText('Transaction description'),
       'Groceries',
     );
     fireEvent.changeText(
-      screen.getByLabelText('Expense payee'),
+      screen.getByLabelText('Transaction payee'),
       'Local Market',
     );
     fireEvent.changeText(
@@ -120,18 +125,18 @@ describe('AddExpenseScreen', () => {
       screen.getByLabelText('FX rate to base currency'),
       '1',
     );
-    fireEvent.press(screen.getByLabelText('Create expense'));
+    fireEvent.press(screen.getByLabelText('Create transaction'));
 
-    await waitFor(() => expect(createExpense).toHaveBeenCalledTimes(1));
-    expect(createExpense).toHaveBeenCalledWith(
+    await waitFor(() => expect(createTransaction).toHaveBeenCalledTimes(1));
+    expect(createTransaction).toHaveBeenCalledWith(
       expect.objectContaining({ payee: 'Local Market' }),
     );
     expect(navigation.goBack).toHaveBeenCalled();
   });
 
   it('blocks submit when description, payee and category are all empty', () => {
-    const createExpense = jest.fn();
-    renderScreen(undefined, { actions: { createExpense } });
+    const createTransaction = jest.fn();
+    renderScreen(undefined, { actions: { createTransaction } });
     fireEvent.changeText(
       screen.getByLabelText('Amount in native currency'),
       '12.50',
@@ -140,18 +145,18 @@ describe('AddExpenseScreen', () => {
       screen.getByLabelText('FX rate to base currency'),
       '1',
     );
-    fireEvent.press(screen.getByLabelText('Create expense'));
-    expect(createExpense).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByLabelText('Create transaction'));
+    expect(createTransaction).not.toHaveBeenCalled();
     expect(
       screen.getByText('Add a description, payee, or category.'),
     ).toBeOnTheScreen();
   });
 
   it('saves a category-only expense with no description or payee', async () => {
-    const createExpense = jest.fn().mockResolvedValue(makeExpense());
+    const createTransaction = jest.fn().mockResolvedValue(makeTransaction());
     const { navigation } = renderScreen(undefined, {
       state: { categories: [makeCategory({ id: 1, name: 'Food' })] },
-      actions: { createExpense },
+      actions: { createTransaction },
     });
     fireEvent.changeText(
       screen.getByLabelText('Amount in native currency'),
@@ -161,44 +166,50 @@ describe('AddExpenseScreen', () => {
       screen.getByLabelText('FX rate to base currency'),
       '1',
     );
-    fireEvent.press(screen.getByLabelText('Create expense'));
-    await waitFor(() => expect(createExpense).toHaveBeenCalledTimes(1));
-    expect(createExpense).toHaveBeenCalledWith(
+    fireEvent.press(screen.getByLabelText('Create transaction'));
+    await waitFor(() => expect(createTransaction).toHaveBeenCalledTimes(1));
+    expect(createTransaction).toHaveBeenCalledWith(
       expect.objectContaining({ description: '', payee: '' }),
     );
     expect(navigation.goBack).toHaveBeenCalled();
   });
 
   it('blocks submit and surfaces a validation error when amount is empty', () => {
-    const createExpense = jest.fn();
-    renderScreen(undefined, { actions: { createExpense } });
-    fireEvent.press(screen.getByLabelText('Create expense'));
-    expect(createExpense).not.toHaveBeenCalled();
+    const createTransaction = jest.fn();
+    renderScreen(undefined, { actions: { createTransaction } });
+    fireEvent.press(screen.getByLabelText('Create transaction'));
+    expect(createTransaction).not.toHaveBeenCalled();
     expect(
       screen.getByText('Amount must be greater than zero.'),
     ).toBeOnTheScreen();
   });
 
   it('updates an existing expense on submit', async () => {
-    const updateExpense = jest.fn().mockResolvedValue(makeExpense());
-    const expense = makeExpense({ id: 1, description: 'Old' });
+    const updateTransaction = jest.fn().mockResolvedValue(makeTransaction());
+    const transaction = makeTransaction({ id: 1, description: 'Old' });
     const { navigation } = renderScreen(
-      { expenseId: 1 },
-      { state: { expenses: [expense] }, actions: { updateExpense } },
+      { transactionId: 1 },
+      {
+        state: { transactions: [transaction] },
+        actions: { updateTransaction },
+      },
     );
     fireEvent.changeText(
-      screen.getByLabelText('Expense description'),
+      screen.getByLabelText('Transaction description'),
       'Updated',
     );
-    fireEvent.press(screen.getByLabelText('Update expense'));
-    await waitFor(() => expect(updateExpense).toHaveBeenCalledTimes(1));
+    fireEvent.press(screen.getByLabelText('Update transaction'));
+    await waitFor(() => expect(updateTransaction).toHaveBeenCalledTimes(1));
     expect(navigation.goBack).toHaveBeenCalled();
   });
 
   it('edits secondary fields and recomputes the base amount', () => {
     renderScreen(undefined);
-    fireEvent.changeText(screen.getByLabelText('Expense notes'), 'a note');
-    fireEvent.changeText(screen.getByLabelText('Expense date'), '15/01/2025');
+    fireEvent.changeText(screen.getByLabelText('Transaction notes'), 'a note');
+    fireEvent.changeText(
+      screen.getByLabelText('Transaction date'),
+      '15/01/2025',
+    );
     fireEvent.changeText(
       screen.getByLabelText('Amount in native currency'),
       '10',
@@ -216,17 +227,20 @@ describe('AddExpenseScreen', () => {
   });
 
   it('confirms before deleting an existing expense', async () => {
-    const deleteExpense = jest.fn().mockResolvedValue(undefined);
+    const deleteTransaction = jest.fn().mockResolvedValue(undefined);
     const alertSpy = jest.spyOn(Alert, 'alert');
-    const expense = makeExpense({ id: 1 });
+    const transaction = makeTransaction({ id: 1 });
     renderScreen(
-      { expenseId: 1 },
-      { state: { expenses: [expense] }, actions: { deleteExpense } },
+      { transactionId: 1 },
+      {
+        state: { transactions: [transaction] },
+        actions: { deleteTransaction },
+      },
     );
 
-    fireEvent.press(screen.getByLabelText('Delete expense'));
+    fireEvent.press(screen.getByLabelText('Delete transaction'));
     expect(alertSpy).toHaveBeenCalledWith(
-      'Delete expense',
+      'Delete transaction',
       expect.any(String),
       expect.any(Array),
     );
@@ -237,18 +251,20 @@ describe('AddExpenseScreen', () => {
     }>;
     const confirm = buttons.find(button => button.text === 'Delete');
     confirm?.onPress?.();
-    await waitFor(() => expect(deleteExpense).toHaveBeenCalledWith(1));
+    await waitFor(() => expect(deleteTransaction).toHaveBeenCalledWith(1));
   });
 
   it('surfaces a form error when saving fails', async () => {
-    const createExpense = jest.fn().mockRejectedValue(new Error('Save failed'));
-    renderScreen(undefined, { actions: { createExpense } });
+    const createTransaction = jest
+      .fn()
+      .mockRejectedValue(new Error('Save failed'));
+    renderScreen(undefined, { actions: { createTransaction } });
     fireEvent.changeText(
-      screen.getByLabelText('Expense description'),
+      screen.getByLabelText('Transaction description'),
       'Groceries',
     );
     fireEvent.changeText(
-      screen.getByLabelText('Expense payee'),
+      screen.getByLabelText('Transaction payee'),
       'Local Market',
     );
     fireEvent.changeText(
@@ -259,7 +275,7 @@ describe('AddExpenseScreen', () => {
       screen.getByLabelText('FX rate to base currency'),
       '1',
     );
-    fireEvent.press(screen.getByLabelText('Create expense'));
+    fireEvent.press(screen.getByLabelText('Create transaction'));
     await waitFor(() =>
       expect(screen.getByText('Save failed')).toBeOnTheScreen(),
     );
@@ -278,7 +294,7 @@ describe('AddExpenseScreen', () => {
 
   it('clears the currency error after selecting a currency', async () => {
     renderScreen(undefined, { state: { settings: { baseCurrency: '' } } });
-    fireEvent.press(screen.getByLabelText('Create expense'));
+    fireEvent.press(screen.getByLabelText('Create transaction'));
     expect(screen.getByText('Currency code is required.')).toBeOnTheScreen();
     openPickerField('Select currency');
     fireEvent.changeText(screen.getByLabelText('Search currency'), 'EUR');
@@ -329,7 +345,7 @@ describe('AddExpenseScreen', () => {
 
   it('clears a field error after the value is corrected', () => {
     renderScreen(undefined);
-    fireEvent.press(screen.getByLabelText('Create expense'));
+    fireEvent.press(screen.getByLabelText('Create transaction'));
     expect(
       screen.getByText('Amount must be greater than zero.'),
     ).toBeOnTheScreen();
@@ -342,23 +358,32 @@ describe('AddExpenseScreen', () => {
 
   it('clears the date error after the date is corrected', () => {
     renderScreen(undefined);
-    fireEvent.changeText(screen.getByLabelText('Expense date'), 'not a date');
-    fireEvent.press(screen.getByLabelText('Create expense'));
+    fireEvent.changeText(
+      screen.getByLabelText('Transaction date'),
+      'not a date',
+    );
+    fireEvent.press(screen.getByLabelText('Create transaction'));
     expect(screen.getByText('Date is required.')).toBeOnTheScreen();
-    fireEvent.changeText(screen.getByLabelText('Expense date'), '15/01/2025');
+    fireEvent.changeText(
+      screen.getByLabelText('Transaction date'),
+      '15/01/2025',
+    );
     expect(screen.queryByText('Date is required.')).toBeNull();
   });
 
   it('alerts when deleting an existing expense fails', async () => {
-    const deleteExpense = jest.fn().mockRejectedValue(new Error('boom'));
+    const deleteTransaction = jest.fn().mockRejectedValue(new Error('boom'));
     const alertSpy = jest.spyOn(Alert, 'alert');
-    const expense = makeExpense({ id: 1 });
+    const transaction = makeTransaction({ id: 1 });
     renderScreen(
-      { expenseId: 1 },
-      { state: { expenses: [expense] }, actions: { deleteExpense } },
+      { transactionId: 1 },
+      {
+        state: { transactions: [transaction] },
+        actions: { deleteTransaction },
+      },
     );
 
-    fireEvent.press(screen.getByLabelText('Delete expense'));
+    fireEvent.press(screen.getByLabelText('Delete transaction'));
     const buttons = alertSpy.mock.calls[0][2] as Array<{
       text?: string;
       onPress?: () => void | Promise<void>;
@@ -375,9 +400,77 @@ describe('AddExpenseScreen', () => {
   });
 
   it('navigates back from the not-found view', () => {
-    const { navigation } = renderScreen({ expenseId: 99 });
-    expect(screen.getByText('Expense not found')).toBeOnTheScreen();
+    const { navigation } = renderScreen({ transactionId: 99 });
+    expect(screen.getByText('Transaction not found')).toBeOnTheScreen();
     fireEvent.press(screen.getByText('Go back'));
     expect(navigation.goBack).toHaveBeenCalled();
+  });
+
+  describe('transaction direction', () => {
+    const expenseOnly = makeCategory({
+      id: 7,
+      name: 'Groceries',
+      type: 'expense',
+    });
+
+    it('clears a now-invalid category silently on a new transaction', () => {
+      const { value } = renderScreen(undefined, {
+        state: { categories: [expenseOnly] },
+      });
+
+      fireEvent.press(screen.getByText('Income'));
+      fireEvent.changeText(
+        screen.getByLabelText('Amount in native currency'),
+        '10',
+      );
+      fireEvent.changeText(
+        screen.getByLabelText('Transaction description'),
+        'Salary',
+      );
+      fireEvent.press(screen.getByLabelText('Create transaction'));
+
+      expect(value.actions.createTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'income', categoryId: null }),
+      );
+    });
+
+    it('confirms before clearing a category the user chose on an existing transaction', () => {
+      const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      const existing = makeTransaction({ categoryId: expenseOnly.id });
+      renderScreen(
+        { transactionId: existing.id },
+        { state: { transactions: [existing], categories: [expenseOnly] } },
+      );
+
+      fireEvent.press(screen.getByText('Income'));
+
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Change type?',
+        expect.stringContaining('Groceries'),
+        expect.any(Array),
+      );
+      alertSpy.mockRestore();
+    });
+
+    it('keeps a category whose type no longer matches when opening an existing transaction', () => {
+      const narrowed = makeCategory({
+        id: 9,
+        name: 'Gifts',
+        type: 'expense',
+      });
+      const existing = makeTransaction({
+        type: 'income',
+        categoryId: narrowed.id,
+      });
+      const { value } = renderScreen(
+        { transactionId: existing.id },
+        { state: { transactions: [existing], categories: [narrowed] } },
+      );
+
+      fireEvent.press(screen.getByLabelText('Update transaction'));
+      expect(value.actions.updateTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'income', categoryId: narrowed.id }),
+      );
+    });
   });
 });

@@ -11,7 +11,7 @@ export const CSV_DELIMITERS: readonly CsvDelimiter[] = [',', ';', '\t'];
 
 /**
  * Used when sniffing finds no delimiter or cannot separate two candidates.
- * Also the delimiter `buildExpensesCsv` writes, so app backups always round-trip.
+ * Also the delimiter `buildTransactionsCsv` writes, so app backups always round-trip.
  */
 export const DEFAULT_DELIMITER: CsvDelimiter = ',';
 
@@ -106,7 +106,7 @@ export const detectDelimiter = (input: string): CsvDelimiter => {
 
 /**
  * Parse CSV text into a header row plus data rows, faithfully inverting the
- * output of `buildExpensesCsv`. Implements RFC 4180 quoting: double-quoted
+ * output of `buildTransactionsCsv`. Implements RFC 4180 quoting: double-quoted
  * fields may contain the delimiter, escaped quotes (`""`), and embedded
  * newlines. A leading UTF-8 BOM is stripped, UTF-16 text decoded as UTF-8 is
  * recovered where possible, and both CRLF and LF line endings are accepted.

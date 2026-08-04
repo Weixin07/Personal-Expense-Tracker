@@ -8,8 +8,8 @@ import type {
 } from './types';
 
 /**
- * App export column names (from EXPENSE_CSV_COLUMNS) → import target fields.
- * Keys mirror the header `buildExpensesCsv` writes, so a re-imported backup
+ * App export column names (from TRANSACTION_CSV_COLUMNS) → import target fields.
+ * Keys mirror the header `buildTransactionsCsv` writes, so a re-imported backup
  * auto-maps with no user interaction. The `id` column is intentionally omitted:
  * import appends new rows and never reuses the source id.
  */
@@ -24,6 +24,7 @@ const COLUMN_TO_FIELD: Record<string, ImportTargetField> = {
   date: 'date',
   category: 'categoryName',
   notes: 'notes',
+  type: 'transactionType',
 };
 
 /**
@@ -153,7 +154,7 @@ const hasAnyValue = (rows: readonly ParsedRow[], index: number): boolean =>
  *
  * Exports written for people rather than for re-import often carry a note column
  * and no description column at all. Such a column is the row's identity — what a
- * reader would call the expense — so it fills `description` when nothing else
+ * reader would call the transaction — so it fills `description` when nothing else
  * claims that field, leaving any second note-ish column for `notes`. Without
  * this, every row of such a file imports under the `Unknown` payee placeholder.
  */
@@ -240,7 +241,7 @@ const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/;
  * moment of entry. Matched as a time-shaped token rather than "any trailing
  * text" so a malformed value is still rejected. Covers seconds, fractional
  * seconds, 12-hour suffixes and zone offsets; the value itself is discarded,
- * since an expense stores a calendar day.
+ * since a transaction stores a calendar day.
  */
 const TIME_SUFFIX =
   '(?:[T\\s]+\\d{1,2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?\\s*(?:[AaPp]\\.?[Mm]\\.?)?\\s*(?:Z|[+-]\\d{2}:?\\d{2})?)?';

@@ -1,13 +1,15 @@
 import type { ResultSet, SQLiteDatabase } from 'react-native-sqlite-storage';
 import type {
-  ExpenseQueryFilters,
-  ExpenseRecord,
-  NewExpenseRecord,
-  UpdateExpenseRecord,
+  TransactionQueryFilters,
+  TransactionRecord,
+  TransactionType,
+  NewTransactionRecord,
+  UpdateTransactionRecord,
 } from '../types';
 
-const EXPENSE_COLUMNS = `
+const TRANSACTION_COLUMNS = `
   id,
+  type,
   description,
   payee,
   amount_native,
@@ -22,8 +24,9 @@ const EXPENSE_COLUMNS = `
   updated_at
 `;
 
-type RawExpenseRow = {
+type RawTransactionRow = {
   id: number;
+  type: string;
   description: string;
   payee: string;
   amount_native: number;
@@ -38,8 +41,9 @@ type RawExpenseRow = {
   updated_at: string;
 };
 
-const toExpenseRecord = (row: RawExpenseRow): ExpenseRecord => ({
+const toTransactionRecord = (row: RawTransactionRow): TransactionRecord => ({
   id: row.id,
+  type: row.type as TransactionType,
   description: row.description,
   payee: row.payee,
   amountNative: row.amount_native,
@@ -54,21 +58,22 @@ const toExpenseRecord = (row: RawExpenseRow): ExpenseRecord => ({
   updatedAt: row.updated_at,
 });
 
-const mapResultSetToExpenses = (result: ResultSet): ExpenseRecord[] => {
-  const items: ExpenseRecord[] = [];
+const mapResultSetToTransactions = (result: ResultSet): TransactionRecord[] => {
+  const items: TransactionRecord[] = [];
   for (let index = 0; index < result.rows.length; index += 1) {
-    const row = result.rows.item(index) as RawExpenseRow;
-    items.push(toExpenseRecord(row));
+    const row = result.rows.item(index) as RawTransactionRow;
+    items.push(toTransactionRecord(row));
   }
   return items;
 };
 
-export const createExpense = async (
+export const createTransaction = async (
   db: SQLiteDatabase,
-  payload: NewExpenseRecord,
-): Promise<ExpenseRecord> => {
+  payload: NewTransactionRecord,
+): Promise<TransactionRecord> => {
   const resultSet = await db.executeSql(
-    `INSERT INTO expenses (
+    `INSERT INTO transactions (
+      type,
       description,
       payee,
       amount_native,
@@ -79,8 +84,9 @@ export const createExpense = async (
       date,
       category_id,
       notes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
+      payload.type,
       payload.description,
       payload.payee,
       payload.amountNative,
@@ -97,24 +103,29 @@ export const createExpense = async (
   const insertResult = resultSet[0];
   const insertedId = insertResult.insertId;
   if (typeof insertedId !== 'number') {
-    throw new Error('Failed to determine inserted expense ID');
+    throw new Error('Failed to determine inserted transaction ID');
   }
 
-  const expense = await getExpenseById(db, insertedId);
-  if (!expense) {
-    throw new Error('Failed to load inserted expense');
+  const transaction = await getTransactionById(db, insertedId);
+  if (!transaction) {
+    throw new Error('Failed to load inserted transaction');
   }
-  return expense;
+  return transaction;
 };
 
-const BULK_INSERT_COLUMN_COUNT = 10;
+const BULK_INSERT_COLUMN_COUNT = 11;
 // SQLite caps host parameters per statement (SQLITE_MAX_VARIABLE_NUMBER, 999 on
-// older builds). Cap rows per INSERT so column_count * rows stays under it.
-const BULK_INSERT_MAX_ROWS = 90;
+// older builds). Rows per INSERT are derived from the column count so the cap
+// cannot be breached by adding a column.
+const SQLITE_MAX_HOST_PARAMS = 999;
+const BULK_INSERT_MAX_ROWS = Math.floor(
+  SQLITE_MAX_HOST_PARAMS / BULK_INSERT_COLUMN_COUNT,
+);
 
 const toBulkInsertParams = (
-  payload: NewExpenseRecord,
+  payload: NewTransactionRecord,
 ): Array<string | number | null> => [
+  payload.type,
   payload.description,
   payload.payee,
   payload.amountNative,
@@ -127,9 +138,9 @@ const toBulkInsertParams = (
   payload.notes ?? null,
 ];
 
-export const createExpensesBulk = async (
+export const createTransactionsBulk = async (
   db: SQLiteDatabase,
-  payloads: readonly NewExpenseRecord[],
+  payloads: readonly NewTransactionRecord[],
 ): Promise<number> => {
   if (payloads.length === 0) {
     return 0;
@@ -143,7 +154,8 @@ export const createExpensesBulk = async (
     const params = batch.flatMap(toBulkInsertParams);
     await db.executeSql(
       // eslint-disable-next-line no-restricted-syntax -- placeholder groups are a trusted constant; every row value is parameterized
-      `INSERT INTO expenses (
+      `INSERT INTO transactions (
+        type,
         description,
         payee,
         amount_native,
@@ -162,13 +174,14 @@ export const createExpensesBulk = async (
   return payloads.length;
 };
 
-export const updateExpense = async (
+export const updateTransaction = async (
   db: SQLiteDatabase,
-  payload: UpdateExpenseRecord,
-): Promise<ExpenseRecord> => {
+  payload: UpdateTransactionRecord,
+): Promise<TransactionRecord> => {
   const { id, ...fields } = payload;
   const resultSet = await db.executeSql(
-    `UPDATE expenses SET
+    `UPDATE transactions SET
+      type = ?,
       description = ?,
       payee = ?,
       amount_native = ?,
@@ -182,6 +195,7 @@ export const updateExpense = async (
       updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     WHERE id = ?`,
     [
+      fields.type,
       fields.description,
       fields.payee,
       fields.amountNative,
@@ -197,51 +211,56 @@ export const updateExpense = async (
   );
 
   if (resultSet[0].rowsAffected === 0) {
-    throw new Error(`Expense ${id} not found`);
+    throw new Error(`Transaction ${id} not found`);
   }
 
-  const expense = await getExpenseById(db, id);
-  if (!expense) {
-    throw new Error('Failed to load updated expense');
+  const transaction = await getTransactionById(db, id);
+  if (!transaction) {
+    throw new Error('Failed to load updated transaction');
   }
 
-  return expense;
+  return transaction;
 };
 
-export const deleteExpense = async (
+export const deleteTransaction = async (
   db: SQLiteDatabase,
   id: number,
 ): Promise<void> => {
-  const resultSet = await db.executeSql('DELETE FROM expenses WHERE id = ?', [
-    id,
-  ]);
+  const resultSet = await db.executeSql(
+    'DELETE FROM transactions WHERE id = ?',
+    [id],
+  );
   if (resultSet[0].rowsAffected === 0) {
-    throw new Error(`Expense ${id} not found`);
+    throw new Error(`Transaction ${id} not found`);
   }
 };
 
-export const getExpenseById = async (
+export const getTransactionById = async (
   db: SQLiteDatabase,
   id: number,
-): Promise<ExpenseRecord | null> => {
+): Promise<TransactionRecord | null> => {
   const [result] = await db.executeSql(
-    // eslint-disable-next-line no-restricted-syntax -- EXPENSE_COLUMNS is a trusted constant column list, not user input
-    `SELECT ${EXPENSE_COLUMNS} FROM expenses WHERE id = ? LIMIT 1`,
+    // eslint-disable-next-line no-restricted-syntax -- TRANSACTION_COLUMNS is a trusted constant column list, not user input
+    `SELECT ${TRANSACTION_COLUMNS} FROM transactions WHERE id = ? LIMIT 1`,
     [id],
   );
   if (result.rows.length === 0) {
     return null;
   }
-  return toExpenseRecord(result.rows.item(0) as RawExpenseRow);
+  return toTransactionRecord(result.rows.item(0) as RawTransactionRow);
 };
 
-export const listExpenses = async (
+export const listTransactions = async (
   db: SQLiteDatabase,
-  filters: ExpenseQueryFilters = {},
-): Promise<ExpenseRecord[]> => {
+  filters: TransactionQueryFilters = {},
+): Promise<TransactionRecord[]> => {
   const conditions: string[] = [];
   const params: Array<number | string> = [];
 
+  if (filters.type) {
+    conditions.push('type = ?');
+    params.push(filters.type);
+  }
   if (typeof filters.categoryId === 'number') {
     conditions.push('category_id = ?');
     params.push(filters.categoryId);
@@ -267,7 +286,7 @@ export const listExpenses = async (
     params.push(filters.offset);
   }
 
-  const query = `SELECT ${EXPENSE_COLUMNS} FROM expenses ${whereClause} ORDER BY date DESC, id DESC${limitClause}`;
+  const query = `SELECT ${TRANSACTION_COLUMNS} FROM transactions ${whereClause} ORDER BY date DESC, id DESC${limitClause}`;
   const [result] = await db.executeSql(query, params);
-  return mapResultSetToExpenses(result);
+  return mapResultSetToTransactions(result);
 };

@@ -48,8 +48,9 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 - **Full CRUD Operations**: Create, read, update, and delete expenses with comprehensive validation
 - **Multi-Currency Support**: Track expenses in any ISO-4217 currency with manual FX rates
 - **Base Currency Conversion**: Automatic conversion to your chosen base currency with preserved exchange rates
-- **Category Organization**: Flexible categorization with 18 default categories (customizable)
+- **Category Organization**: Flexible categorization with 23 default categories (customizable), each usable for expenses, income, or both
 - **Date Filtering**: Quick filters (Last 7/30 days, This month, All time) plus custom date ranges
+- **Income and Expenses**: Record money in as well as out; Home reports expense, income and net totals per base currency
 - **Rich Metadata**: Add notes, select categories, and track precise amounts with proper rounding
 
 ### 📊 Data & Analytics
@@ -123,8 +124,9 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 **`expenses`** (Primary entity)
 
 ```sql
-CREATE TABLE expenses (
+CREATE TABLE transactions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  type TEXT NOT NULL DEFAULT 'expense' CHECK (type IN ('expense','income')),
   description TEXT NOT NULL,
   amount_native REAL NOT NULL CHECK (amount_native > 0),
   currency_code TEXT NOT NULL CHECK (LENGTH(currency_code) = 3),
@@ -140,21 +142,29 @@ CREATE TABLE expenses (
 );
 ```
 
-Each expense records the base currency its `fx_rate_to_base`/`base_amount` were
-captured against. Changing the `base_currency` setting applies to **new
-expenses only**; existing expenses keep their original base, and totals are
+Each transaction records the base currency its `fx_rate_to_base`/`base_amount`
+were captured against. Changing the `base_currency` setting applies to **new
+transactions only**; existing rows keep their original base, and totals are
 reported per base currency when historical data spans more than one.
 
-**`categories`** (Expense classification)
+`amount_native` is always a positive magnitude — direction is carried by
+`type`, never by the sign of the amount.
+
+**`categories`** (Transaction classification)
 
 ```sql
 CREATE TABLE categories (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL UNIQUE,
+  type TEXT NOT NULL DEFAULT 'both' CHECK (type IN ('expense','income','both')),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 ```
+
+A category is offered for a transaction when its `type` matches the direction
+or is `both`. Categories that predate typing migrate to `both`, so nothing a
+user was already filing under stops being available.
 
 **`app_settings`** (Key-value configuration)
 
@@ -204,9 +214,9 @@ Add Expense form can prefill it instead of requiring re-entry.
 
 ### Architecture Patterns
 
-- **Repository Pattern**: Database operations abstracted through repository classes (`expensesRepository`, `categoriesRepository`, `settingsRepository`, `exportQueueRepository`)
+- **Repository Pattern**: Database operations abstracted through repository classes (`transactionsRepository`, `categoriesRepository`, `settingsRepository`, `exportQueueRepository`)
 - **Context-Based State**: Global state managed via `AppContext` with reducer pattern
-- **Memoized Selectors**: Derived state (filtered expenses, totals) computed with `useMemo` to prevent unnecessary re-renders
+- **Memoized Selectors**: Derived state (filtered transactions, totals) computed with `useMemo` to prevent unnecessary re-renders
 - **Migration System**: Transactional database migrations with version tracking (`schema_migrations` table)
 - **Offline Queue**: Export operations queued locally, uploaded when network available
 
@@ -649,7 +659,7 @@ PET/
 │   ├── constants/              # Static data
 │   │   ├── currencies.json     # ISO-4217 currency list
 │   │   ├── currencyOptions.ts  # Currency picker data
-│   │   └── defaultCategories.ts # Initial category seed
+│   │   └── defaultCategories.ts # Initial typed category seed
 │   ├── context/                # React Context state management
 │   │   └── AppContext.tsx      # Global app state (expenses, categories, settings)
 │   ├── database/               # SQLite layer
@@ -657,7 +667,7 @@ PET/
 │   │   ├── migrations.ts       # Schema migrations (v1-v4)
 │   │   ├── seeding.ts          # Default data seeding
 │   │   ├── repositories/       # Data access layer
-│   │   │   ├── expensesRepository.ts
+│   │   │   ├── transactionsRepository.ts
 │   │   │   ├── categoriesRepository.ts
 │   │   │   ├── settingsRepository.ts
 │   │   │   └── exportQueueRepository.ts
@@ -678,12 +688,12 @@ PET/
 │   │   └── AppNavigator.tsx    # Stack navigator definition
 │   ├── screens/                # Screen components
 │   │   ├── HomeScreen.tsx      # Expense list + filters + totals
-│   │   ├── AddExpenseScreen.tsx # Create/edit expense form
+│   │   ├── AddTransactionScreen.tsx # Create/edit transaction form
 │   │   ├── SettingsScreen.tsx  # App settings
 │   │   ├── ManageCategoriesScreen.tsx # Category CRUD
 │   │   ├── ExportQueueScreen.tsx # Backup queue management
 │   │   ├── homeUtils.ts        # Home screen helper functions
-│   │   ├── expenseFormUtils.ts # Form validation and payload building
+│   │   ├── transactionFormUtils.ts # Form validation and payload building
 │   │   └── __tests__/          # Screen tests
 │   ├── security/               # Authentication and storage
 │   │   ├── googleAuth.ts       # OAuth 2.0 with PKCE

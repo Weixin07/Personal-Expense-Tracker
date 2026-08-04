@@ -26,7 +26,7 @@ const baseCtx: ImportContext = {
   negativeMeans: 'income',
   numberFormat: 'auto',
   fxRateCache: [],
-  existingExpenses: [],
+  existingTransactions: [],
   existingCategories: [],
 };
 
@@ -107,14 +107,13 @@ describe('previewImport', () => {
     expect(result.invalid[0]).toMatchObject({ line: 2 });
   });
 
-  it('skips negative rows as income under the default sign convention', () => {
+  it('reads negative rows as income under the default sign convention', () => {
     const text = `${HEADER}Salary,-5,USD,1,2024-01-01,Food,Cafe,USD\r\n`;
     const result = previewImport(text, APP_MAPPING, 'iso', baseCtx);
-    expect(result.valid).toHaveLength(0);
     expect(result.invalid).toEqual([]);
-    expect(result.skippedIncome).toEqual([
-      { line: 2, reason: expect.stringMatching(/income/i) },
-    ]);
+    expect(result.valid).toHaveLength(1);
+    expect(result.valid[0].record.type).toBe('income');
+    expect(result.valid[0].record.amountNative).toBe(5);
   });
 
   it('imports negative rows as expenses when negative means expense', () => {
@@ -123,19 +122,20 @@ describe('previewImport', () => {
       ...baseCtx,
       negativeMeans: 'expense',
     });
-    expect(result.skippedIncome).toEqual([]);
     expect(result.valid).toHaveLength(1);
+    expect(result.valid[0].record.type).toBe('expense');
     expect(result.valid[0].record.amountNative).toBe(5);
   });
 
-  it('skips positive rows as income when negative means expense', () => {
+  it('reads every row as an expense when the file carries no negatives', () => {
     const text = `${HEADER}Deposit,5,USD,1,2024-01-01,Food,Cafe,USD\r\n`;
     const result = previewImport(text, APP_MAPPING, 'iso', {
       ...baseCtx,
       negativeMeans: 'expense',
     });
-    expect(result.valid).toHaveLength(0);
-    expect(result.skippedIncome).toHaveLength(1);
+    expect(result.signConventionBypassed).toBe(true);
+    expect(result.valid).toHaveLength(1);
+    expect(result.valid[0].record.type).toBe('expense');
   });
 
   it('normalizes decorated amounts', () => {
@@ -153,7 +153,8 @@ describe('previewImport', () => {
   it('treats a parenthesised amount as negative', () => {
     const text = `${HEADER}Refund,(50.00),USD,1,2024-01-01,Food,Cafe,USD\r\n`;
     const result = previewImport(text, APP_MAPPING, 'iso', baseCtx);
-    expect(result.skippedIncome).toHaveLength(1);
+    expect(result.valid).toHaveLength(1);
+    expect(result.valid[0].record.type).toBe('income');
   });
 
   it('falls back to the default currency when the column is blank', () => {
@@ -346,8 +347,9 @@ describe('previewImport', () => {
     const text = `${HEADER}Lunch,10,USD,1,2024-01-01,Food,Cafe,USD\r\n`;
     const ctx: ImportContext = {
       ...baseCtx,
-      existingExpenses: [
+      existingTransactions: [
         {
+          type: 'expense',
           id: 42,
           description: 'Lunch',
           payee: 'Cafe',
@@ -365,7 +367,7 @@ describe('previewImport', () => {
       ],
     };
     const result = previewImport(text, APP_MAPPING, 'iso', ctx);
-    expect(result.duplicates).toEqual([{ line: 2, matchesExpenseId: 42 }]);
+    expect(result.duplicates).toEqual([{ line: 2, matchesTransactionId: 42 }]);
   });
 
   it('lists only categories that do not already exist', () => {
@@ -375,7 +377,7 @@ describe('previewImport', () => {
     const ctx: ImportContext = {
       ...baseCtx,
       existingCategories: [
-        { id: 1, name: 'food', createdAt: '', updatedAt: '' },
+        { id: 1, name: 'food', createdAt: '', updatedAt: '', type: 'both' },
       ],
     };
     const result = previewImport(text, APP_MAPPING, 'iso', ctx);
@@ -424,18 +426,17 @@ describe('previewImport', () => {
         `${TYPE_HEADER}Brownie,50,USD,1,2024-01-01,Food,Cafe,USD,Expense\r\n` +
         `Salary,300,USD,1,2024-01-02,Food,Cafe,USD,Income\r\n`;
       const result = previewImport(text, TYPE_MAPPING, 'iso', baseCtx);
-      expect(result.valid).toHaveLength(1);
-      expect(result.valid[0].record.description).toBe('Brownie');
-      expect(result.skippedIncome).toEqual([
-        { line: 3, reason: expect.stringMatching(/income/i) },
-      ]);
+      expect(result.valid).toHaveLength(2);
+      expect(result.valid[0].record.type).toBe('expense');
+      expect(result.valid[1].record.type).toBe('income');
+      expect(result.valid[1].record.description).toBe('Salary');
     });
 
     it('overrides the sign convention when the two disagree', () => {
       const text = `${TYPE_HEADER}Refund,-5,USD,1,2024-01-01,Food,Cafe,USD,Expense\r\n`;
       const result = previewImport(text, TYPE_MAPPING, 'iso', baseCtx);
-      expect(result.skippedIncome).toEqual([]);
       expect(result.valid).toHaveLength(1);
+      expect(result.valid[0].record.type).toBe('expense');
       expect(result.valid[0].record.amountNative).toBe(5);
     });
 
@@ -444,16 +445,32 @@ describe('previewImport', () => {
         `${TYPE_HEADER}A,-5,USD,1,2024-01-01,Food,Cafe,USD,Transfer\r\n` +
         `B,10,USD,1,2024-01-02,Food,Cafe,USD,\r\n`;
       const result = previewImport(text, TYPE_MAPPING, 'iso', baseCtx);
-      expect(result.skippedIncome).toHaveLength(1);
-      expect(result.skippedIncome[0]).toMatchObject({ line: 2 });
-      expect(result.valid).toHaveLength(1);
-      expect(result.valid[0].record.description).toBe('B');
+      expect(result.valid).toHaveLength(2);
+      expect(result.valid[0].record.type).toBe('income');
+      expect(result.valid[1].record.type).toBe('expense');
+      expect(result.valid[1].record.description).toBe('B');
     });
 
     it('leaves files without a type column on the sign convention', () => {
       const text = `${HEADER}Salary,-5,USD,1,2024-01-01,Food,Cafe,USD\r\n`;
       const result = previewImport(text, APP_MAPPING, 'iso', baseCtx);
-      expect(result.skippedIncome).toHaveLength(1);
+      expect(result.signConventionBypassed).toBe(false);
+      expect(result.valid).toHaveLength(1);
+      expect(result.valid[0].record.type).toBe('income');
+    });
+
+    it('reads a blank type cell as an expense when the file has no negatives', () => {
+      const text =
+        `${TYPE_HEADER}A,10,USD,1,2024-01-01,Food,Cafe,USD,\r\n` +
+        `B,20,USD,1,2024-01-02,Food,Cafe,USD,Income\r\n`;
+      const result = previewImport(text, TYPE_MAPPING, 'iso', {
+        ...baseCtx,
+        negativeMeans: 'expense',
+      });
+      expect(result.signConventionBypassed).toBe(true);
+      expect(result.valid).toHaveLength(2);
+      expect(result.valid[0].record.type).toBe('expense');
+      expect(result.valid[1].record.type).toBe('income');
     });
   });
 
@@ -466,8 +483,8 @@ describe('previewImport', () => {
       const result = previewImport(text, APP_MAPPING, 'iso', baseCtx);
       expect(result.valid).toHaveLength(3);
       expect(result.duplicates).toEqual([
-        { line: 3, matchesExpenseId: null, matchesLine: 2 },
-        { line: 4, matchesExpenseId: null, matchesLine: 2 },
+        { line: 3, matchesTransactionId: null, matchesLine: 2 },
+        { line: 4, matchesTransactionId: null, matchesLine: 2 },
       ]);
     });
 
@@ -477,8 +494,9 @@ describe('previewImport', () => {
         `Coffee,4,USD,1,2024-01-01,Food,Cafe,USD\r\n`;
       const ctx: ImportContext = {
         ...baseCtx,
-        existingExpenses: [
+        existingTransactions: [
           {
+            type: 'expense',
             id: 42,
             description: 'Coffee',
             payee: 'Cafe',
@@ -497,8 +515,8 @@ describe('previewImport', () => {
       };
       const result = previewImport(text, APP_MAPPING, 'iso', ctx);
       expect(result.duplicates).toEqual([
-        { line: 2, matchesExpenseId: 42 },
-        { line: 3, matchesExpenseId: 42 },
+        { line: 2, matchesTransactionId: 42 },
+        { line: 3, matchesTransactionId: 42 },
       ]);
     });
 
@@ -517,7 +535,7 @@ describe('previewImport', () => {
         `${'  snacks  ,40,USD,1,2024-01-01,Food,,USD\r\n'}`;
       const result = previewImport(text, APP_MAPPING, 'iso', baseCtx);
       expect(result.duplicates).toEqual([
-        { line: 3, matchesExpenseId: null, matchesLine: 2 },
+        { line: 3, matchesTransactionId: null, matchesLine: 2 },
       ]);
     });
   });
@@ -548,7 +566,7 @@ describe('commitImport', () => {
     (database.withTransaction as jest.Mock).mockImplementation((_db, work) =>
       work(mockDb),
     );
-    (database.createExpensesBulk as jest.Mock).mockResolvedValue(0);
+    (database.createTransactionsBulk as jest.Mock).mockResolvedValue(0);
     (database.upsertCurrencyFxRate as jest.Mock).mockResolvedValue(undefined);
   });
 
@@ -557,6 +575,7 @@ describe('commitImport', () => {
       {
         line: 2,
         record: {
+          type: 'expense',
           description: 'Lunch',
           payee: 'Cafe',
           amountNative: 100,
@@ -572,7 +591,6 @@ describe('commitImport', () => {
       },
     ],
     invalid: [{ line: 3, reason: 'bad' }],
-    skippedIncome: [],
     needsFxRate: [],
     fxReview: [],
     currencyReview: [],
@@ -580,6 +598,7 @@ describe('commitImport', () => {
     newCategoryNames: ['Food'],
     totalRows: 2,
     inferredDateOrder: null,
+    signConventionBypassed: false,
   });
 
   it('creates missing categories and bulk-inserts with resolved ids', async () => {
@@ -590,14 +609,15 @@ describe('commitImport', () => {
       createdAt: '',
       updatedAt: '',
     } as CategoryRecord);
-    (database.createExpensesBulk as jest.Mock).mockResolvedValue(1);
+    (database.createTransactionsBulk as jest.Mock).mockResolvedValue(1);
 
     const summary = await commitImport(previewWith());
 
     expect(database.createCategory).toHaveBeenCalledWith(mockDb, {
       name: 'Food',
+      type: 'both',
     });
-    const inserted = (database.createExpensesBulk as jest.Mock).mock
+    const inserted = (database.createTransactionsBulk as jest.Mock).mock
       .calls[0][1];
     expect(inserted[0].categoryId).toBe(7);
     expect(database.upsertCurrencyFxRate).toHaveBeenCalledWith(
@@ -607,7 +627,8 @@ describe('commitImport', () => {
       1.1,
     );
     expect(summary).toEqual({
-      inserted: 1,
+      insertedExpenses: 1,
+      insertedIncome: 0,
       skippedInvalid: 1,
       skippedNeedsFxRate: 0,
       createdCategories: 1,
@@ -638,7 +659,7 @@ describe('commitImport', () => {
 
     await commitImport(previewWith(), { 'USD|EUR': 1.25 });
 
-    const inserted = (database.createExpensesBulk as jest.Mock).mock
+    const inserted = (database.createTransactionsBulk as jest.Mock).mock
       .calls[0][1];
     expect(inserted[0].fxRateToBase).toBe(1.25);
     expect(inserted[0].baseAmount).toBe(125);
@@ -654,7 +675,7 @@ describe('commitImport', () => {
 
     await commitImport(previewWith(), { EUR: 1.25 });
 
-    const inserted = (database.createExpensesBulk as jest.Mock).mock
+    const inserted = (database.createTransactionsBulk as jest.Mock).mock
       .calls[0][1];
     expect(inserted[0].fxRateToBase).toBe(1.1);
   });
@@ -671,7 +692,7 @@ describe('commitImport', () => {
 
     await commitImport(preview, { 'USD|EUR': 1.25 });
 
-    const inserted = (database.createExpensesBulk as jest.Mock).mock
+    const inserted = (database.createTransactionsBulk as jest.Mock).mock
       .calls[0][1];
     expect(inserted[0].fxRateToBase).toBe(1.1);
     expect(inserted[0].baseAmount).toBe(110);
@@ -691,7 +712,7 @@ describe('commitImport', () => {
 
     await commitImport(preview, { 'USD|USD': 4 });
 
-    const inserted = (database.createExpensesBulk as jest.Mock).mock
+    const inserted = (database.createTransactionsBulk as jest.Mock).mock
       .calls[0][1];
     expect(inserted[0].fxRateToBase).toBe(1);
   });
@@ -703,7 +724,7 @@ describe('commitImport', () => {
       createdAt: '',
       updatedAt: '',
     });
-    (database.createExpensesBulk as jest.Mock).mockResolvedValue(1);
+    (database.createTransactionsBulk as jest.Mock).mockResolvedValue(1);
     const preview = previewWith();
     preview.needsFxRate = [
       { line: 4, reason: 'FX rate required for INR to MYR.' },
@@ -722,7 +743,7 @@ describe('commitImport', () => {
       createdAt: '',
       updatedAt: '',
     });
-    (database.createExpensesBulk as jest.Mock).mockRejectedValue(
+    (database.createTransactionsBulk as jest.Mock).mockRejectedValue(
       new Error('insert failed'),
     );
 

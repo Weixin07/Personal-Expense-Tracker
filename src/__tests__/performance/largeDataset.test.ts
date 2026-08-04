@@ -1,34 +1,30 @@
-/**
- * Performance Test: Large Dataset Handling
- * Tests app performance with 10,000+ expenses
- */
-
 import {
   measurePerformance,
   assertPerformance,
   formatDuration,
   formatBytes,
-  generateMockExpenses,
+  generateMockTransactions,
 } from './testHelpers';
-import type { ExpenseRecord } from '../../database/types';
+import type { TransactionRecord } from '../../database/types';
 
 describe('Performance: Large Dataset (10k expenses)', () => {
   const EXPENSE_COUNT = 10000;
-  let mockExpenses: ExpenseRecord[];
+  let mockTransactions: TransactionRecord[];
 
   beforeAll(() => {
     console.log(
-      `\n📊 Generating ${EXPENSE_COUNT} mock expenses for testing...`,
+      `\n📊 Generating ${EXPENSE_COUNT} mock transactions for testing...`,
     );
-    mockExpenses = generateMockExpenses(EXPENSE_COUNT) as ExpenseRecord[];
-    console.log(`✅ Generated ${mockExpenses.length} expenses\n`);
+    mockTransactions = generateMockTransactions(
+      EXPENSE_COUNT,
+    ) as TransactionRecord[];
+    console.log(`✅ Generated ${mockTransactions.length} transactions\n`);
   });
 
   describe('Data Loading Performance', () => {
     it('should load 10k expenses in under 500ms', async () => {
       const { result, metrics } = await measurePerformance(() => {
-        // Simulate loading expenses from database
-        return [...mockExpenses];
+        return [...mockTransactions];
       });
 
       console.log(`⏱️  Load Time: ${formatDuration(metrics.duration)}`);
@@ -45,13 +41,13 @@ describe('Performance: Large Dataset (10k expenses)', () => {
       const targetCategoryId = 1;
 
       const { result, metrics } = await measurePerformance(() => {
-        return mockExpenses.filter(
-          expense => expense.categoryId === targetCategoryId,
+        return mockTransactions.filter(
+          transaction => transaction.categoryId === targetCategoryId,
         );
       });
 
       console.log(`⏱️  Filter Time: ${formatDuration(metrics.duration)}`);
-      console.log(`📋 Filtered Results: ${result.length} expenses`);
+      console.log(`📋 Filtered Results: ${result.length} transactions`);
 
       assertPerformance(
         metrics,
@@ -65,13 +61,14 @@ describe('Performance: Large Dataset (10k expenses)', () => {
       const endDate = '2023-12-31';
 
       const { result, metrics } = await measurePerformance(() => {
-        return mockExpenses.filter(
-          expense => expense.date >= startDate && expense.date <= endDate,
+        return mockTransactions.filter(
+          transaction =>
+            transaction.date >= startDate && transaction.date <= endDate,
         );
       });
 
       console.log(`⏱️  Date Filter Time: ${formatDuration(metrics.duration)}`);
-      console.log(`📋 Filtered Results: ${result.length} expenses`);
+      console.log(`📋 Filtered Results: ${result.length} transactions`);
 
       assertPerformance(
         metrics,
@@ -82,7 +79,7 @@ describe('Performance: Large Dataset (10k expenses)', () => {
 
     it('should sort 10k expenses by date in under 200ms', async () => {
       const { result, metrics } = await measurePerformance(() => {
-        return [...mockExpenses].sort((a, b) => {
+        return [...mockTransactions].sort((a, b) => {
           if (a.date !== b.date) {
             return b.date.localeCompare(a.date);
           }
@@ -104,8 +101,8 @@ describe('Performance: Large Dataset (10k expenses)', () => {
   describe('Calculation Performance', () => {
     it('should calculate total for 10k expenses in under 50ms', async () => {
       const { result, metrics } = await measurePerformance(() => {
-        return mockExpenses.reduce(
-          (sum, expense) => sum + expense.baseAmount,
+        return mockTransactions.reduce(
+          (sum, transaction) => sum + transaction.baseAmount,
           0,
         );
       });
@@ -123,9 +120,12 @@ describe('Performance: Large Dataset (10k expenses)', () => {
     it('should group 10k expenses by category in under 100ms', async () => {
       const { result, metrics } = await measurePerformance(() => {
         const grouped = new Map<number | null, number>();
-        mockExpenses.forEach(expense => {
-          const current = grouped.get(expense.categoryId ?? null) ?? 0;
-          grouped.set(expense.categoryId ?? null, current + expense.baseAmount);
+        mockTransactions.forEach(transaction => {
+          const current = grouped.get(transaction.categoryId ?? null) ?? 0;
+          grouped.set(
+            transaction.categoryId ?? null,
+            current + transaction.baseAmount,
+          );
         });
         return grouped;
       });
@@ -143,10 +143,10 @@ describe('Performance: Large Dataset (10k expenses)', () => {
     it('should group 10k expenses by month in under 100ms', async () => {
       const { result, metrics } = await measurePerformance(() => {
         const grouped = new Map<string, number>();
-        mockExpenses.forEach(expense => {
-          const month = expense.date.slice(0, 7); // YYYY-MM
+        mockTransactions.forEach(transaction => {
+          const month = transaction.date.slice(0, 7); // YYYY-MM
           const current = grouped.get(month) ?? 0;
-          grouped.set(month, current + expense.baseAmount);
+          grouped.set(month, current + transaction.baseAmount);
         });
         return grouped;
       });
@@ -169,8 +169,10 @@ describe('Performance: Large Dataset (10k expenses)', () => {
       const searchTerm = 'grocery';
 
       const { result, metrics } = await measurePerformance(() => {
-        return mockExpenses.filter(expense =>
-          expense.description.toLowerCase().includes(searchTerm.toLowerCase()),
+        return mockTransactions.filter(transaction =>
+          transaction.description
+            .toLowerCase()
+            .includes(searchTerm.toLowerCase()),
         );
       });
 
@@ -194,13 +196,13 @@ describe('Performance: Large Dataset (10k expenses)', () => {
       };
 
       const { result, metrics } = await measurePerformance(() => {
-        return mockExpenses.filter(
-          expense =>
-            expense.categoryId === filters.categoryId &&
-            expense.date >= filters.startDate &&
-            expense.date <= filters.endDate &&
-            expense.baseAmount >= filters.minAmount &&
-            expense.baseAmount <= filters.maxAmount,
+        return mockTransactions.filter(
+          transaction =>
+            transaction.categoryId === filters.categoryId &&
+            transaction.date >= filters.startDate &&
+            transaction.date <= filters.endDate &&
+            transaction.baseAmount >= filters.minAmount &&
+            transaction.baseAmount <= filters.maxAmount,
         );
       });
 
@@ -223,7 +225,7 @@ describe('Performance: Large Dataset (10k expenses)', () => {
       const page = 0;
 
       const { result, metrics } = await measurePerformance(() => {
-        const sorted = [...mockExpenses].sort((a, b) => {
+        const sorted = [...mockTransactions].sort((a, b) => {
           if (a.date !== b.date) {
             return b.date.localeCompare(a.date);
           }
@@ -237,7 +239,6 @@ describe('Performance: Large Dataset (10k expenses)', () => {
 
       expect(result.length).toBe(pageSize);
 
-      // First page should be very fast since we're only taking the first 50
       assertPerformance(
         metrics,
         { maxDuration: 250 }, // Account for sorting overhead
@@ -247,10 +248,10 @@ describe('Performance: Large Dataset (10k expenses)', () => {
 
     it('should paginate 10k expenses (middle page) in under 250ms', async () => {
       const pageSize = 50;
-      const page = 100; // Middle page
+      const page = 100;
 
       const { result, metrics } = await measurePerformance(() => {
-        const sorted = [...mockExpenses].sort((a, b) => {
+        const sorted = [...mockTransactions].sort((a, b) => {
           if (a.date !== b.date) {
             return b.date.localeCompare(a.date);
           }
@@ -280,8 +281,7 @@ describe('Performance: Large Dataset (10k expenses)', () => {
 
       for (let i = 0; i < iterations; i++) {
         const { metrics } = await measurePerformance(() => {
-          // Simulate typical operations
-          const filtered = mockExpenses.filter(e => e.categoryId === 1);
+          const filtered = mockTransactions.filter(e => e.categoryId === 1);
           const total = filtered.reduce((sum, e) => sum + e.baseAmount, 0);
           return total;
         });
@@ -296,9 +296,7 @@ describe('Performance: Large Dataset (10k expenses)', () => {
           results.reduce((sum, delta) => sum + delta, 0) / results.length;
         console.log(`💾 Average Memory Delta: ${formatBytes(avgMemoryDelta)}`);
 
-        // Memory delta should not grow significantly with repeated operations
-        // This indicates good garbage collection
-        expect(avgMemoryDelta).toBeLessThan(10 * 1024 * 1024); // 10MB threshold
+        expect(avgMemoryDelta).toBeLessThan(10 * 1024 * 1024);
       }
     });
   });
@@ -306,19 +304,15 @@ describe('Performance: Large Dataset (10k expenses)', () => {
   describe('Realistic Usage Scenarios', () => {
     it('should handle complete workflow (filter + sort + paginate) in under 300ms', async () => {
       const { result, metrics } = await measurePerformance(() => {
-        // 1. Filter by category
-        const filtered = mockExpenses.filter(e => e.categoryId === 1);
+        const filtered = mockTransactions.filter(e => e.categoryId === 1);
 
-        // 2. Sort by date
         const sorted = [...filtered].sort((a, b) =>
           b.date.localeCompare(a.date),
         );
 
-        // 3. Paginate (first page)
         const pageSize = 50;
         const paginated = sorted.slice(0, pageSize);
 
-        // 4. Calculate total
         const total = paginated.reduce((sum, e) => sum + e.baseAmount, 0);
 
         return { paginated, total };
@@ -328,7 +322,7 @@ describe('Performance: Large Dataset (10k expenses)', () => {
         `⏱️  Complete Workflow Time: ${formatDuration(metrics.duration)}`,
       );
       console.log(
-        `📄 Results: ${result.paginated.length} expenses, Total: $${result.total.toFixed(2)}`,
+        `📄 Results: ${result.paginated.length} transactions, Total: $${result.total.toFixed(2)}`,
       );
 
       assertPerformance(

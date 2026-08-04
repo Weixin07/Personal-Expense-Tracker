@@ -8,7 +8,7 @@ import {
   waitFor,
 } from '../../__tests__/test-utils/renderWithProviders';
 import SettingsScreen from '../SettingsScreen';
-import { useExpenseData } from '../../context/AppContext';
+import { useTransactionData } from '../../context/AppContext';
 import type { ExportQueueItem } from '../../context/AppContext';
 
 const mockNavigate = jest.fn();
@@ -17,10 +17,10 @@ jest.mock('@react-navigation/native', () => ({
 }));
 
 jest.mock('../../context/AppContext', () => ({
-  useExpenseData: jest.fn(),
+  useTransactionData: jest.fn(),
 }));
 
-const mockedUseExpenseData = useExpenseData as unknown as jest.Mock;
+const mockedUseExpenseData = useTransactionData as unknown as jest.Mock;
 
 const pendingItem: ExportQueueItem = {
   id: 'e1',
@@ -57,7 +57,7 @@ describe('SettingsScreen', () => {
 
   it('navigates to the import screen', () => {
     renderWithProviders(<SettingsScreen />);
-    fireEvent.press(screen.getByLabelText('Import expenses'));
+    fireEvent.press(screen.getByLabelText('Import transactions'));
     expect(mockNavigate).toHaveBeenCalledWith('Import');
   });
 

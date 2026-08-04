@@ -9,23 +9,23 @@ import {
   waitFor,
 } from '../../__tests__/test-utils/renderWithProviders';
 import {
-  ExpenseDataProvider,
-  useExpenseData,
-  type ExpenseDataContextValue,
+  TransactionDataProvider,
+  useTransactionData,
+  type TransactionDataContextValue,
 } from '../AppContext';
 import * as db from '../../database';
 import * as exportModule from '../../export';
 import * as importModule from '../../import';
 import * as storageAccess from '../../security/storageAccess';
-import type { ExpenseRecord, CategoryRecord } from '../../database';
+import type { TransactionRecord, CategoryRecord } from '../../database';
 import type { ImportPreview } from '../../import';
 
 jest.mock('../../database', () => ({
   withDatabase: jest.fn(),
-  listExpenses: jest.fn(),
-  createExpense: jest.fn(),
-  updateExpense: jest.fn(),
-  deleteExpense: jest.fn(),
+  listTransactions: jest.fn(),
+  createTransaction: jest.fn(),
+  updateTransaction: jest.fn(),
+  deleteTransaction: jest.fn(),
   listCategories: jest.fn(),
   createCategory: jest.fn(),
   updateCategory: jest.fn(),
@@ -63,17 +63,18 @@ const mockStorage = storageAccess as jest.Mocked<typeof storageAccess>;
 const emptyPreview: ImportPreview = {
   valid: [],
   invalid: [],
-  skippedIncome: [],
   needsFxRate: [],
   fxReview: [],
   currencyReview: [],
   duplicates: [],
   inferredDateOrder: null,
+  signConventionBypassed: false,
   newCategoryNames: [],
   totalRows: 0,
 };
 
-const expense: ExpenseRecord = {
+const transaction: TransactionRecord = {
+  type: 'expense',
   id: 1,
   description: 'Coffee',
   payee: 'Corner Cafe',
@@ -90,15 +91,16 @@ const expense: ExpenseRecord = {
 };
 
 const category: CategoryRecord = {
+  type: 'both',
   id: 1,
   name: 'Food',
   createdAt: '2025-01-10T00:00:00.000Z',
   updatedAt: '2025-01-10T00:00:00.000Z',
 };
 
-let ctx: ExpenseDataContextValue;
+let ctx: TransactionDataContextValue;
 const Capture: React.FC = () => {
-  const value = useExpenseData();
+  const value = useTransactionData();
   useEffect(() => {
     ctx = value;
   });
@@ -107,9 +109,9 @@ const Capture: React.FC = () => {
 
 const renderProvider = async () => {
   renderWithProviders(
-    <ExpenseDataProvider>
+    <TransactionDataProvider>
       <Capture />
-    </ExpenseDataProvider>,
+    </TransactionDataProvider>,
   );
   await waitFor(() => expect(ctx.state.isInitialised).toBe(true));
 };
@@ -119,7 +121,7 @@ beforeEach(() => {
   (mockDb.withDatabase as jest.Mock).mockImplementation(
     (cb: (database: unknown) => unknown) => Promise.resolve(cb({})),
   );
-  mockDb.listExpenses.mockResolvedValue([]);
+  mockDb.listTransactions.mockResolvedValue([]);
   mockDb.listCategories.mockResolvedValue([]);
   mockDb.getAllSettings.mockResolvedValue([]);
   mockDb.listExportQueue.mockResolvedValue([]);
@@ -144,33 +146,35 @@ beforeEach(() => {
   });
   mockStorage.deleteFileUri.mockResolvedValue(undefined);
   mockImport.commitImport.mockResolvedValue({
-    inserted: 2,
+    insertedExpenses: 2,
+    insertedIncome: 0,
     skippedInvalid: 0,
     skippedNeedsFxRate: 0,
     createdCategories: 1,
   });
 });
 
-describe('ExpenseDataProvider effects', () => {
+describe('TransactionDataProvider effects', () => {
   it('loads data from the database on mount', async () => {
-    mockDb.listExpenses.mockResolvedValue([expense]);
+    mockDb.listTransactions.mockResolvedValue([transaction]);
     mockDb.listCategories.mockResolvedValue([category]);
     await renderProvider();
-    expect(ctx.state.expenses).toHaveLength(1);
+    expect(ctx.state.transactions).toHaveLength(1);
     expect(ctx.state.categories).toHaveLength(1);
   });
 
   it('records an error when the initial load fails', async () => {
-    mockDb.listExpenses.mockRejectedValueOnce(new Error('load failed'));
+    mockDb.listTransactions.mockRejectedValueOnce(new Error('load failed'));
     await renderProvider();
     expect(ctx.state.error).toBe('load failed');
   });
 
   it('creates an expense and prepends it to state', async () => {
     await renderProvider();
-    mockDb.createExpense.mockResolvedValue(expense);
+    mockDb.createTransaction.mockResolvedValue(transaction);
     await act(async () => {
-      await ctx.actions.createExpense({
+      await ctx.actions.createTransaction({
+        type: 'expense',
         description: 'Coffee',
         payee: 'Corner Cafe',
         amountNative: 3.5,
@@ -183,16 +187,17 @@ describe('ExpenseDataProvider effects', () => {
         notes: null,
       });
     });
-    expect(mockDb.createExpense).toHaveBeenCalled();
-    expect(ctx.state.expenses).toContainEqual(expense);
+    expect(mockDb.createTransaction).toHaveBeenCalled();
+    expect(ctx.state.transactions).toContainEqual(transaction);
   });
 
   it('surfaces an error when creating an expense fails', async () => {
     await renderProvider();
-    mockDb.createExpense.mockRejectedValueOnce(new Error('insert failed'));
+    mockDb.createTransaction.mockRejectedValueOnce(new Error('insert failed'));
     await act(async () => {
       await expect(
-        ctx.actions.createExpense({
+        ctx.actions.createTransaction({
+          type: 'expense',
           description: 'x',
           payee: 'y',
           amountNative: 1,
@@ -211,11 +216,11 @@ describe('ExpenseDataProvider effects', () => {
 
   it('imports expenses and reloads state from the database', async () => {
     await renderProvider();
-    mockDb.listExpenses.mockResolvedValue([expense]);
+    mockDb.listTransactions.mockResolvedValue([transaction]);
 
     let summary;
     await act(async () => {
-      summary = await ctx.actions.importExpenses(emptyPreview, {
+      summary = await ctx.actions.importTransactions(emptyPreview, {
         'USD|EUR': 1.2,
       });
     });
@@ -224,12 +229,13 @@ describe('ExpenseDataProvider effects', () => {
       'USD|EUR': 1.2,
     });
     expect(summary).toEqual({
-      inserted: 2,
+      insertedExpenses: 2,
+      insertedIncome: 0,
       skippedInvalid: 0,
       skippedNeedsFxRate: 0,
       createdCategories: 1,
     });
-    expect(ctx.state.expenses).toHaveLength(1);
+    expect(ctx.state.transactions).toHaveLength(1);
   });
 
   it('surfaces an error when import fails', async () => {
@@ -237,26 +243,32 @@ describe('ExpenseDataProvider effects', () => {
     mockImport.commitImport.mockRejectedValueOnce(new Error('import boom'));
 
     await act(async () => {
-      await expect(ctx.actions.importExpenses(emptyPreview)).rejects.toThrow(
-        'import boom',
-      );
+      await expect(
+        ctx.actions.importTransactions(emptyPreview),
+      ).rejects.toThrow('import boom');
     });
     expect(ctx.state.error).toBe('import boom');
   });
 
   it('updates and deletes expenses through the database', async () => {
-    mockDb.listExpenses.mockResolvedValue([expense]);
+    mockDb.listTransactions.mockResolvedValue([transaction]);
     await renderProvider();
-    mockDb.updateExpense.mockResolvedValue({ ...expense, description: 'Tea' });
-    mockDb.deleteExpense.mockResolvedValue(undefined as never);
-    await act(async () => {
-      await ctx.actions.updateExpense({ ...expense, description: 'Tea' });
+    mockDb.updateTransaction.mockResolvedValue({
+      ...transaction,
+      description: 'Tea',
     });
-    expect(ctx.state.expenses[0].description).toBe('Tea');
+    mockDb.deleteTransaction.mockResolvedValue(undefined as never);
     await act(async () => {
-      await ctx.actions.deleteExpense(1);
+      await ctx.actions.updateTransaction({
+        ...transaction,
+        description: 'Tea',
+      });
     });
-    expect(ctx.state.expenses).toHaveLength(0);
+    expect(ctx.state.transactions[0].description).toBe('Tea');
+    await act(async () => {
+      await ctx.actions.deleteTransaction(1);
+    });
+    expect(ctx.state.transactions).toHaveLength(0);
   });
 
   it('creates and deletes categories', async () => {
@@ -264,7 +276,7 @@ describe('ExpenseDataProvider effects', () => {
     mockDb.createCategory.mockResolvedValue(category);
     mockDb.listCategories.mockResolvedValue([category]);
     await act(async () => {
-      await ctx.actions.createCategory({ name: 'Food' });
+      await ctx.actions.createCategory({ name: 'Food', type: 'both' });
     });
     expect(ctx.state.categories).toContainEqual(category);
 
@@ -350,13 +362,13 @@ describe('ExpenseDataProvider effects', () => {
     expect(ctx.selectors.hasActiveFilters).toBe(false);
   });
 
-  it('throws when useExpenseData is used outside the provider', () => {
+  it('throws when useTransactionData is used outside the provider', () => {
     const Outside: React.FC = () => {
-      useExpenseData();
+      useTransactionData();
       return null;
     };
     expect(() => renderWithProviders(<Outside />)).toThrow(
-      'useExpenseData must be used within ExpenseDataProvider',
+      'useTransactionData must be used within TransactionDataProvider',
     );
   });
 
@@ -409,7 +421,7 @@ describe('ExpenseDataProvider effects', () => {
   });
 
   it('locks fail-closed on a settings-load failure when a credential exists', async () => {
-    mockDb.listExpenses.mockRejectedValueOnce(new Error('load failed'));
+    mockDb.listTransactions.mockRejectedValueOnce(new Error('load failed'));
     (Keychain.hasGenericPassword as jest.Mock).mockResolvedValueOnce(true);
     await renderProvider();
     await waitFor(() =>
@@ -425,7 +437,7 @@ describe('ExpenseDataProvider effects', () => {
   });
 
   it('stays unlocked on a settings-load failure when no credential exists', async () => {
-    mockDb.listExpenses.mockRejectedValueOnce(new Error('load failed'));
+    mockDb.listTransactions.mockRejectedValueOnce(new Error('load failed'));
     (Keychain.hasGenericPassword as jest.Mock).mockResolvedValueOnce(false);
     await renderProvider();
     expect(ctx.state.biometric.isLocked).toBe(false);
@@ -433,7 +445,7 @@ describe('ExpenseDataProvider effects', () => {
   });
 
   it('locks fail-closed when the credential probe itself throws', async () => {
-    mockDb.listExpenses.mockRejectedValueOnce(new Error('load failed'));
+    mockDb.listTransactions.mockRejectedValueOnce(new Error('load failed'));
     (Keychain.hasGenericPassword as jest.Mock).mockRejectedValueOnce(
       new Error('keychain down'),
     );
@@ -497,7 +509,7 @@ const queueRecord = (overrides = {}) => ({
   ...overrides,
 });
 
-describe('ExpenseDataProvider queue and connectivity', () => {
+describe('TransactionDataProvider queue and connectivity', () => {
   it('uploads queued exports and stores an updated drive folder id', async () => {
     mockDb.listExportQueue.mockResolvedValue([queueRecord()]);
     mockExport.uploadPendingExports.mockResolvedValue({
@@ -563,24 +575,24 @@ describe('ExpenseDataProvider queue and connectivity', () => {
   });
 
   it('applies category and date filters to the expense selector', async () => {
-    mockDb.listExpenses.mockResolvedValue([
-      expense,
-      { ...expense, id: 2, categoryId: 5, date: '2025-03-01' },
+    mockDb.listTransactions.mockResolvedValue([
+      transaction,
+      { ...transaction, id: 2, categoryId: 5, date: '2025-03-01' },
     ]);
     await renderProvider();
     act(() => ctx.actions.setFilters({ categoryId: 5 }));
-    expect(ctx.selectors.filteredExpenses).toHaveLength(1);
+    expect(ctx.selectors.filteredTransactions).toHaveLength(1);
     act(() =>
       ctx.actions.setFilters({
         categoryId: undefined,
         startDate: '2025-02-15',
       }),
     );
-    expect(ctx.selectors.filteredExpenses).toHaveLength(1);
+    expect(ctx.selectors.filteredTransactions).toHaveLength(1);
     act(() =>
       ctx.actions.setFilters({ startDate: undefined, endDate: '2025-01-31' }),
     );
-    expect(ctx.selectors.filteredExpenses).toHaveLength(1);
+    expect(ctx.selectors.filteredTransactions).toHaveLength(1);
   });
 
   it('records a cancelled biometric unlock', async () => {
@@ -621,29 +633,29 @@ describe('ExpenseDataProvider queue and connectivity', () => {
         'setting failed',
       );
     });
-    mockDb.updateExpense.mockRejectedValueOnce(new Error('update failed'));
+    mockDb.updateTransaction.mockRejectedValueOnce(new Error('update failed'));
     await act(async () => {
-      await expect(ctx.actions.updateExpense({ ...expense })).rejects.toThrow(
-        'update failed',
-      );
+      await expect(
+        ctx.actions.updateTransaction({ ...transaction }),
+      ).rejects.toThrow('update failed');
     });
-    mockDb.deleteExpense.mockRejectedValueOnce(new Error('delete failed'));
+    mockDb.deleteTransaction.mockRejectedValueOnce(new Error('delete failed'));
     await act(async () => {
-      await expect(ctx.actions.deleteExpense(1)).rejects.toThrow(
+      await expect(ctx.actions.deleteTransaction(1)).rejects.toThrow(
         'delete failed',
       );
     });
     mockDb.createCategory.mockRejectedValueOnce(new Error('category failed'));
     await act(async () => {
-      await expect(ctx.actions.createCategory({ name: 'X' })).rejects.toThrow(
-        'category failed',
-      );
+      await expect(
+        ctx.actions.createCategory({ name: 'X', type: 'both' }),
+      ).rejects.toThrow('category failed');
     });
     expect(ctx.state.error).toBeTruthy();
   });
 
   it('clears the error and biometric error state', async () => {
-    mockDb.listExpenses.mockRejectedValueOnce(new Error('boom'));
+    mockDb.listTransactions.mockRejectedValueOnce(new Error('boom'));
     await renderProvider();
     expect(ctx.state.error).toBe('boom');
     act(() => ctx.actions.clearError());
@@ -652,11 +664,11 @@ describe('ExpenseDataProvider queue and connectivity', () => {
 
   it('refreshes data on demand', async () => {
     await renderProvider();
-    mockDb.listExpenses.mockResolvedValue([expense]);
+    mockDb.listTransactions.mockResolvedValue([transaction]);
     await act(async () => {
       await ctx.actions.refresh();
     });
-    expect(ctx.state.expenses).toHaveLength(1);
+    expect(ctx.state.transactions).toHaveLength(1);
   });
 
   it('uploads immediately after queueing when already online', async () => {
@@ -677,5 +689,98 @@ describe('ExpenseDataProvider queue and connectivity', () => {
       await ctx.actions.queueExport();
     });
     expect(mockExport.uploadPendingExports).toHaveBeenCalled();
+  });
+});
+
+describe('totals', () => {
+  it('reports no figures at all when nothing matches the filters', async () => {
+    mockDb.listTransactions.mockResolvedValue([]);
+    await renderProvider();
+    expect(ctx.selectors.totals.byBaseCurrency).toEqual([]);
+    expect(ctx.selectors.totals.mixedBase).toBe(false);
+  });
+
+  it('separates expense, income and net within one base currency', async () => {
+    mockDb.listTransactions.mockResolvedValue([
+      { ...transaction, id: 1, type: 'expense', baseAmount: 30 },
+      { ...transaction, id: 2, type: 'income', baseAmount: 100 },
+    ]);
+    await renderProvider();
+
+    const [entry] = ctx.selectors.totals.byBaseCurrency;
+    expect(entry.expense.total).toBe(30);
+    expect(entry.expense.count).toBe(1);
+    expect(entry.income.total).toBe(100);
+    expect(entry.income.count).toBe(1);
+    expect(entry.net.total).toBe(70);
+    expect(ctx.selectors.totals.mixedBase).toBe(false);
+  });
+
+  it('counts rows separately from their sum so a zero total is not mistaken for no data', async () => {
+    mockDb.listTransactions.mockResolvedValue([
+      { ...transaction, id: 1, type: 'expense', baseAmount: 40 },
+      { ...transaction, id: 2, type: 'income', baseAmount: 40 },
+    ]);
+    await renderProvider();
+
+    const [entry] = ctx.selectors.totals.byBaseCurrency;
+    expect(entry.net.total).toBe(0);
+    expect(entry.net.count).toBe(2);
+  });
+
+  it('keeps each base currency separate when directions and bases both vary', async () => {
+    mockDb.listTransactions.mockResolvedValue([
+      {
+        ...transaction,
+        id: 1,
+        type: 'expense',
+        baseCurrencyCode: 'USD',
+        baseAmount: 10,
+      },
+      {
+        ...transaction,
+        id: 2,
+        type: 'income',
+        baseCurrencyCode: 'USD',
+        baseAmount: 25,
+      },
+      {
+        ...transaction,
+        id: 3,
+        type: 'expense',
+        baseCurrencyCode: 'GBP',
+        baseAmount: 8,
+      },
+    ]);
+    await renderProvider();
+
+    const totals = ctx.selectors.totals;
+    expect(totals.mixedBase).toBe(true);
+
+    const usd = totals.byBaseCurrency.find(
+      row => row.baseCurrencyCode === 'USD',
+    );
+    const gbp = totals.byBaseCurrency.find(
+      row => row.baseCurrencyCode === 'GBP',
+    );
+    expect(usd?.net.total).toBe(15);
+    expect(gbp?.expense.total).toBe(8);
+    expect(gbp?.income.count).toBe(0);
+  });
+
+  it('excludes the other direction once a type filter is set', async () => {
+    mockDb.listTransactions.mockResolvedValue([
+      { ...transaction, id: 1, type: 'expense', baseAmount: 30 },
+      { ...transaction, id: 2, type: 'income', baseAmount: 100 },
+    ]);
+    await renderProvider();
+
+    act(() => ctx.actions.setFilters({ type: 'income' }));
+    expect(ctx.selectors.filteredTransactions).toHaveLength(1);
+    expect(ctx.selectors.totals.byBaseCurrency[0].expense.count).toBe(0);
+    expect(ctx.selectors.hasActiveFilters).toBe(true);
+
+    act(() => ctx.actions.setFilters({ type: undefined }));
+    expect(ctx.selectors.filteredTransactions).toHaveLength(2);
   });
 });

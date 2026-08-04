@@ -28,7 +28,7 @@ describe('migrations', () => {
   describe('latestMigrationVersion', () => {
     it('should return the latest migration version', () => {
       const version = latestMigrationVersion();
-      expect(version).toBe(6);
+      expect(version).toBe(8);
     });
   });
 
@@ -92,8 +92,8 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      // All six migrations are pending from a fresh database.
-      expect(mockDb.transaction).toHaveBeenCalledTimes(6);
+      // All eight migrations are pending from a fresh database.
+      expect(mockDb.transaction).toHaveBeenCalledTimes(8);
     });
 
     it('should run only pending migrations', async () => {
@@ -123,8 +123,8 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      // Migrations 3, 4, 5 and 6 are pending past version 2.
-      expect(mockDb.transaction).toHaveBeenCalledTimes(4);
+      // Migrations 3 through 8 are pending past version 2.
+      expect(mockDb.transaction).toHaveBeenCalledTimes(6);
     });
 
     it('should not run any migrations if already at latest version', async () => {
@@ -143,8 +143,8 @@ describe('migrations', () => {
         rowsAffected: 0,
         rows: {
           length: 1,
-          raw: () => [{ version: 6 }],
-          item: (index: number) => (index === 0 ? { version: 6 } : null),
+          raw: () => [{ version: 8 }],
+          item: (index: number) => (index === 0 ? { version: 8 } : null),
         },
       };
 
@@ -235,8 +235,8 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      // Migrations 4, 5 and 6 are pending past version 3.
-      expect(mockDb.transaction).toHaveBeenCalledTimes(3);
+      // Migrations 4 through 8 are pending past version 3.
+      expect(mockDb.transaction).toHaveBeenCalledTimes(5);
 
       const transactionCall = (mockDb.transaction as jest.Mock).mock.calls[0];
       const executor = transactionCall[0];
@@ -276,8 +276,8 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      // All six migrations are pending from an empty schema_migrations table.
-      expect(mockDb.transaction).toHaveBeenCalledTimes(6);
+      // All eight migrations are pending from an empty schema_migrations table.
+      expect(mockDb.transaction).toHaveBeenCalledTimes(8);
     });
 
     it('should apply migrations in version order', async () => {
@@ -329,6 +329,8 @@ describe('migrations', () => {
         'export-queue-file-uri',
         'expense-base-currency-and-fx-cache',
         'expense-payee',
+        'rename-expenses-to-transactions',
+        'transaction-and-category-type',
       ]);
     });
 
@@ -359,7 +361,7 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      // Should execute migration 3 (export-queue-metadata)
+      // The first transaction past version 2 is migration 3.
       const transactionCall = (mockDb.transaction as jest.Mock).mock.calls[0];
       const executor = transactionCall[0];
 
@@ -468,6 +470,120 @@ describe('migrations', () => {
       expect(mockTx.executeSql).toHaveBeenCalledWith(
         'INSERT INTO schema_migrations (version, name) VALUES (?, ?)',
         [6, 'expense-payee'],
+      );
+    });
+
+    it('should rename the expenses table and its indexes in migration 7', async () => {
+      const mockCreateTableResult: ResultSet = {
+        insertId: undefined,
+        rowsAffected: 0,
+        rows: {
+          length: 0,
+          raw: () => [],
+          item: () => null,
+        },
+      };
+
+      const mockVersionResult: ResultSet = {
+        insertId: undefined,
+        rowsAffected: 0,
+        rows: {
+          length: 1,
+          raw: () => [{ version: 6 }],
+          item: (index: number) => (index === 0 ? { version: 6 } : null),
+        },
+      };
+
+      mockDb.executeSql
+        .mockResolvedValueOnce([mockCreateTableResult])
+        .mockResolvedValueOnce([mockVersionResult]);
+
+      await runMigrations(mockDb);
+
+      const transactionCall = (mockDb.transaction as jest.Mock).mock.calls[0];
+      const executor = transactionCall[0];
+
+      executor(mockTx);
+
+      expect(mockTx.executeSql).toHaveBeenCalledWith(
+        expect.stringContaining('ALTER TABLE expenses RENAME TO transactions'),
+        [],
+      );
+      expect(mockTx.executeSql).toHaveBeenCalledWith(
+        expect.stringContaining('DROP INDEX IF EXISTS idx_expenses_date'),
+        [],
+      );
+      expect(mockTx.executeSql).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'DROP INDEX IF EXISTS idx_expenses_category_id',
+        ),
+        [],
+      );
+      expect(mockTx.executeSql).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date DESC)',
+        ),
+        [],
+      );
+      expect(mockTx.executeSql).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'CREATE INDEX IF NOT EXISTS idx_transactions_category_id ON transactions(category_id)',
+        ),
+        [],
+      );
+      expect(mockTx.executeSql).toHaveBeenCalledWith(
+        'INSERT INTO schema_migrations (version, name) VALUES (?, ?)',
+        [7, 'rename-expenses-to-transactions'],
+      );
+    });
+
+    it('should add the type columns with backfilling defaults in migration 8', async () => {
+      const mockCreateTableResult: ResultSet = {
+        insertId: undefined,
+        rowsAffected: 0,
+        rows: {
+          length: 0,
+          raw: () => [],
+          item: () => null,
+        },
+      };
+
+      const mockVersionResult: ResultSet = {
+        insertId: undefined,
+        rowsAffected: 0,
+        rows: {
+          length: 1,
+          raw: () => [{ version: 7 }],
+          item: (index: number) => (index === 0 ? { version: 7 } : null),
+        },
+      };
+
+      mockDb.executeSql
+        .mockResolvedValueOnce([mockCreateTableResult])
+        .mockResolvedValueOnce([mockVersionResult]);
+
+      await runMigrations(mockDb);
+
+      const transactionCall = (mockDb.transaction as jest.Mock).mock.calls[0];
+      const executor = transactionCall[0];
+
+      executor(mockTx);
+
+      expect(mockTx.executeSql).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "ALTER TABLE transactions ADD COLUMN type TEXT NOT NULL DEFAULT 'expense'",
+        ),
+        [],
+      );
+      expect(mockTx.executeSql).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "ALTER TABLE categories ADD COLUMN type TEXT NOT NULL DEFAULT 'both'",
+        ),
+        [],
+      );
+      expect(mockTx.executeSql).toHaveBeenCalledWith(
+        'INSERT INTO schema_migrations (version, name) VALUES (?, ?)',
+        [8, 'transaction-and-category-type'],
       );
     });
   });

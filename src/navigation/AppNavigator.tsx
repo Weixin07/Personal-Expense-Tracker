@@ -1,7 +1,7 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { IconButton } from 'react-native-paper';
-import AddExpenseScreen from '../screens/AddExpenseScreen';
+import AddTransactionScreen from '../screens/AddTransactionScreen';
 import ExportQueueScreen from '../screens/ExportQueueScreen';
 import HomeScreen from '../screens/HomeScreen';
 import ImportScreen from '../screens/ImportScreen';
@@ -10,7 +10,7 @@ import ManageCategoriesScreen from '../screens/ManageCategoriesScreen';
 
 export type RootStackParamList = {
   Home: undefined;
-  AddExpense: { expenseId?: number } | undefined;
+  AddTransaction: { transactionId?: number } | undefined;
   Settings: undefined;
   ManageCategories: undefined;
   ExportQueue: undefined;
@@ -26,7 +26,7 @@ const AppNavigator: React.FC = () => {
         name="Home"
         component={HomeScreen}
         options={({ navigation }) => ({
-          title: 'Expenses',
+          title: 'Transactions',
           headerRight: () => (
             <IconButton
               icon="cog"
@@ -37,10 +37,12 @@ const AppNavigator: React.FC = () => {
         })}
       />
       <Stack.Screen
-        name="AddExpense"
-        component={AddExpenseScreen}
+        name="AddTransaction"
+        component={AddTransactionScreen}
         options={({ route }) => ({
-          title: route.params?.expenseId ? 'Edit Expense' : 'Add Expense',
+          title: route.params?.transactionId
+            ? 'Edit Transaction'
+            : 'Add Transaction',
         })}
       />
       <Stack.Screen
@@ -61,7 +63,7 @@ const AppNavigator: React.FC = () => {
       <Stack.Screen
         name="Import"
         component={ImportScreen}
-        options={{ title: 'Import Expenses' }}
+        options={{ title: 'Import Transactions' }}
       />
     </Stack.Navigator>
   );
