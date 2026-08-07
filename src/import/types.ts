@@ -156,23 +156,19 @@ export type ImportPreview = {
   /**
    * True when the file carried no negative amount anywhere, so rows without a
    * declared type were read as expenses rather than through the sign
-   * convention. Lets the caller say why, instead of the result looking arbitrary.
+   * convention.
    */
   signConventionBypassed: boolean;
 };
 
 export type ImportSummary = {
-  /**
-   * Counted per direction rather than as one total so a mixed import can state
-   * what it read each row as, which is the thing worth checking afterwards.
-   */
   insertedExpenses: number;
   insertedIncome: number;
   skippedInvalid: number;
   /**
    * Rows left behind because their pair still had no rate when the import ran.
-   * Counted apart from `skippedInvalid` so a partial import can say what is
-   * outstanding rather than folding it into the malformed-row count.
+   * Disjoint from `skippedInvalid`: these rows are well-formed and become
+   * importable once a rate is supplied.
    */
   skippedNeedsFxRate: number;
   createdCategories: number;

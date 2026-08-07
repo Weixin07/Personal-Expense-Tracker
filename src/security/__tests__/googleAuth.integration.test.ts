@@ -1,7 +1,3 @@
-/**
- * Integration tests for Google Drive authentication (google-signin flow)
- */
-
 import {
   GoogleSignin,
   statusCodes,

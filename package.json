@@ -13,6 +13,7 @@
     "test:performance": "jest src/__tests__/performance/",
     "test:performance:verbose": "jest src/__tests__/performance/ --verbose",
     "test:coverage": "jest --coverage",
+    "comment-policy": "node scripts/comment-policy.mjs",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "validate": "pnpm lint && pnpm typecheck && pnpm test:coverage",

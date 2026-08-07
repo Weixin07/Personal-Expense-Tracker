@@ -62,8 +62,8 @@ export const parseBritishDateInput = (input: string): string | null => {
     return null;
   }
 
-  // Strict validation: ensure the parsed date matches the input
-  // JavaScript Date constructor silently rolls over invalid dates (e.g., Feb 31 → Mar 3)
+  // The Date constructor silently rolls over invalid dates (Feb 31 → Mar 3),
+  // so a successful parse is not proof the input named a real calendar day.
   const parsedYear = parsed.getUTCFullYear();
   const parsedMonth = parsed.getUTCMonth() + 1; // 0-indexed
   const parsedDay = parsed.getUTCDate();

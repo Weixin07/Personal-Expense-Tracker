@@ -236,7 +236,21 @@
       "Bash(sed 's/^...//')",
       "Bash(sed 's/.* -> //')",
       "PowerShell(cd C:\\\\PET; git status --porcelain | ForEach-Object { $_.Substring\\(3\\) } | Where-Object { $_ -match '\\\\.\\(ts|tsx|js|mjs|json|sql|sh|yml\\)$' })",
-      "Bash(echo \"EXIT:$?\")"
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(echo \"--- exit:$? ---\")",
+      "Bash(mkdir -p __TRACKED_VAR__/probe)",
+      "Bash(echo \"--- exit: $? ---\")",
+      "Bash(echo \"--- whole-tree exit: $? ---\")",
+      "Bash(echo \"--- fixture exit: $? ---\")",
+      "Bash(echo \"--- hook exit \\(expect 2\\): $? ---\")",
+      "Bash(echo \"--- clean file exit \\(expect 0\\): $? ---\")",
+      "Bash(echo \"--- non-checkable exit \\(expect 0\\): $? ---\")",
+      "Bash(echo \"--- empty payload exit \\(expect 0\\): $? ---\")",
+      "Skill(update-config)",
+      "Bash(echo \"--- jq exit: $? ---\")",
+      "Bash(echo \"=== comment-policy exit: $? ===\")",
+      "Bash(echo \"--- ignore check exit: $? ---\")",
+      "Bash(echo \"\\(exit $?\\)\")"
     ],
     "deny": [],
     "ask": []

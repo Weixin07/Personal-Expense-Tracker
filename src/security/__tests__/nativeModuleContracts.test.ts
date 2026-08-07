@@ -6,9 +6,9 @@ const SAF_X_REQUIRED_EXPORTS = [
   'unlink',
 ] as const;
 
-// Guards against the original defect: storageAccess.ts imported a
-// `StorageAccessFramework` export that react-native-saf-x does not provide.
-// requireActual bypasses the jest mock to assert the real package surface.
+// react-native-saf-x exposes these as top-level functions, not under a
+// `StorageAccessFramework` namespace. requireActual bypasses the jest mock so
+// the assertion lands on the real package surface.
 describe('react-native-saf-x export contract', () => {
   const actual = jest.requireActual('react-native-saf-x');
 

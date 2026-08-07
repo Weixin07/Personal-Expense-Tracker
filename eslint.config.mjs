@@ -7,6 +7,7 @@ import reactNative from 'eslint-plugin-react-native';
 import importPlugin from 'eslint-plugin-import';
 import tseslint from 'typescript-eslint';
 import noSecrets from 'eslint-plugin-no-secrets';
+import { NARRATION_TERMS } from './scripts/comment-policy.mjs';
 
 export default [
   // Ignore heavy/native folders
@@ -70,6 +71,14 @@ export default [
         },
       ],
 
+      // Surfaces the change-narration half of scripts/comment-policy.mjs in the
+      // editor. The terms live there so the hook, the npm script and this rule
+      // cannot drift apart.
+      'no-warning-comments': [
+        'error',
+        { terms: NARRATION_TERMS, location: 'anywhere' },
+      ],
+
       'no-restricted-syntax': [
         'error',
         {
@@ -126,6 +135,17 @@ export default [
       sourceType: 'module',
       ecmaVersion: 'latest',
       globals: { ...globals.node },
+    },
+  },
+
+  // Fixtures carry deliberate policy violations for commentPolicy.test.ts to
+  // assert on. They cannot sit in `ignores`: lint-staged passes staged files to
+  // eslint explicitly, and an explicitly-passed ignored file is a warning, which
+  // fails the pre-commit hook's --max-warnings=0.
+  {
+    files: ['**/*.fixture.*'],
+    rules: {
+      'no-warning-comments': 'off',
     },
   },
 

@@ -236,26 +236,16 @@ const resolveCurrency = (
 
 /**
  * Read-only phase: parse + map + validate every row, resolve FX rates, flag
- * duplicates, and list categories that would be created.
+ * duplicates, and list categories that would be created. Performs no database
+ * writes.
  *
- * An FX rate is taken from the first of these that yields one, and the winner is
- * recorded on the row as `fxRateSource`: a mapped rate column, a rate the user
- * confirmed via `ctx.manualFxRates`, the cached rate for the pair, or parity when
- * native and base currency match. A row that exhausts all four is collected in
- * `needsFxRate` — it is well-formed and becomes importable once a rate arrives,
- * so it is kept apart from `invalid`.
+ * Rows that are well-formed but whose currency pair yielded no rate go to
+ * `needsFxRate`, disjoint from `invalid`. See `FxRateSource` for the precedence
+ * a rate is resolved by and `NegativeMeans` for how direction is decided.
+ * Duplicates are flagged, never rejected.
  *
- * Direction comes from a mapped transaction-type column when the row carries a
- * recognised value. Otherwise it comes from the sign convention — except when
- * the file holds no negative amount at all, in which case the row is an expense
- * whatever `ctx.negativeMeans` says, and `signConventionBypassed` records that.
- * A convention about negatives cannot classify a file that contains none.
- *
- * Duplicates are flagged against both stored transactions and earlier rows in
- * the same file, and are never rejected.
- *
- * Performs no database writes. Throws only when required columns are unmapped —
- * individual bad rows are reported in `invalid`, never thrown.
+ * Throws only when required columns are unmapped — individual bad rows are
+ * reported in `invalid`, never thrown.
  */
 export const previewImport = (
   text: string,
@@ -579,10 +569,8 @@ export const previewImport = (
  * failure rolls the whole import back.
  *
  * `acceptedRates` (keyed by `fxPairKey`) overrides the rate for rows that did
- * not get one from the file, recomputing the base amount to match. Rows whose
- * rate came from a mapped column keep it: a rate confirmed for the import as a
- * whole must not overwrite one the file stated per row. Parity rows are likewise
- * untouched, having no currency pair to key an override against.
+ * not get one from the file, recomputing the base amount to match; `column` and
+ * `parity` rows are never overridden, per `FxRateSource`.
  *
  * Every committed pair is written to the FX-rate cache, so a rate confirmed here
  * becomes the prefill for later manual entry.

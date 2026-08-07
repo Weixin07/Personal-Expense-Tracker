@@ -10,7 +10,6 @@ jest.mock('../../database');
 jest.mock('../../security/googleAuth');
 jest.mock('../../security/storageAccess');
 
-// Mock fetch globally
 global.fetch = jest.fn();
 
 describe('driveUploader', () => {
@@ -19,7 +18,6 @@ describe('driveUploader', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
-    // Default mock for withDatabase
     (database.withDatabase as jest.Mock).mockImplementation(async callback => {
       return callback(mockDb);
     });
@@ -99,7 +97,6 @@ describe('driveUploader', () => {
         'base64-content',
       );
 
-      // Mock folder exists check
       (global.fetch as jest.Mock).mockImplementation((url: string) => {
         if (url.includes('mock-folder-id')) {
           return Promise.resolve({
@@ -109,7 +106,6 @@ describe('driveUploader', () => {
               Promise.resolve({ id: 'mock-folder-id', trashed: false }),
           });
         }
-        // Mock upload
         return Promise.resolve({
           ok: true,
           status: 200,
@@ -174,14 +170,12 @@ describe('driveUploader', () => {
       let callCount = 0;
       (global.fetch as jest.Mock).mockImplementation((url: string) => {
         callCount++;
-        // First call: folder check returns 404
         if (callCount === 1 && url.includes('old-folder-id')) {
           return Promise.resolve({
             ok: false,
             status: 404,
           });
         }
-        // Second call: create folder
         if (callCount === 2 && url.includes('fields=id')) {
           return Promise.resolve({
             ok: true,
@@ -189,7 +183,6 @@ describe('driveUploader', () => {
             json: () => Promise.resolve({ id: 'new-folder-id' }),
           });
         }
-        // Third call: upload file
         return Promise.resolve({
           ok: true,
           status: 200,
@@ -240,7 +233,6 @@ describe('driveUploader', () => {
       let callCount = 0;
       (global.fetch as jest.Mock).mockImplementation(() => {
         callCount++;
-        // First call: folder check
         if (callCount === 1) {
           return Promise.resolve({
             ok: true,
@@ -249,7 +241,6 @@ describe('driveUploader', () => {
               Promise.resolve({ id: 'mock-folder-id', trashed: false }),
           });
         }
-        // Second call: upload fails
         return Promise.resolve({
           ok: false,
           status: 500,
@@ -321,7 +312,6 @@ describe('driveUploader', () => {
       let callCount = 0;
       (global.fetch as jest.Mock).mockImplementation(() => {
         callCount++;
-        // First call: folder check
         if (callCount === 1) {
           return Promise.resolve({
             ok: true,
@@ -330,7 +320,6 @@ describe('driveUploader', () => {
               Promise.resolve({ id: 'mock-folder-id', trashed: false }),
           });
         }
-        // Second call: upload fails with 401
         return Promise.resolve({
           ok: false,
           status: 401,
@@ -498,14 +487,12 @@ describe('driveUploader', () => {
         }
         uploadCount++;
         if (uploadCount === 1) {
-          // First upload succeeds
           return Promise.resolve({
             ok: true,
             status: 200,
             json: () => Promise.resolve({ id: 'uploaded-file-1' }),
           });
         }
-        // Second upload fails
         return Promise.resolve({
           ok: false,
           status: 500,

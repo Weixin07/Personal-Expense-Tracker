@@ -92,7 +92,6 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      // All eight migrations are pending from a fresh database.
       expect(mockDb.transaction).toHaveBeenCalledTimes(8);
     });
 
@@ -123,7 +122,6 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      // Migrations 3 through 8 are pending past version 2.
       expect(mockDb.transaction).toHaveBeenCalledTimes(6);
     });
 
@@ -235,7 +233,6 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      // Migrations 4 through 8 are pending past version 3.
       expect(mockDb.transaction).toHaveBeenCalledTimes(5);
 
       const transactionCall = (mockDb.transaction as jest.Mock).mock.calls[0];
@@ -276,7 +273,6 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      // All eight migrations are pending from an empty schema_migrations table.
       expect(mockDb.transaction).toHaveBeenCalledTimes(8);
     });
 
