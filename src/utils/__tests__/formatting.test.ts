@@ -2,6 +2,9 @@ import {
   formatMoneyAmount,
   formatFxRate,
   formatCurrencyAmount,
+  formatDisplayMoney,
+  formatDirectionalMoney,
+  formatSignedMoney,
 } from '../formatting';
 
 describe('formatting utilities', () => {
@@ -96,6 +99,71 @@ describe('formatting utilities', () => {
       expect(formatCurrencyAmount(123.45, 'USD', 'FALLBACK')).toBe(
         '123.45 USD',
       );
+    });
+  });
+
+  describe('formatDisplayMoney', () => {
+    it('groups thousands only once the integer part needs it', () => {
+      expect(formatDisplayMoney(999.99)).toBe('999.99');
+      expect(formatDisplayMoney(1000)).toBe('1,000.00');
+      expect(formatDisplayMoney(1234.56)).toBe('1,234.56');
+      expect(formatDisplayMoney(1234567.89)).toBe('1,234,567.89');
+    });
+
+    it('groups without disturbing a leading minus', () => {
+      expect(formatDisplayMoney(-1234.56)).toBe('-1,234.56');
+    });
+
+    it('appends a currency code only when one is given', () => {
+      expect(formatDisplayMoney(1234.56, 'MYR')).toBe('1,234.56 MYR');
+      expect(formatDisplayMoney(1234.56, null)).toBe('1,234.56');
+      expect(formatDisplayMoney(1234.56)).toBe('1,234.56');
+    });
+  });
+
+  describe('formatDirectionalMoney', () => {
+    it('signs from the direction rather than the value', () => {
+      expect(formatDirectionalMoney(5, 'spent')).toBe('-5.00');
+      expect(formatDirectionalMoney(5, 'received')).toBe('+5.00');
+      expect(formatDirectionalMoney(-5, 'spent')).toBe('-5.00');
+      expect(formatDirectionalMoney(-5, 'received')).toBe('+5.00');
+    });
+
+    it('keeps its sign at zero', () => {
+      expect(formatDirectionalMoney(0, 'spent')).toBe('-0.00');
+      expect(formatDirectionalMoney(0, 'received')).toBe('+0.00');
+    });
+
+    it('groups thousands and appends an optional code', () => {
+      expect(formatDirectionalMoney(1234.56, 'spent', 'MYR')).toBe(
+        '-1,234.56 MYR',
+      );
+      expect(formatDirectionalMoney(1234.56, 'received', null)).toBe(
+        '+1,234.56',
+      );
+    });
+  });
+
+  describe('formatSignedMoney', () => {
+    it('signs from the value', () => {
+      expect(formatSignedMoney(5)).toBe('+5.00');
+      expect(formatSignedMoney(-5)).toBe('-5.00');
+    });
+
+    it('renders exactly zero unsigned', () => {
+      expect(formatSignedMoney(0)).toBe('0.00');
+      expect(formatSignedMoney(-0)).toBe('0.00');
+    });
+
+    it('decides the sign after rounding', () => {
+      expect(formatSignedMoney(0.001)).toBe('0.00');
+      expect(formatSignedMoney(-0.001)).toBe('0.00');
+      expect(formatSignedMoney(-0.005)).toBe('-0.01');
+    });
+
+    it('groups thousands and appends an optional code', () => {
+      expect(formatSignedMoney(-1234.56, 'MYR')).toBe('-1,234.56 MYR');
+      expect(formatSignedMoney(1234.56, null)).toBe('+1,234.56');
     });
   });
 });

@@ -173,6 +173,61 @@ describe('ManageCategoriesScreen', () => {
     expect(deleteCategory).not.toHaveBeenCalled();
   });
 
+  describe('usage summary', () => {
+    it('counts both directions with agreeing nouns', () => {
+      const category = makeCategory({ id: 6, name: 'Gifts', type: 'both' });
+      mockedUseExpenseData.mockReturnValue(
+        makeContextValue({
+          state: {
+            categories: [category],
+            transactions: [
+              makeTransaction({ id: 40, type: 'expense', categoryId: 6 }),
+              makeTransaction({ id: 41, type: 'expense', categoryId: 6 }),
+              makeTransaction({ id: 42, type: 'income', categoryId: 6 }),
+            ],
+          },
+        }),
+      );
+      renderWithProviders(<ManageCategoriesScreen />);
+
+      expect(
+        screen.getByText('Expense and income · 2 expenses, 1 income entry'),
+      ).toBeOnTheScreen();
+    });
+
+    it('pluralises income usage beyond one', () => {
+      const category = makeCategory({ id: 7, name: 'Salary', type: 'income' });
+      mockedUseExpenseData.mockReturnValue(
+        makeContextValue({
+          state: {
+            categories: [category],
+            transactions: [
+              makeTransaction({ id: 50, type: 'income', categoryId: 7 }),
+              makeTransaction({ id: 51, type: 'income', categoryId: 7 }),
+            ],
+          },
+        }),
+      );
+      renderWithProviders(<ManageCategoriesScreen />);
+
+      expect(
+        screen.getByText('Income only · 2 income entries'),
+      ).toBeOnTheScreen();
+    });
+
+    it('marks a category with no transactions as unused', () => {
+      const category = makeCategory({ id: 8, name: 'Travel', type: 'both' });
+      mockedUseExpenseData.mockReturnValue(
+        makeContextValue({
+          state: { categories: [category], transactions: [] },
+        }),
+      );
+      renderWithProviders(<ManageCategoriesScreen />);
+
+      expect(screen.getByText('Expense and income · Unused')).toBeOnTheScreen();
+    });
+  });
+
   describe('category type', () => {
     it('preloads the stored type when renaming and keeps it on save', async () => {
       const category = makeCategory({ id: 4, name: 'Salary', type: 'income' });

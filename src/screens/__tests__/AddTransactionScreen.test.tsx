@@ -218,7 +218,23 @@ describe('AddTransactionScreen', () => {
       screen.getByLabelText('FX rate to base currency'),
       '1.5',
     );
-    expect(screen.getByDisplayValue('15.00')).toBeOnTheScreen();
+    expect(screen.getByDisplayValue('-15.00 USD')).toBeOnTheScreen();
+  });
+
+  it('flips the base amount preview when the direction changes', () => {
+    renderScreen(undefined);
+    fireEvent.changeText(
+      screen.getByLabelText('Amount in native currency'),
+      '10',
+    );
+    fireEvent.changeText(
+      screen.getByLabelText('FX rate to base currency'),
+      '1.5',
+    );
+    expect(screen.getByDisplayValue('-15.00 USD')).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByText('Income'));
+    expect(screen.getByDisplayValue('+15.00 USD')).toBeOnTheScreen();
   });
 
   it('shows a context error as a form error', () => {

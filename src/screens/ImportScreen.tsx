@@ -13,6 +13,10 @@ import {
   TextInput,
 } from 'react-native-paper';
 import { useTransactionData } from '../context/AppContext';
+import {
+  formatExpenseCount,
+  formatIncomeCount,
+} from '../utils/transactionLabels';
 import { pickCsvFile, readFileAsString } from '../security/storageAccess';
 import { GoogleAuthError } from '../security/googleAuth';
 import {
@@ -496,8 +500,8 @@ const ImportScreen: React.FC = () => {
       const summary = await importTransactions(preview, appliedRates);
       Alert.alert(
         'Import complete',
-        `${summary.insertedExpenses} expense${summary.insertedExpenses === 1 ? '' : 's'}` +
-          ` and ${summary.insertedIncome} income imported` +
+        `${formatExpenseCount(summary.insertedExpenses)}` +
+          ` and ${formatIncomeCount(summary.insertedIncome)} imported` +
           (summary.createdCategories
             ? `, ${summary.createdCategories} categor${summary.createdCategories === 1 ? 'y' : 'ies'} created`
             : '') +
@@ -673,7 +677,7 @@ const ImportScreen: React.FC = () => {
             />
 
             <Text variant="bodySmall" style={styles.muted}>
-              Number format
+              Number format used in this file
             </Text>
             <SegmentedButtons
               value={numberFormat}
@@ -682,7 +686,7 @@ const ImportScreen: React.FC = () => {
             />
 
             <Text variant="bodySmall" style={styles.muted}>
-              A negative amount means
+              In this file, a negative amount means
             </Text>
             <SegmentedButtons
               value={negativeMeans}
@@ -732,12 +736,10 @@ const ImportScreen: React.FC = () => {
               {preview.valid.length} of {preview.totalRows} rows ready to
               import.
             </Text>
-            {incomeReady > 0 ? (
-              <Text variant="bodySmall" style={styles.muted}>
-                {preview.valid.length - incomeReady} expense and {incomeReady}{' '}
-                income.
-              </Text>
-            ) : null}
+            <Text variant="bodySmall" style={styles.muted}>
+              {formatExpenseCount(preview.valid.length - incomeReady)} and{' '}
+              {formatIncomeCount(incomeReady)}.
+            </Text>
             {preview.signConventionBypassed ? (
               <Text variant="bodySmall" style={styles.muted}>
                 This file has no negative amounts, so rows without a type column

@@ -34,7 +34,7 @@ import {
 } from './transactionFormUtils';
 import type { TransactionType } from '../database';
 import { formatDateBritish, parseBritishDateInput } from '../utils/date';
-import { formatMoneyAmount } from '../utils/formatting';
+import { formatDirectionalMoney, formatMoneyAmount } from '../utils/formatting';
 
 const TYPE_OPTIONS = [
   { value: 'expense', label: 'Expense' },
@@ -107,6 +107,23 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
     const amount = computeBaseAmount(values.amountNative, values.fxRateToBase);
     return amount != null ? formatMoneyAmount(amount) : '';
   }, [values.amountNative, values.fxRateToBase]);
+
+  const baseAmountPreview = useMemo(() => {
+    const amount = computeBaseAmount(values.amountNative, values.fxRateToBase);
+    if (amount == null) {
+      return '';
+    }
+    return formatDirectionalMoney(
+      amount,
+      values.type === 'income' ? 'received' : 'spent',
+      settings.baseCurrency,
+    );
+  }, [
+    settings.baseCurrency,
+    values.amountNative,
+    values.fxRateToBase,
+    values.type,
+  ]);
 
   const handleChange =
     (field: keyof TransactionFormValues) => (text: string) => {
@@ -371,7 +388,7 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
 
           <TextInput
             label="Base amount"
-            value={computedBaseAmount}
+            value={baseAmountPreview}
             mode="outlined"
             editable={false}
             accessibilityLabel="Computed base amount"

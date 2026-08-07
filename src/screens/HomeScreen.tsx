@@ -28,13 +28,21 @@ import {
   DATE_PRESETS,
   computePresetRange,
   detectPreset,
-  formatCurrencyAmount,
   formatDateRangeLabel,
   type DateRangePreset,
 } from './homeUtils';
 import { formatDateBritish } from '../utils/date';
-import { formatMoneyAmount } from '../utils/formatting';
-import { INCOME_COLOR_DARK, INCOME_COLOR_LIGHT } from '../theme';
+import {
+  formatDirectionalMoney,
+  formatDisplayMoney,
+  formatSignedMoney,
+} from '../utils/formatting';
+import {
+  INCOME_COLOR_DARK,
+  INCOME_COLOR_LIGHT,
+  NEGATIVE_COLOR_DARK,
+  NEGATIVE_COLOR_LIGHT,
+} from '../theme';
 import type { TransactionType } from '../database';
 
 const TYPE_FILTERS: { value: TransactionType; label: string }[] = [
@@ -43,6 +51,8 @@ const TYPE_FILTERS: { value: TransactionType; label: string }[] = [
 ];
 
 const ITEM_HEIGHT = 72;
+const NO_BASE_CURRENCY_KEY = 'no-base-currency';
+const NO_BASE_CURRENCY_LABEL = 'No base currency recorded';
 const baseCurrencyDialogDescription =
   'Select the currency you want to use for totals and conversions. You can change this later in Settings.';
 
@@ -106,6 +116,8 @@ const HomeScreen: React.FC = () => {
   const categoryFilterId = filters.categoryId ?? null;
   const typeFilter = filters.type ?? null;
   const incomeColor = theme.dark ? INCOME_COLOR_DARK : INCOME_COLOR_LIGHT;
+  const negativeColor = theme.dark ? NEGATIVE_COLOR_DARK : NEGATIVE_COLOR_LIGHT;
+  const mutedColor = theme.colors.onSurfaceVariant;
 
   const categoriesMap = useMemo(() => {
     const map = new Map<number, string>();
@@ -115,32 +127,19 @@ const HomeScreen: React.FC = () => {
     return map;
   }, [categories]);
 
-  // A figure is rendered only when rows contributed to it, so a single-direction
-  // ledger shows one line and an empty result shows none. The list's own empty
-  // state is what tells the user nothing matched.
-  const totalsLines = useMemo(
+  // A group whose base was never recorded keeps a null code rather than
+  // borrowing the current setting, which would claim a conversion that never
+  // happened.
+  const summaryGroups = useMemo(
     () =>
-      totals.byBaseCurrency.flatMap(entry => {
-        const code = entry.baseCurrencyCode ?? settings.baseCurrency;
-        const lines: string[] = [];
-        if (entry.expense.count > 0) {
-          lines.push(
-            `Expense: ${formatCurrencyAmount(entry.expense.total, code, 'base')}`,
-          );
-        }
-        if (entry.income.count > 0) {
-          lines.push(
-            `Income: ${formatCurrencyAmount(entry.income.total, code, 'base')}`,
-          );
-        }
-        if (entry.expense.count > 0 && entry.income.count > 0) {
-          lines.push(
-            `Net: ${formatCurrencyAmount(entry.net.total, code, 'base')}`,
-          );
-        }
-        return lines;
-      }),
-    [totals.byBaseCurrency, settings.baseCurrency],
+      totals.byBaseCurrency.map(entry => ({
+        key: entry.baseCurrencyCode ?? NO_BASE_CURRENCY_KEY,
+        currencyCode: entry.baseCurrencyCode,
+        spent: { amount: entry.expense.total, count: entry.expense.count },
+        received: { amount: entry.income.total, count: entry.income.count },
+        net: entry.net.total,
+      })),
+    [totals.byBaseCurrency],
   );
 
   const pendingExports = useMemo(
@@ -245,7 +244,7 @@ const HomeScreen: React.FC = () => {
       const descriptionParts = [
         formatDateBritish(item.date),
         categoryName ?? 'No category',
-        `${formatMoneyAmount(item.amountNative)} ${item.currencyCode}`,
+        formatDisplayMoney(item.amountNative, item.currencyCode),
       ];
       if (payee && description) {
         descriptionParts.unshift(description);
@@ -268,11 +267,10 @@ const HomeScreen: React.FC = () => {
                   isIncome ? { color: incomeColor } : null,
                 ]}
               >
-                {isIncome ? '+' : ''}
-                {formatCurrencyAmount(
+                {formatDirectionalMoney(
                   item.baseAmount,
-                  item.baseCurrencyCode ?? settings.baseCurrency,
-                  'base',
+                  isIncome ? 'received' : 'spent',
+                  item.baseCurrencyCode,
                 )}
               </Text>
             </View>
@@ -280,7 +278,7 @@ const HomeScreen: React.FC = () => {
         />
       );
     },
-    [categoriesMap, incomeColor, navigation, settings.baseCurrency],
+    [categoriesMap, incomeColor, navigation],
   );
 
   const keyExtractor = useCallback(
@@ -297,6 +295,98 @@ const HomeScreen: React.FC = () => {
     [],
   );
 
+  const summaryCard = useMemo(() => {
+    if (!summaryGroups.length) {
+      return null;
+    }
+
+    const showCurrencyHeadings = summaryGroups.length > 1;
+
+    return (
+      <Surface style={styles.summaryCard} elevation={1}>
+        <Text variant="titleSmall">{dateRangeLabel}</Text>
+        {summaryGroups.map(group => {
+          const spent = formatDirectionalMoney(group.spent.amount, 'spent');
+          const received = formatDirectionalMoney(
+            group.received.amount,
+            'received',
+          );
+          const net = formatSignedMoney(group.net, group.currencyCode);
+
+          return (
+            <View key={group.key} style={styles.summaryGroup}>
+              {showCurrencyHeadings ? (
+                <Text variant="labelLarge" style={{ color: mutedColor }}>
+                  {group.currencyCode ?? NO_BASE_CURRENCY_LABEL}
+                </Text>
+              ) : null}
+              <View
+                style={styles.summaryRow}
+                accessible
+                accessibilityLabel={`Spent ${spent}, ${group.spent.count} transactions`}
+              >
+                <Text variant="bodyMedium" style={styles.summaryLabel}>
+                  Spent
+                </Text>
+                <Text variant="bodyMedium" style={styles.summaryAmount}>
+                  {spent}
+                </Text>
+                <Text
+                  variant="labelSmall"
+                  style={[styles.summaryCount, { color: mutedColor }]}
+                >
+                  {group.spent.count} txn
+                </Text>
+              </View>
+              <View
+                style={styles.summaryRow}
+                accessible
+                accessibilityLabel={`Received ${received}, ${group.received.count} transactions`}
+              >
+                <Text variant="bodyMedium" style={styles.summaryLabel}>
+                  Received
+                </Text>
+                <Text
+                  variant="bodyMedium"
+                  style={[styles.summaryAmount, { color: incomeColor }]}
+                >
+                  {received}
+                </Text>
+                <Text
+                  variant="labelSmall"
+                  style={[styles.summaryCount, { color: mutedColor }]}
+                >
+                  {group.received.count} txn
+                </Text>
+              </View>
+              <Divider />
+              <View
+                style={styles.summaryRow}
+                accessible
+                accessibilityLabel={`Net ${net}`}
+              >
+                <Text variant="titleMedium" style={styles.summaryLabel}>
+                  Net
+                </Text>
+                <Text
+                  variant="titleMedium"
+                  style={[
+                    styles.summaryAmount,
+                    styles.summaryNetAmount,
+                    group.net < 0 ? { color: negativeColor } : null,
+                  ]}
+                >
+                  {net}
+                </Text>
+                <View style={styles.summaryCount} />
+              </View>
+            </View>
+          );
+        })}
+      </Surface>
+    );
+  }, [dateRangeLabel, incomeColor, mutedColor, negativeColor, summaryGroups]);
+
   const listHeader = useMemo(() => {
     const selectedCategoryName =
       categoryFilterId !== null
@@ -306,7 +396,7 @@ const HomeScreen: React.FC = () => {
     return (
       <View style={styles.listHeader}>
         <View style={styles.headerRow}>
-          <Text variant="headlineMedium">Transaction Overview</Text>
+          <Text variant="bodyMedium">Base currency: {baseCurrencyLabel}</Text>
           <IconButton
             icon="refresh"
             accessibilityLabel="Refresh transactions"
@@ -314,21 +404,8 @@ const HomeScreen: React.FC = () => {
             disabled={refreshing}
           />
         </View>
-        <Text variant="bodyMedium">Base currency: {baseCurrencyLabel}</Text>
-        {totalsLines.map(line => (
-          <Text key={line} variant="bodyMedium">
-            {line}
-          </Text>
-        ))}
-        {totals.mixedBase ? (
-          <Text variant="labelSmall" style={styles.metaText}>
-            Totals span multiple base currencies and are shown per base.
-          </Text>
-        ) : null}
-        <Text variant="bodyMedium">
-          Tracked transactions: {filteredTransactions.length}
-        </Text>
-        <Text variant="labelLarge" style={styles.metaText}>
+        {summaryCard}
+        <Text variant="labelLarge" style={{ color: mutedColor }}>
           Pending exports: {pendingExports}
         </Text>
         {pendingExports > 5 ? (
@@ -357,16 +434,13 @@ const HomeScreen: React.FC = () => {
             </Button>
           </View>
         ) : null}
-        <Text variant="labelSmall" style={styles.metaText}>
-          Date range: {dateRangeLabel}
-        </Text>
         {datePreset === 'custom' ? (
-          <Text variant="labelSmall" style={styles.metaText}>
+          <Text variant="labelSmall" style={{ color: mutedColor }}>
             Custom date filters in effect
           </Text>
         ) : null}
         {selectedCategoryName ? (
-          <Text variant="labelSmall" style={styles.metaText}>
+          <Text variant="labelSmall" style={{ color: mutedColor }}>
             Category: {selectedCategoryName}
           </Text>
         ) : null}
@@ -379,7 +453,7 @@ const HomeScreen: React.FC = () => {
         </Button>
 
         <View style={styles.filtersSection}>
-          <Text variant="labelLarge">Quick filters</Text>
+          <Text variant="labelLarge">Period</Text>
           <View style={styles.chipsRow}>
             {DATE_PRESETS.map(preset => (
               <Chip
@@ -391,6 +465,9 @@ const HomeScreen: React.FC = () => {
                 {preset.label}
               </Chip>
             ))}
+          </View>
+          <Text variant="labelLarge">Type</Text>
+          <View style={styles.chipsRow}>
             {TYPE_FILTERS.map(option => (
               <Chip
                 key={option.value}
@@ -401,6 +478,8 @@ const HomeScreen: React.FC = () => {
                 {option.label}
               </Chip>
             ))}
+          </View>
+          <View style={styles.chipsRow}>
             <Chip
               selected={categoryFilterId !== null}
               onPress={() => setCategoryDialogVisible(true)}
@@ -435,8 +514,6 @@ const HomeScreen: React.FC = () => {
     typeFilter,
     handleTypeSelect,
     datePreset,
-    dateRangeLabel,
-    filteredTransactions.length,
     handleAddExpense,
     handleClearCategory,
     handlePresetSelect,
@@ -444,10 +521,10 @@ const HomeScreen: React.FC = () => {
     handleResetFilters,
     handleOpenQueue,
     hasActiveFilters,
+    mutedColor,
     pendingExports,
     refreshing,
-    totalsLines,
-    totals.mixedBase,
+    summaryCard,
   ]);
 
   const listEmptyComponent = useMemo(
@@ -455,7 +532,10 @@ const HomeScreen: React.FC = () => {
       isInitialised ? (
         <View style={styles.emptyState}>
           <Text variant="titleMedium">No transactions found</Text>
-          <Text variant="bodyMedium" style={styles.emptyBody}>
+          <Text
+            variant="bodyMedium"
+            style={[styles.emptyBody, { color: mutedColor }]}
+          >
             Try adjusting your filters or add a new transaction to start
             tracking.
           </Text>
@@ -464,7 +544,7 @@ const HomeScreen: React.FC = () => {
           </Button>
         </View>
       ) : null,
-    [handleAddExpense, isInitialised],
+    [handleAddExpense, isInitialised, mutedColor],
   );
 
   if (!isInitialised && isLoading) {
@@ -533,8 +613,31 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  metaText: {
-    color: '#6b6b6b',
+  summaryCard: {
+    borderRadius: 8,
+    padding: 12,
+    gap: 8,
+  },
+  summaryGroup: {
+    gap: 4,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  summaryLabel: {
+    flex: 1,
+  },
+  summaryAmount: {
+    textAlign: 'right',
+    fontVariant: ['tabular-nums'],
+  },
+  summaryNetAmount: {
+    fontWeight: '700',
+  },
+  summaryCount: {
+    minWidth: 56,
+    textAlign: 'right',
   },
   queueBanner: {
     borderWidth: 1,
@@ -574,7 +677,6 @@ const styles = StyleSheet.create({
   },
   emptyBody: {
     textAlign: 'center',
-    color: '#6b6b6b',
   },
   centered: {
     flex: 1,

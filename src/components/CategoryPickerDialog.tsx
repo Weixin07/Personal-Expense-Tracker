@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { FlatList, StyleSheet } from 'react-native';
 import { Button, Dialog, List, Portal, Searchbar } from 'react-native-paper';
+import { CATEGORY_TYPE_LABELS } from '../constants/categoryTypeLabels';
 import type {
   CategoryRecord,
   CategoryType,
@@ -19,8 +20,7 @@ export type CategoryPickerDialogProps = {
   selectedId: number | null;
   /**
    * Restricts the list to categories usable for this direction — a matching
-   * type, or `both`. Omit to offer every category, which is what filtering a
-   * list needs as opposed to classifying an entry.
+   * type, or `both`. Omit to offer every category.
    */
   directionFilter?: TransactionType;
   onSelect: (categoryId: number | null) => void;
@@ -101,7 +101,9 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
             renderItem={({ item }) => (
               <List.Item
                 title={item.name}
-                description={item.type ?? undefined}
+                description={
+                  item.type ? CATEGORY_TYPE_LABELS[item.type] : undefined
+                }
                 onPress={() => handleSelect(item.id)}
                 accessibilityRole="button"
                 accessibilityLabel={`Select ${item.name}`}

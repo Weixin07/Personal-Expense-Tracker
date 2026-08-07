@@ -46,6 +46,24 @@ describe('CategoryPickerDialog', () => {
     expect(screen.getByText('Travel')).toBeOnTheScreen();
   });
 
+  it('describes each option with a human label, not the stored enum', () => {
+    renderWithProviders(
+      <CategoryPickerDialog
+        visible
+        categories={typedCategories}
+        selectedId={null}
+        onSelect={jest.fn()}
+        onDismiss={jest.fn()}
+      />,
+    );
+    expect(screen.getByText('Expense only')).toBeOnTheScreen();
+    expect(screen.getByText('Income only')).toBeOnTheScreen();
+    expect(screen.getByText('Expense and income')).toBeOnTheScreen();
+    expect(screen.queryByText('expense')).toBeNull();
+    expect(screen.queryByText('income')).toBeNull();
+    expect(screen.queryByText('both')).toBeNull();
+  });
+
   it('filters the list by the search query', () => {
     renderWithProviders(
       <CategoryPickerDialog

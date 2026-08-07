@@ -13,7 +13,12 @@ import {
   Text,
   TextInput,
 } from 'react-native-paper';
+import { CATEGORY_TYPE_LABELS } from '../constants/categoryTypeLabels';
 import { useTransactionData } from '../context/AppContext';
+import {
+  formatExpenseCount,
+  formatIncomeCount,
+} from '../utils/transactionLabels';
 import type { CategoryType } from '../database';
 
 type DirectionUsage = { expense: number; income: number };
@@ -23,12 +28,6 @@ const TYPE_OPTIONS = [
   { value: 'income', label: 'Income' },
   { value: 'both', label: 'Both' },
 ];
-
-const TYPE_LABELS: Record<CategoryType, string> = {
-  expense: 'Expense only',
-  income: 'Income only',
-  both: 'Expense and income',
-};
 
 /**
  * Directions a category would stop covering under `next`. Transactions already
@@ -227,12 +226,10 @@ const ManageCategoriesScreen: React.FC = () => {
       const usage = usageCount.get(item.id) ?? { expense: 0, income: 0 };
       const usageParts: string[] = [];
       if (usage.expense > 0) {
-        usageParts.push(
-          `${usage.expense} expense${usage.expense === 1 ? '' : 's'}`,
-        );
+        usageParts.push(formatExpenseCount(usage.expense));
       }
       if (usage.income > 0) {
-        usageParts.push(`${usage.income} income`);
+        usageParts.push(formatIncomeCount(usage.income));
       }
       return (
         <List.Item
@@ -240,8 +237,8 @@ const ManageCategoriesScreen: React.FC = () => {
           titleStyle={styles.listTitle}
           description={
             usageParts.length
-              ? `${TYPE_LABELS[item.type]} · ${usageParts.join(', ')}`
-              : `${TYPE_LABELS[item.type]} · Unused`
+              ? `${CATEGORY_TYPE_LABELS[item.type]} · ${usageParts.join(', ')}`
+              : `${CATEGORY_TYPE_LABELS[item.type]} · Unused`
           }
           descriptionStyle={styles.listDescription}
           right={() => (

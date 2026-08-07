@@ -48,9 +48,8 @@ beforeEach(() => {
 });
 
 describe('HomeScreen', () => {
-  it('renders the overview header and totals', () => {
+  it('renders the base currency readout', () => {
     renderWithProviders(<HomeScreen />);
-    expect(screen.getByText('Transaction Overview')).toBeOnTheScreen();
     expect(screen.getByText(/Base currency:/)).toBeOnTheScreen();
   });
 
@@ -229,65 +228,132 @@ describe('HomeScreen', () => {
       count,
     });
 
-    it('shows no totals line at all when nothing matches', () => {
+    const withTotals = (
+      entries: {
+        baseCurrencyCode: string | null;
+        expense: ReturnType<typeof figure>;
+        income: ReturnType<typeof figure>;
+        net: ReturnType<typeof figure>;
+      }[],
+      transactions: TransactionRecord[] = [makeTransaction()],
+    ) =>
+      makeContextValue({
+        state: { transactions },
+        selectors: {
+          filteredTransactions: transactions,
+          totals: {
+            byBaseCurrency: entries,
+            mixedBase: entries.length > 1,
+          },
+        },
+      });
+
+    it('renders no summary card when nothing matches', () => {
       renderWithProviders(<HomeScreen />);
-      expect(screen.queryByText(/^Expense: /)).toBeNull();
-      expect(screen.queryByText(/^Income: /)).toBeNull();
-      expect(screen.queryByText(/^Net: /)).toBeNull();
+      expect(screen.queryByText('Spent')).toBeNull();
+      expect(screen.queryByText('Received')).toBeNull();
+      expect(screen.queryByText('Net')).toBeNull();
     });
 
-    it('shows only the expense figure for an expense-only ledger', () => {
-      const expense = makeTransaction();
+    it('shows all three figures for an expense-only ledger', () => {
       mockedUseExpenseData.mockReturnValue(
-        makeContextValue({
-          state: { transactions: [expense] },
-          selectors: {
-            filteredTransactions: [expense],
-            totals: {
-              byBaseCurrency: [
-                {
-                  baseCurrencyCode: 'USD',
-                  expense: figure(30, 1),
-                  income: figure(0, 0),
-                  net: figure(-30, 1),
-                },
-              ],
-              mixedBase: false,
-            },
+        withTotals([
+          {
+            baseCurrencyCode: 'USD',
+            expense: figure(30, 1),
+            income: figure(0, 0),
+            net: figure(-30, 1),
           },
-        }),
+        ]),
       );
       renderWithProviders(<HomeScreen />);
-      expect(screen.getByText(/^Expense: /)).toBeOnTheScreen();
-      expect(screen.queryByText(/^Income: /)).toBeNull();
-      expect(screen.queryByText(/^Net: /)).toBeNull();
+
+      expect(screen.getByText('Spent')).toBeOnTheScreen();
+      expect(screen.getByText('Received')).toBeOnTheScreen();
+      expect(screen.getByText('Net')).toBeOnTheScreen();
+      expect(screen.getByText('-30.00')).toBeOnTheScreen();
+      expect(screen.getByText('+0.00')).toBeOnTheScreen();
+      expect(screen.getByText('-30.00 USD')).toBeOnTheScreen();
     });
 
-    it('shows all three figures once both directions are present', () => {
-      const expense = makeTransaction();
+    it('shows all three figures for an income-only ledger', () => {
       mockedUseExpenseData.mockReturnValue(
-        makeContextValue({
-          state: { transactions: [expense] },
-          selectors: {
-            filteredTransactions: [expense],
-            totals: {
-              byBaseCurrency: [
-                {
-                  baseCurrencyCode: 'USD',
-                  expense: figure(30, 1),
-                  income: figure(100, 1),
-                  net: figure(70, 2),
-                },
-              ],
-              mixedBase: false,
-            },
+        withTotals([
+          {
+            baseCurrencyCode: 'USD',
+            expense: figure(0, 0),
+            income: figure(100, 1),
+            net: figure(100, 1),
           },
-        }),
+        ]),
       );
       renderWithProviders(<HomeScreen />);
-      expect(screen.getByText(/^Expense: /)).toBeOnTheScreen();
-      expect(screen.getByText(/^Income: /)).toBeOnTheScreen();
-      expect(screen.getByText(/^Net: /)).toBeOnTheScreen();
+
+      expect(screen.getByText('-0.00')).toBeOnTheScreen();
+      expect(screen.getByText('+100.00')).toBeOnTheScreen();
+      expect(screen.getByText('+100.00 USD')).toBeOnTheScreen();
+    });
+
+    it('renders a break-even net unsigned', () => {
+      mockedUseExpenseData.mockReturnValue(
+        withTotals([
+          {
+            baseCurrencyCode: 'USD',
+            expense: figure(50, 1),
+            income: figure(50, 1),
+            net: figure(0, 2),
+          },
+        ]),
+      );
+      renderWithProviders(<HomeScreen />);
+
+      expect(screen.getByText('0.00 USD')).toBeOnTheScreen();
+    });
+
+    it('groups thousands and reports per-direction counts', () => {
+      mockedUseExpenseData.mockReturnValue(
+        withTotals([
+          {
+            baseCurrencyCode: 'MYR',
+            expense: figure(1234.56, 3),
+            income: figure(987, 1),
+            net: figure(-247.56, 4),
+          },
+        ]),
+      );
+      renderWithProviders(<HomeScreen />);
+
+      expect(screen.getByText('-1,234.56')).toBeOnTheScreen();
+      expect(screen.getByText('3 txn')).toBeOnTheScreen();
+      expect(screen.getByText('1 txn')).toBeOnTheScreen();
+      expect(screen.getByText('-247.56 MYR')).toBeOnTheScreen();
+    });
+
+    it('separates a null-base group from a same-coded group', () => {
+      mockedUseExpenseData.mockReturnValue(
+        withTotals([
+          {
+            baseCurrencyCode: 'USD',
+            expense: figure(5, 1),
+            income: figure(0, 0),
+            net: figure(-5, 1),
+          },
+          {
+            baseCurrencyCode: null,
+            expense: figure(7, 1),
+            income: figure(0, 0),
+            net: figure(-7, 1),
+          },
+        ]),
+      );
+      renderWithProviders(<HomeScreen />);
+
+      expect(screen.getByText('USD')).toBeOnTheScreen();
+      expect(screen.getByText('No base currency recorded')).toBeOnTheScreen();
+      expect(screen.getByText('-5.00 USD')).toBeOnTheScreen();
+      // Spent and Net of the uncoded group, neither carrying a currency.
+      expect(screen.getAllByText('-7.00')).toHaveLength(2);
+      expect(screen.queryByText(/multiple base currencies/)).toBeNull();
     });
 
     it('marks an income row with a plus sign and labels its direction', () => {

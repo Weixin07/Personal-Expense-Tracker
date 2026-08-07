@@ -7,6 +7,13 @@ import { MD3DarkTheme, MD3LightTheme, type MD3Theme } from 'react-native-paper';
 export const INCOME_COLOR_LIGHT = '#1b6b3a';
 export const INCOME_COLOR_DARK = '#7fd6a0';
 
+/**
+ * Colour applied to a negative total, under the same sign-plus-colour rule.
+ * Kept off-hue from the error colours, which mark faults the user must act on.
+ */
+export const NEGATIVE_COLOR_LIGHT = '#8c2f22';
+export const NEGATIVE_COLOR_DARK = '#f0a094';
+
 export const lightTheme: MD3Theme = {
   ...MD3LightTheme,
   colors: {

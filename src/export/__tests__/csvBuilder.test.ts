@@ -66,6 +66,50 @@ describe('buildTransactionsCsv', () => {
     );
   });
 
+  describe('serialisation contract', () => {
+    it('writes amounts without grouping separators', () => {
+      const largeAmount: TransactionRecord = {
+        ...baseTransaction,
+        id: 7,
+        amountNative: 1234.56,
+        baseAmount: 1234567.89,
+      };
+
+      const { content } = buildTransactionsCsv({
+        transactions: [largeAmount],
+        categories,
+      });
+
+      expect(content).toContain('1234.56');
+      expect(content).toContain('1234567.89');
+      expect(content).not.toContain('1,234.56');
+      expect(content).not.toContain('1,234,567.89');
+    });
+
+    it('writes both directions unsigned, carrying direction in the type column', () => {
+      const expense: TransactionRecord = { ...baseTransaction, id: 8 };
+      const income: TransactionRecord = {
+        ...baseTransaction,
+        id: 9,
+        type: 'income',
+        payee: 'Employer',
+      };
+
+      const { content } = buildTransactionsCsv({
+        transactions: [expense, income],
+        categories,
+      });
+
+      const rows = content.slice(1).split('\r\n');
+      expect(rows[1]).toContain('3.50,USD,1.000000,3.50');
+      expect(rows[1].endsWith('expense')).toBe(true);
+      expect(rows[2]).toContain('3.50,USD,1.000000,3.50');
+      expect(rows[2].endsWith('income')).toBe(true);
+      expect(content).not.toContain('-3.50');
+      expect(content).not.toContain('+3.50');
+    });
+  });
+
   it('supports generating large datasets efficiently', () => {
     const largeSet = Array.from({ length: 10_000 }, (_, index) => ({
       ...baseTransaction,

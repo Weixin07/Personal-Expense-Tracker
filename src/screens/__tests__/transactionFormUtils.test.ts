@@ -60,6 +60,53 @@ describe('transactionFormUtils', () => {
     });
   });
 
+  describe('amount round trip', () => {
+    const existingLargeAmount: TransactionRecord = {
+      type: 'expense',
+      id: 99,
+      description: 'Deposit',
+      payee: 'Landlord',
+      amountNative: 1234.56,
+      currencyCode: 'USD',
+      fxRateToBase: 1,
+      baseAmount: 1234.56,
+      baseCurrencyCode: 'USD',
+      date: '2025-01-01',
+      categoryId: 1,
+      notes: null,
+      createdAt: '',
+      updatedAt: '',
+    };
+
+    it('hydrates four-figure amounts as parseable text', () => {
+      const values = getDefaultTransactionFormValues(
+        'USD',
+        categories,
+        existingLargeAmount,
+      );
+
+      expect(values.amountNative).toBe('1234.56');
+      expect(values.baseAmount).toBe('1234.56');
+      expect(Number(values.amountNative)).toBe(1234.56);
+      expect(Number(values.baseAmount)).toBe(1234.56);
+    });
+
+    it('validates and rebuilds a hydrated four-figure amount unchanged', () => {
+      const values = getDefaultTransactionFormValues(
+        'USD',
+        categories,
+        existingLargeAmount,
+      );
+      const result = validateTransactionForm(values);
+
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.amountNative).toBe(1234.56);
+        expect(buildUpdatePayload(99, result.value).amountNative).toBe(1234.56);
+      }
+    });
+  });
+
   describe('validateTransactionForm', () => {
     it('returns errors for invalid form', () => {
       const futureDate = new Date();

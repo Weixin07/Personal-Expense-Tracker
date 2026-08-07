@@ -43,23 +43,23 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 
 ## ✨ Key Features
 
-### 💰 Expense Management
+### 💰 Transaction Management
 
-- **Full CRUD Operations**: Create, read, update, and delete expenses with comprehensive validation
-- **Multi-Currency Support**: Track expenses in any ISO-4217 currency with manual FX rates
+- **Full CRUD Operations**: Create, read, update, and delete transactions with comprehensive validation
+- **Multi-Currency Support**: Record transactions in any ISO-4217 currency with manual FX rates
 - **Base Currency Conversion**: Automatic conversion to your chosen base currency with preserved exchange rates
 - **Category Organization**: Flexible categorization with 23 default categories (customizable), each usable for expenses, income, or both
 - **Date Filtering**: Quick filters (Last 7/30 days, This month, All time) plus custom date ranges
-- **Income and Expenses**: Record money in as well as out; Home reports expense, income and net totals per base currency
+- **Income and Expenses**: Record money in as well as out. Home summarises the filtered period as Spent, Received and Net, signed and grouped per base currency, with a transaction count for each direction
 - **Rich Metadata**: Add notes, select categories, and track precise amounts with proper rounding
 
 ### 📊 Data & Analytics
 
-- **Real-Time Totals**: Running total in base currency with applied filters
-- **Historical Tracking**: Browse complete expense history sorted by date (newest first)
+- **Real-Time Totals**: Period summary in base currency, recomputed as filters change
+- **Historical Tracking**: Browse complete transaction history sorted by date (newest first)
 - **CSV Export**: Full-fidelity exports (UTF-8 BOM, RFC 4180 compliant) for analysis in Excel/Google Sheets
-- **CSV Import**: Load expenses from a CSV file (local, Google Drive, or any other provider the system file picker exposes) or from a Drive backup this app exported, with column mapping and a review-before-commit preview
-- **Flexible Import**: Reads CSVs written by other apps — auto-detects the column separator (comma/semicolon/tab) and common header names, normalises decorated amounts (`$1,234.56`, `1.234,56`, `(50.00)`), resolves currency symbols and names to ISO codes, and accepts ISO, month-name, and two-digit-year dates. A default currency covers files with no currency column; income rows are reported and skipped until income is supported
+- **CSV Import**: Load transactions from a CSV file (local, Google Drive, or any other provider the system file picker exposes) or from a Drive backup this app exported, with column mapping and a review-before-commit preview
+- **Flexible Import**: Reads CSVs written by other apps — auto-detects the column separator (comma/semicolon/tab) and common header names, normalises decorated amounts (`$1,234.56`, `1.234,56`, `(50.00)`), resolves currency symbols and names to ISO codes, and accepts ISO, month-name, and two-digit-year dates. A default currency covers files with no currency column. Direction comes from a mapped type column, or from the file's own negative-amount convention, which you declare in the review step
 - **Import FX Confirmation**: When a file carries no exchange rate for a currency, the review step lists each currency pair and the rows waiting on it. Enter the rates, apply them, and the held rows join the import; rates left blank simply stay behind and are reported. A confirmed rate is checked against the last one used — or against parity, when none is known — and is saved for later manual entry
 - **Audit Trail**: Preserved FX rates and computed base amounts ensure stable, auditable totals
 
@@ -687,7 +687,7 @@ PET/
 │   ├── navigation/             # React Navigation
 │   │   └── AppNavigator.tsx    # Stack navigator definition
 │   ├── screens/                # Screen components
-│   │   ├── HomeScreen.tsx      # Expense list + filters + totals
+│   │   ├── HomeScreen.tsx      # Transaction list + filters + period summary
 │   │   ├── AddTransactionScreen.tsx # Create/edit transaction form
 │   │   ├── SettingsScreen.tsx  # App settings
 │   │   ├── ManageCategoriesScreen.tsx # Category CRUD

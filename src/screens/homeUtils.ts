@@ -1,5 +1,4 @@
 import { formatDateRangeBritish } from '../utils/date';
-import { formatCurrencyAmount as formatCurrency } from '../utils/formatting';
 
 export type DateRangePreset =
   | 'last7Days'
@@ -116,6 +115,3 @@ export const formatDateRangeLabel = (filters: {
 
   return formatDateRangeBritish(start, end);
 };
-
-// Re-export the centralized formatting function for backward compatibility
-export const formatCurrencyAmount = formatCurrency;

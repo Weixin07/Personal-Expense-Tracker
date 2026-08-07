@@ -80,7 +80,7 @@ describe('ImportScreen', () => {
     await waitFor(() =>
       expect(alertSpy).toHaveBeenCalledWith(
         'Import complete',
-        expect.stringContaining('1 expense and 0 income imported'),
+        expect.stringContaining('1 expense and 0 income entries imported'),
       ),
     );
   });
@@ -297,7 +297,7 @@ describe('ImportScreen', () => {
         screen.getByText('2 of 2 rows ready to import.'),
       ).toBeOnTheScreen(),
     );
-    expect(screen.getByText('1 expense and 1 income.')).toBeOnTheScreen();
+    expect(screen.getByText('1 expense and 1 income entry.')).toBeOnTheScreen();
 
     fireEvent.press(screen.getByLabelText('Confirm import'));
     await waitFor(() => expect(importTransactions).toHaveBeenCalled());

@@ -234,7 +234,9 @@
       "PowerShell(npx eslint src/import/importManager.ts src/export/__tests__/csvBuilder.test.ts src/database/__tests__/migrations.test.ts)",
       "Bash(xargs rg -n --no-heading '//|/\\\\*|^\\\\s*\\\\*')",
       "Bash(sed 's/^...//')",
-      "Bash(sed 's/.* -> //')"
+      "Bash(sed 's/.* -> //')",
+      "PowerShell(cd C:\\\\PET; git status --porcelain | ForEach-Object { $_.Substring\\(3\\) } | Where-Object { $_ -match '\\\\.\\(ts|tsx|js|mjs|json|sql|sh|yml\\)$' })",
+      "Bash(echo \"EXIT:$?\")"
     ],
     "deny": [],
     "ask": []
