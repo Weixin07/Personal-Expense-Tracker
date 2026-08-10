@@ -233,6 +233,7 @@ describe('ImportScreen', () => {
       baseAmount: 10,
       baseCurrencyCode: 'USD',
       date: '2024-01-01',
+      time: null,
       categoryId: null,
       notes: null,
       createdAt: '',
@@ -798,5 +799,60 @@ describe('ImportScreen', () => {
       expect(screen.getByText('Ref (column 4)')).toBeOnTheScreen(),
     );
     expect(screen.getByText('Ref (column 5)')).toBeOnTheScreen();
+  });
+
+  describe('time column', () => {
+    const withTime = (time: string) =>
+      'description,amount_native,currency_code,fx_rate_to_base,date,time\r\n' +
+      `Lunch,10.00,USD,1.000000,2024-01-01,${time}\r\n`;
+
+    const openPreview = async (csv: string) => {
+      mockedPickCsvFile.mockResolvedValue({ ok: true, uri: 'file://x.csv' });
+      mockedReadFileAsString.mockResolvedValue(csv);
+      renderWithProviders(<ImportScreen />);
+      fireEvent.press(screen.getByLabelText('Import from a CSV file'));
+      await waitFor(() =>
+        expect(screen.getByText('Map columns')).toBeOnTheScreen(),
+      );
+      fireEvent.press(screen.getByLabelText('Preview import'));
+      await waitFor(() =>
+        expect(screen.getByText('Review import')).toBeOnTheScreen(),
+      );
+    };
+
+    it('offers Time as an optional mapping target', async () => {
+      mockedPickCsvFile.mockResolvedValue({ ok: true, uri: 'file://x.csv' });
+      mockedReadFileAsString.mockResolvedValue(APP_CSV);
+      renderWithProviders(<ImportScreen />);
+      fireEvent.press(screen.getByLabelText('Import from a CSV file'));
+
+      await waitFor(() =>
+        expect(screen.getByText('Map columns')).toBeOnTheScreen(),
+      );
+      expect(screen.getByText('Time')).toBeOnTheScreen();
+      expect(screen.queryByText('Time *')).toBeNull();
+    });
+
+    it('carries a mapped time through to the import payload', async () => {
+      await openPreview(withTime('14:30'));
+
+      fireEvent.press(screen.getByLabelText('Confirm import'));
+      await waitFor(() => expect(importTransactions).toHaveBeenCalled());
+      const [preview] = importTransactions.mock.calls[0];
+      expect(preview.valid[0].record.time).toBe('14:30');
+    });
+
+    it('warns about an unreadable time without skipping the row', async () => {
+      await openPreview(withTime('25:99'));
+
+      expect(
+        screen.getByText('1 of 1 rows ready to import.'),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByText(
+          '1 row had a time that could not be read and will be imported without one.',
+        ),
+      ).toBeOnTheScreen();
+    });
   });
 });

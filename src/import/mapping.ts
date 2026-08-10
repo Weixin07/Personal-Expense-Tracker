@@ -22,6 +22,7 @@ const COLUMN_TO_FIELD: Record<string, ImportTargetField> = {
   base_amount: 'baseAmount',
   base_currency_code: 'baseCurrencyCode',
   date: 'date',
+  time: 'time',
   category: 'categoryName',
   notes: 'notes',
   type: 'transactionType',
@@ -53,6 +54,12 @@ const SYNONYM_TO_FIELD: Record<string, ImportTargetField> = {
   'value date': 'date',
   datetime: 'date',
   'date time': 'date',
+  timestamp: 'date',
+
+  'time of day': 'time',
+  'transaction time': 'time',
+  'entry time': 'time',
+  'posted time': 'time',
 
   details: 'description',
   title: 'description',
@@ -234,17 +241,21 @@ export const applyMapping = (
   return candidate;
 };
 
-const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/;
-
 /**
- * Optional clock time trailing a date, as exported by tools that stamp the
- * moment of entry. Matched as a time-shaped token rather than "any trailing
- * text" so a malformed value is still rejected. Covers seconds, fractional
- * seconds, 12-hour suffixes and zone offsets; the value itself is discarded,
- * since a transaction stores a calendar day.
+ * A clock time as exported by other tools: hours and minutes, optionally
+ * seconds or fractional seconds, an English 12-hour suffix, and a zone offset.
+ * Seconds are surplus to the minute granularity a record stores, and the offset
+ * is read only so a zoned value is not mistaken for malformed. A colon is
+ * required: a source column of plain digits would otherwise read as a time.
  */
-const TIME_SUFFIX =
-  '(?:[T\\s]+\\d{1,2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?\\s*(?:[AaPp]\\.?[Mm]\\.?)?\\s*(?:Z|[+-]\\d{2}:?\\d{2})?)?';
+const TIME_TOKEN =
+  '(\\d{1,2}):(\\d{2})(?::\\d{2}(?:\\.\\d+)?)?\\s*(?:([AaPp])\\.?[Mm]\\.?)?\\s*(?:Z|[+-]\\d{2}:?\\d{2})?';
+
+const TIME_SUFFIX = `(?:[T\\s]+${TIME_TOKEN})?`;
+
+const STANDALONE_TIME = new RegExp(`^${TIME_TOKEN}$`);
+
+const ISO_DATE = new RegExp(`^(\\d{4})-(\\d{2})-(\\d{2})${TIME_SUFFIX}$`);
 
 const NUMERIC_DATE = new RegExp(
   `^(\\d{1,2})[/\\-.](\\d{1,2})[/\\-.](\\d{2}|\\d{4})${TIME_SUFFIX}$`,
@@ -255,6 +266,43 @@ const MONTH_FIRST_DATE = new RegExp(
 const DAY_FIRST_DATE = new RegExp(
   `^(\\d{1,2})(?:st|nd|rd|th)?\\s+([A-Za-z]{3,})\\.?,?\\s+(\\d{2}|\\d{4})${TIME_SUFFIX}$`,
 );
+
+/**
+ * Fold captured hour/minute/meridiem parts into `HH:MM`, or null when they do
+ * not name a real time. The meridiem is applied before the range check, so
+ * `13:00 PM` is rejected rather than silently wrapped.
+ */
+const toTimeOfDay = (
+  rawHours: string | undefined,
+  rawMinutes: string | undefined,
+  meridiem: string | undefined,
+): string | null => {
+  if (!rawHours || !rawMinutes) {
+    return null;
+  }
+
+  let hours = Number(rawHours);
+  const minutes = Number(rawMinutes);
+  if (minutes > 59) {
+    return null;
+  }
+
+  if (meridiem) {
+    if (hours < 1 || hours > 12) {
+      return null;
+    }
+    const isMorning = meridiem.toLowerCase() === 'a';
+    if (isMorning) {
+      hours = hours === 12 ? 0 : hours;
+    } else if (hours !== 12) {
+      hours += 12;
+    }
+  } else if (hours > 23) {
+    return null;
+  }
+
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+};
 
 const MONTH_NAMES: Record<string, number> = {
   jan: 1,
@@ -378,6 +426,39 @@ export const normalizeDate = (
   return format === 'dmy'
     ? toIsoDate(year, second, first)
     : toIsoDate(year, first, second);
+};
+
+const DATE_PATTERNS = [
+  ISO_DATE,
+  NUMERIC_DATE,
+  MONTH_FIRST_DATE,
+  DAY_FIRST_DATE,
+] as const;
+
+/**
+ * Read the clock time riding along in a date value, as exported by tools that
+ * stamp the moment of entry. Returns null when the value carries no time, so a
+ * date-only column simply yields no time rather than an error.
+ */
+export const extractTimeFromDate = (value: string): string | null => {
+  const trimmed = value.trim();
+  for (const pattern of DATE_PATTERNS) {
+    const match = trimmed.match(pattern);
+    if (match) {
+      return toTimeOfDay(match[4], match[5], match[6]);
+    }
+  }
+  return null;
+};
+
+/**
+ * Normalize a dedicated time column's value to `HH:MM`. Returns null when the
+ * value cannot be read as a time; the caller decides whether that is worth
+ * reporting, since a transaction may be stored without one.
+ */
+export const normalizeTime = (value: string): string | null => {
+  const match = value.trim().match(STANDALONE_TIME);
+  return match ? toTimeOfDay(match[1], match[2], match[3]) : null;
 };
 
 /**

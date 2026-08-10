@@ -1,5 +1,6 @@
 import type { CategoryRecord, TransactionRecord } from '../../database/types';
 import { buildTransactionsCsv } from '../csvBuilder';
+import { TRANSACTION_CSV_COLUMNS } from '../csvColumns';
 
 describe('CSV Export Integration Tests', () => {
   const mockCategories: CategoryRecord[] = [
@@ -31,6 +32,7 @@ describe('CSV Export Integration Tests', () => {
       baseAmount: 45.5,
       baseCurrencyCode: 'GBP',
       date: '2025-01-15',
+      time: null,
       categoryId: 1,
       notes: 'Tesco shopping',
       createdAt: '2025-01-15T10:00:00.000Z',
@@ -47,6 +49,7 @@ describe('CSV Export Integration Tests', () => {
       baseAmount: 31.75,
       baseCurrencyCode: 'GBP',
       date: '2025-01-20',
+      time: null,
       categoryId: 2,
       notes: null,
       createdAt: '2025-01-20T08:30:00.000Z',
@@ -63,6 +66,7 @@ describe('CSV Export Integration Tests', () => {
       baseAmount: 4.025,
       baseCurrencyCode: 'GBP',
       date: '2025-01-22',
+      time: null,
       categoryId: null,
       notes: 'Line 1\nLine 2',
       createdAt: '2025-01-22T14:00:00.000Z',
@@ -82,7 +86,7 @@ describe('CSV Export Integration Tests', () => {
 
       const lines = csv.split('\r\n');
       expect(lines[0]).toBe(
-        '\uFEFFid,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee,type',
+        '\uFEFFid,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee,type,time',
       );
     });
 
@@ -140,9 +144,9 @@ describe('CSV Export Integration Tests', () => {
       const csv = result.content;
       const lines = csv.split('\r\n');
 
-      // Trailing columns are: notes, base_currency_code, payee, type.
+      const notesColumn = TRANSACTION_CSV_COLUMNS.indexOf('notes');
       const secondExpense = lines[2].split(',');
-      expect(secondExpense[secondExpense.length - 4]).toBe('');
+      expect(secondExpense[notesColumn]).toBe('');
     });
 
     it('should handle large datasets efficiently', () => {
@@ -159,6 +163,7 @@ describe('CSV Export Integration Tests', () => {
           baseAmount: Math.random() * 1000,
           baseCurrencyCode: 'GBP',
           date: '2025-01-01',
+          time: null,
           categoryId: (i % 5) + 1,
           notes: null,
           createdAt: '2025-01-01T00:00:00.000Z',
@@ -207,6 +212,7 @@ describe('CSV Export Integration Tests', () => {
         baseAmount: 152.415135963,
         baseCurrencyCode: 'USD',
         date: '2025-01-01',
+        time: null,
         categoryId: null,
         notes: null,
         createdAt: '2025-01-01T00:00:00.000Z',
@@ -235,7 +241,7 @@ describe('CSV Export Integration Tests', () => {
 
       const header = lines[0].replace('\uFEFF', '');
       expect(header).toBe(
-        'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee,type',
+        'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee,type,time',
       );
 
       const firstDataRow = lines[1].split(',');

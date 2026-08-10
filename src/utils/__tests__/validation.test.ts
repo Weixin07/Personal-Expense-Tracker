@@ -5,6 +5,7 @@ import {
   validateIsoDateWithinFutureWindow,
   validatePositiveAmount,
   validatePositiveRate,
+  validateTimeOfDay,
 } from '../validation';
 
 describe('validation helpers', () => {
@@ -167,5 +168,37 @@ describe('normalizeCurrency', () => {
   it('returns unknown for an unrecognised value', () => {
     expect(normalizeCurrency('ZZZ')).toEqual({ status: 'unknown' });
     expect(normalizeCurrency('')).toEqual({ status: 'unknown' });
+  });
+});
+
+describe('validateTimeOfDay', () => {
+  it('accepts an absent time, since the field is optional', () => {
+    expect(validateTimeOfDay(null)).toEqual({ valid: true });
+    expect(validateTimeOfDay(undefined)).toEqual({ valid: true });
+    expect(validateTimeOfDay('')).toEqual({ valid: true });
+    expect(validateTimeOfDay('   ')).toEqual({ valid: true });
+  });
+
+  it('tolerates surrounding whitespace on a real time', () => {
+    expect(validateTimeOfDay('  14:30  ')).toEqual({ valid: true });
+  });
+
+  it('accepts times at both ends of the day', () => {
+    expect(validateTimeOfDay('00:00')).toEqual({ valid: true });
+    expect(validateTimeOfDay('23:59')).toEqual({ valid: true });
+    expect(validateTimeOfDay('14:30')).toEqual({ valid: true });
+  });
+
+  it('rejects out-of-range hours and minutes', () => {
+    expect(validateTimeOfDay('24:00').valid).toBe(false);
+    expect(validateTimeOfDay('12:60').valid).toBe(false);
+    expect(validateTimeOfDay('99:99').valid).toBe(false);
+  });
+
+  it('rejects shapes that are not zero-padded 24-hour time', () => {
+    expect(validateTimeOfDay('9:05').valid).toBe(false);
+    expect(validateTimeOfDay('1430').valid).toBe(false);
+    expect(validateTimeOfDay('2:30pm').valid).toBe(false);
+    expect(validateTimeOfDay('lunch').valid).toBe(false);
   });
 });

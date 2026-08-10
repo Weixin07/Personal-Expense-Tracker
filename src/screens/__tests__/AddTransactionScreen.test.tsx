@@ -32,6 +32,7 @@ const makeTransaction = (
   baseAmount: 3.5,
   baseCurrencyCode: 'USD',
   date: '2025-01-10',
+  time: null,
   categoryId: null,
   notes: null,
   createdAt: '2025-01-10T00:00:00.000Z',
@@ -487,6 +488,90 @@ describe('AddTransactionScreen', () => {
       expect(value.actions.updateTransaction).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'income', categoryId: narrowed.id }),
       );
+    });
+  });
+
+  describe('time of day', () => {
+    const fillRequired = () => {
+      fireEvent.changeText(
+        screen.getByLabelText('Transaction payee'),
+        'Local Market',
+      );
+      fireEvent.changeText(
+        screen.getByLabelText('Amount in native currency'),
+        '12.50',
+      );
+      fireEvent.changeText(
+        screen.getByLabelText('FX rate to base currency'),
+        '1',
+      );
+    };
+
+    it('renders a time field', () => {
+      renderScreen(undefined);
+      expect(screen.getByLabelText('Transaction time')).toBeOnTheScreen();
+    });
+
+    it('hydrates the field from an existing record', () => {
+      renderScreen(
+        { transactionId: 1 },
+        {
+          state: { transactions: [makeTransaction({ id: 1, time: '14:30' })] },
+        },
+      );
+      expect(screen.getByLabelText('Transaction time').props.value).toBe(
+        '14:30',
+      );
+    });
+
+    it('leaves the field empty for a record with no time', () => {
+      renderScreen(
+        { transactionId: 1 },
+        { state: { transactions: [makeTransaction({ id: 1, time: null })] } },
+      );
+      expect(screen.getByLabelText('Transaction time').props.value).toBe('');
+    });
+
+    it('normalises a typed time before saving', async () => {
+      const createTransaction = jest.fn().mockResolvedValue(makeTransaction());
+      renderScreen(undefined, { actions: { createTransaction } });
+
+      fillRequired();
+      fireEvent.changeText(screen.getByLabelText('Transaction time'), '2:30pm');
+      fireEvent.press(screen.getByLabelText('Create transaction'));
+
+      await waitFor(() => expect(createTransaction).toHaveBeenCalledTimes(1));
+      expect(createTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({ time: '14:30' }),
+      );
+    });
+
+    it('saves no time when the field is cleared', async () => {
+      const createTransaction = jest.fn().mockResolvedValue(makeTransaction());
+      renderScreen(undefined, { actions: { createTransaction } });
+
+      fillRequired();
+      fireEvent.changeText(screen.getByLabelText('Transaction time'), '');
+      fireEvent.press(screen.getByLabelText('Create transaction'));
+
+      await waitFor(() => expect(createTransaction).toHaveBeenCalledTimes(1));
+      expect(createTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({ time: null }),
+      );
+    });
+
+    it('blocks submit and reports an unreadable time', () => {
+      const createTransaction = jest.fn();
+      renderScreen(undefined, { actions: { createTransaction } });
+
+      fillRequired();
+      fireEvent.changeText(screen.getByLabelText('Transaction time'), 'lunch');
+      fireEvent.press(screen.getByLabelText('Create transaction'));
+
+      expect(createTransaction).not.toHaveBeenCalled();
+      expect(
+        screen.getByText('Time must be in 24-hour format HH:MM.'),
+      ).toBeOnTheScreen();
     });
   });
 });

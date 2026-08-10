@@ -359,6 +359,7 @@ describe('previewImport', () => {
           baseAmount: 10,
           baseCurrencyCode: 'USD',
           date: '2024-01-01',
+          time: null,
           categoryId: null,
           notes: null,
           createdAt: '',
@@ -506,6 +507,7 @@ describe('previewImport', () => {
             baseAmount: 4,
             baseCurrencyCode: 'USD',
             date: '2024-01-01',
+            time: null,
             categoryId: null,
             notes: null,
             createdAt: '',
@@ -584,6 +586,7 @@ describe('commitImport', () => {
           baseAmount: 110,
           baseCurrencyCode: 'USD',
           date: '2024-01-01',
+          time: null,
           notes: null,
         },
         categoryName: 'Food',
@@ -592,6 +595,7 @@ describe('commitImport', () => {
     ],
     invalid: [{ line: 3, reason: 'bad' }],
     needsFxRate: [],
+    unreadableTimes: [],
     fxReview: [],
     currencyReview: [],
     duplicates: [],
@@ -748,5 +752,165 @@ describe('commitImport', () => {
     );
 
     await expect(commitImport(previewWith())).rejects.toThrow('insert failed');
+  });
+});
+
+const TIME_MAPPING: FieldMapping = { ...APP_MAPPING, time: 8 };
+const TIME_HEADER =
+  'description,amount,currency,fx,date,category,payee,base,time\r\n';
+const timedRow = (time: string, date = '2025-01-10') =>
+  `Lunch,10.00,USD,1.000000,${date},Food,Cafe,USD,${time}\r\n`;
+const untimedRow = (date = '2025-01-10') =>
+  `Lunch,10.00,USD,1.000000,${date},Food,Cafe,USD\r\n`;
+
+describe('previewImport time handling', () => {
+  it('reads a dedicated time column', () => {
+    const preview = previewImport(
+      TIME_HEADER + timedRow('14:30'),
+      TIME_MAPPING,
+      'iso',
+      baseCtx,
+    );
+
+    expect(preview.valid).toHaveLength(1);
+    expect(preview.valid[0].record.time).toBe('14:30');
+    expect(preview.unreadableTimes).toHaveLength(0);
+  });
+
+  it('falls back to a time carried in the date cell', () => {
+    const text =
+      HEADER + `Lunch,10.00,USD,1.000000,2025-01-10 08:45,Food,Cafe,USD\r\n`;
+    const preview = previewImport(text, APP_MAPPING, 'iso', baseCtx);
+
+    expect(preview.valid[0].record.time).toBe('08:45');
+  });
+
+  it('records no time when the source carries none', () => {
+    const preview = previewImport(
+      HEADER + untimedRow(),
+      APP_MAPPING,
+      'iso',
+      baseCtx,
+    );
+
+    expect(preview.valid[0].record.time).toBeNull();
+    expect(preview.unreadableTimes).toHaveLength(0);
+  });
+
+  it('imports a row whose time cannot be read, reporting it as advisory', () => {
+    const preview = previewImport(
+      TIME_HEADER + timedRow('25:99'),
+      TIME_MAPPING,
+      'iso',
+      baseCtx,
+    );
+
+    expect(preview.valid).toHaveLength(1);
+    expect(preview.valid[0].record.time).toBeNull();
+    expect(preview.invalid).toHaveLength(0);
+    expect(preview.unreadableTimes).toHaveLength(1);
+    expect(preview.unreadableTimes[0].line).toBe(2);
+  });
+
+  it('does not let an unreadable time reject an otherwise valid row', () => {
+    const preview = previewImport(
+      TIME_HEADER + timedRow('lunch') + timedRow('14:30', '2025-01-11'),
+      TIME_MAPPING,
+      'iso',
+      baseCtx,
+    );
+
+    expect(preview.valid).toHaveLength(2);
+    expect(preview.invalid).toHaveLength(0);
+    expect(preview.unreadableTimes).toHaveLength(1);
+  });
+});
+
+describe('previewImport duplicate detection with times', () => {
+  const storedAt = (time: string | null, id = 1) => ({
+    id,
+    type: 'expense' as const,
+    description: 'Lunch',
+    payee: 'Cafe',
+    amountNative: 10,
+    currencyCode: 'USD',
+    fxRateToBase: 1,
+    baseAmount: 10,
+    baseCurrencyCode: 'USD',
+    date: '2025-01-10',
+    time,
+    categoryId: null,
+    notes: null,
+    createdAt: '',
+    updatedAt: '',
+  });
+
+  it('flags a match when both sides carry the same time', () => {
+    const preview = previewImport(
+      TIME_HEADER + timedRow('14:30'),
+      TIME_MAPPING,
+      'iso',
+      { ...baseCtx, existingTransactions: [storedAt('14:30')] },
+    );
+
+    expect(preview.duplicates).toEqual([{ line: 2, matchesTransactionId: 1 }]);
+  });
+
+  it('does not flag a match when both times are present and differ', () => {
+    const preview = previewImport(
+      TIME_HEADER + timedRow('14:31'),
+      TIME_MAPPING,
+      'iso',
+      { ...baseCtx, existingTransactions: [storedAt('14:30')] },
+    );
+
+    expect(preview.duplicates).toHaveLength(0);
+  });
+
+  it('still flags a match when the stored row has no time', () => {
+    const preview = previewImport(
+      TIME_HEADER + timedRow('14:30'),
+      TIME_MAPPING,
+      'iso',
+      { ...baseCtx, existingTransactions: [storedAt(null)] },
+    );
+
+    expect(preview.duplicates).toEqual([{ line: 2, matchesTransactionId: 1 }]);
+  });
+
+  it('still flags a match when the imported row has no time', () => {
+    const preview = previewImport(HEADER + untimedRow(), APP_MAPPING, 'iso', {
+      ...baseCtx,
+      existingTransactions: [storedAt('14:30')],
+    });
+
+    expect(preview.duplicates).toEqual([{ line: 2, matchesTransactionId: 1 }]);
+  });
+
+  it('matches against the stored row sharing its time', () => {
+    const preview = previewImport(
+      TIME_HEADER + timedRow('09:15'),
+      TIME_MAPPING,
+      'iso',
+      {
+        ...baseCtx,
+        existingTransactions: [storedAt('14:30', 1), storedAt('09:15', 2)],
+      },
+    );
+
+    expect(preview.duplicates).toEqual([{ line: 2, matchesTransactionId: 2 }]);
+  });
+
+  it('flags a within-file repeat and leaves a distinct time alone', () => {
+    const preview = previewImport(
+      TIME_HEADER + timedRow('14:30') + timedRow('14:30') + timedRow('09:15'),
+      TIME_MAPPING,
+      'iso',
+      baseCtx,
+    );
+
+    expect(preview.duplicates).toEqual([
+      { line: 3, matchesTransactionId: null, matchesLine: 2 },
+    ]);
   });
 });

@@ -79,6 +79,7 @@ export const buildTransactionsCsv = ({
       transaction.baseCurrencyCode ?? '',
       transaction.payee,
       transaction.type,
+      transaction.time ?? '',
     ].map(escapeCell);
 
     lines.push(row.join(','));

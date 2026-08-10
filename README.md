@@ -83,7 +83,7 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 
 - **Material Design 3**: Modern, accessible UI with React Native Paper
 - **Light/Dark Themes**: Automatic theme switching based on device settings
-- **British Date Format**: DD/MM/YYYY display (ISO YYYY-MM-DD storage)
+- **British Date Format**: DD/MM/YYYY display (ISO YYYY-MM-DD storage), with an optional 24-hour `HH:MM` time stored as naive local wall-clock — never converted between timezones
 - **Smooth Performance**: Virtualized lists with optimized rendering for 10,000+ expenses
 - **Responsive Validation**: Inline error messages with clear feedback
 
@@ -134,6 +134,7 @@ CREATE TABLE transactions (
   base_amount REAL NOT NULL CHECK (base_amount >= 0),
   base_currency_code TEXT NULL,  -- base currency the rate/base_amount were captured against
   date TEXT NOT NULL CHECK (LENGTH(date) = 10),  -- ISO YYYY-MM-DD
+  time TEXT NULL CHECK (time IS NULL OR LENGTH(time) = 5),  -- HH:MM, NULL = not recorded
   category_id INTEGER NULL,
   notes TEXT NULL,
   created_at TEXT NOT NULL,
@@ -664,7 +665,7 @@ PET/
 │   │   └── AppContext.tsx      # Global app state (expenses, categories, settings)
 │   ├── database/               # SQLite layer
 │   │   ├── database.ts         # Database initialization, connection
-│   │   ├── migrations.ts       # Schema migrations (v1-v4)
+│   │   ├── migrations.ts       # Schema migrations (v1-v9)
 │   │   ├── seeding.ts          # Default data seeding
 │   │   ├── repositories/       # Data access layer
 │   │   │   ├── transactionsRepository.ts
@@ -681,7 +682,7 @@ PET/
 │   │   └── __tests__/          # Export tests
 │   ├── import/                 # CSV import (inverse of export)
 │   │   ├── csvParser.ts        # RFC 4180 parser (BOM/CRLF, quoted fields)
-│   │   ├── mapping.ts          # Column mapping + date-format normalization
+│   │   ├── mapping.ts          # Column mapping + date/time-format normalization
 │   │   ├── importManager.ts    # Preview (validate) + commit (atomic bulk insert)
 │   │   └── __tests__/          # Import tests
 │   ├── navigation/             # React Navigation
@@ -709,7 +710,7 @@ PET/
 │   ├── utils/                  # Utility functions
 │   │   ├── validation.ts       # Input validation
 │   │   ├── formatting.ts       # Money/date formatting
-│   │   ├── date.ts             # Date utilities (British format)
+│   │   ├── date.ts             # Date/time utilities (British format, HH:MM parsing)
 │   │   ├── math.ts             # Banker's rounding
 │   │   └── __tests__/          # Utility tests
 │   └── App.tsx                 # Root component

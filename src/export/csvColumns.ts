@@ -11,6 +11,7 @@ export const TRANSACTION_CSV_COLUMNS = [
   'base_currency_code',
   'payee',
   'type',
+  'time',
 ] as const;
 
 export type TransactionCsvColumn = (typeof TRANSACTION_CSV_COLUMNS)[number];

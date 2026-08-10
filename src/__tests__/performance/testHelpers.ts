@@ -210,6 +210,14 @@ export const generateMockTransactions = (
       baseAmount: parseFloat((amount * fxRate).toFixed(6)),
       baseCurrencyCode: 'USD',
       date: date.toISOString().split('T')[0],
+      // A quarter of rows carry no time, as in a database holding records
+      // created before the column existed.
+      time:
+        i % 4 === 0
+          ? null
+          : `${String(date.getHours()).padStart(2, '0')}:${String(
+              date.getMinutes(),
+            ).padStart(2, '0')}`,
       categoryId: Math.floor(Math.random() * categories.length) + 1,
       notes: Math.random() > 0.5 ? `Note for transaction ${i + 1}` : null,
       createdAt: date.toISOString(),

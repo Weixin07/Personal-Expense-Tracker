@@ -18,6 +18,7 @@ const TRANSACTION_COLUMNS = `
   base_amount,
   base_currency_code,
   date,
+  time,
   category_id,
   notes,
   created_at,
@@ -35,6 +36,7 @@ type RawTransactionRow = {
   base_amount: number;
   base_currency_code: string | null;
   date: string;
+  time: string | null;
   category_id: number | null;
   notes: string | null;
   created_at: string;
@@ -52,6 +54,7 @@ const toTransactionRecord = (row: RawTransactionRow): TransactionRecord => ({
   baseAmount: row.base_amount,
   baseCurrencyCode: row.base_currency_code ?? null,
   date: row.date,
+  time: row.time ?? null,
   categoryId: row.category_id,
   notes: row.notes,
   createdAt: row.created_at,
@@ -82,9 +85,10 @@ export const createTransaction = async (
       base_amount,
       base_currency_code,
       date,
+      time,
       category_id,
       notes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       payload.type,
       payload.description,
@@ -95,6 +99,7 @@ export const createTransaction = async (
       payload.baseAmount,
       payload.baseCurrencyCode ?? null,
       payload.date,
+      payload.time ?? null,
       payload.categoryId ?? null,
       payload.notes ?? null,
     ],
@@ -113,7 +118,7 @@ export const createTransaction = async (
   return transaction;
 };
 
-const BULK_INSERT_COLUMN_COUNT = 11;
+const BULK_INSERT_COLUMN_COUNT = 12;
 // SQLite caps host parameters per statement (SQLITE_MAX_VARIABLE_NUMBER, 999 on
 // older builds). Rows per INSERT are derived from the column count so the cap
 // cannot be breached by adding a column.
@@ -134,6 +139,7 @@ const toBulkInsertParams = (
   payload.baseAmount,
   payload.baseCurrencyCode ?? null,
   payload.date,
+  payload.time ?? null,
   payload.categoryId ?? null,
   payload.notes ?? null,
 ];
@@ -164,6 +170,7 @@ export const createTransactionsBulk = async (
         base_amount,
         base_currency_code,
         date,
+        time,
         category_id,
         notes
       ) VALUES ${placeholders}`,
@@ -190,6 +197,7 @@ export const updateTransaction = async (
       base_amount = ?,
       base_currency_code = ?,
       date = ?,
+      time = ?,
       category_id = ?,
       notes = ?,
       updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -204,6 +212,7 @@ export const updateTransaction = async (
       fields.baseAmount,
       fields.baseCurrencyCode ?? null,
       fields.date,
+      fields.time ?? null,
       fields.categoryId ?? null,
       fields.notes ?? null,
       id,
@@ -286,7 +295,10 @@ export const listTransactions = async (
     params.push(filters.offset);
   }
 
-  const query = `SELECT ${TRANSACTION_COLUMNS} FROM transactions ${whereClause} ORDER BY date DESC, id DESC${limitClause}`;
+  // SQLite orders NULL below every other value, so `time DESC` already places
+  // untimed rows after timed ones within a date. An explicit NULLS LAST would
+  // require SQLite 3.30 and change nothing.
+  const query = `SELECT ${TRANSACTION_COLUMNS} FROM transactions ${whereClause} ORDER BY date DESC, time DESC, id DESC${limitClause}`;
   const [result] = await db.executeSql(query, params);
   return mapResultSetToTransactions(result);
 };

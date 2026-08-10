@@ -11,6 +11,7 @@ const invalid = (message: string): ValidationResult => ({
 });
 
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 const MAX_FUTURE_DAYS = 3;
 const MS_IN_DAY = 24 * 60 * 60 * 1000;
 
@@ -190,6 +191,25 @@ export const validateBaseAmountPrecision = (
   const places = decimalPlaces(baseAmount ?? 0);
   if (places < 6 || places > 8) {
     return invalid('Base amount must have between 6 and 8 decimal places.');
+  }
+
+  return valid();
+};
+
+/**
+ * Validate a stored time of day. An absent time is valid — the field is
+ * optional, and `null` records that no time was captured.
+ */
+export const validateTimeOfDay = (
+  time: string | null | undefined,
+): ValidationResult => {
+  const trimmed = (time ?? '').trim();
+  if (!trimmed) {
+    return valid();
+  }
+
+  if (!TIME_PATTERN.test(trimmed)) {
+    return invalid('Time must be in 24-hour format HH:MM.');
   }
 
   return valid();

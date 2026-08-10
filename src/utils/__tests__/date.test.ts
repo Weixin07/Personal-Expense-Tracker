@@ -2,6 +2,10 @@ import {
   formatDateBritish,
   formatDateRangeBritish,
   parseBritishDateInput,
+  formatDateTimeBritish,
+  localIsoDate,
+  localTimeOfDay,
+  parseTimeInput,
 } from '../date';
 
 describe('date utilities', () => {
@@ -137,5 +141,70 @@ describe('date utilities', () => {
       expect(parseBritishDateInput('5/3/2025')).toBe('2025-03-05');
       expect(parseBritishDateInput('10/3/2025')).toBe('2025-03-10');
     });
+  });
+});
+
+describe('parseTimeInput', () => {
+  it.each([
+    ['14:30', '14:30'],
+    ['14.30', '14:30'],
+    ['1430', '14:30'],
+    ['9:05', '09:05'],
+    ['09:05', '09:05'],
+    ['930', '09:30'],
+    ['2:30pm', '14:30'],
+    ['2.30 PM', '14:30'],
+    ['2:30 p.m.', '14:30'],
+    ['12:15am', '00:15'],
+    ['12:15pm', '12:15'],
+    ['  14:30  ', '14:30'],
+  ])('normalises %s to %s', (input, expected) => {
+    expect(parseTimeInput(input)).toBe(expected);
+  });
+
+  it('returns an empty string for a cleared field', () => {
+    expect(parseTimeInput('')).toBe('');
+    expect(parseTimeInput('   ')).toBe('');
+  });
+
+  it.each(['25:00', '12:60', 'lunch', '14:3', '1:2:3', '13:00pm', '0:30am'])(
+    'returns null for the unreadable value %s',
+    input => {
+      expect(parseTimeInput(input)).toBeNull();
+    },
+  );
+
+  it('distinguishes a cleared field from an unreadable one', () => {
+    expect(parseTimeInput('')).not.toBeNull();
+    expect(parseTimeInput('nonsense')).toBeNull();
+  });
+});
+
+describe('formatDateTimeBritish', () => {
+  it('appends the time when one was recorded', () => {
+    expect(formatDateTimeBritish('2026-08-08', '14:30')).toBe(
+      '08/08/2026 14:30',
+    );
+  });
+
+  it('shows the date alone when no time was recorded', () => {
+    expect(formatDateTimeBritish('2026-08-08', null)).toBe('08/08/2026');
+    expect(formatDateTimeBritish('2026-08-08', '')).toBe('08/08/2026');
+    expect(formatDateTimeBritish('2026-08-08', undefined)).toBe('08/08/2026');
+  });
+});
+
+describe('local now helpers', () => {
+  it('reads the calendar day from local getters, not UTC', () => {
+    // 23:30 on the 8th locally; UTC would report the 8th or 9th depending on
+    // the runner's zone, so the local reading is what must be asserted.
+    const localLateEvening = new Date(2026, 7, 8, 23, 30);
+    expect(localIsoDate(localLateEvening)).toBe('2026-08-08');
+    expect(localTimeOfDay(localLateEvening)).toBe('23:30');
+  });
+
+  it('zero-pads single-digit months, days, hours and minutes', () => {
+    expect(localIsoDate(new Date(2026, 0, 5, 9, 7))).toBe('2026-01-05');
+    expect(localTimeOfDay(new Date(2026, 0, 5, 9, 7))).toBe('09:07');
   });
 });

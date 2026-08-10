@@ -24,6 +24,7 @@ const makeNewExpense = (
   baseAmount: 10,
   baseCurrencyCode: 'USD',
   date: '2025-01-15',
+  time: null,
   categoryId: null,
   notes: null,
   ...overrides,
@@ -50,6 +51,7 @@ describe('transactionsRepository', () => {
         baseAmount: 100.5,
         baseCurrencyCode: 'USD',
         date: '2025-01-15',
+        time: null,
         categoryId: 1,
         notes: 'Test notes',
       };
@@ -109,6 +111,7 @@ describe('transactionsRepository', () => {
           100.5,
           'USD',
           '2025-01-15',
+          null,
           1,
           'Test notes',
         ],
@@ -124,6 +127,7 @@ describe('transactionsRepository', () => {
         baseAmount: 100.5,
         baseCurrencyCode: 'USD',
         date: '2025-01-15',
+        time: null,
         categoryId: 1,
         notes: 'Test notes',
         createdAt: '2025-01-15T10:00:00.000Z',
@@ -142,6 +146,7 @@ describe('transactionsRepository', () => {
         baseAmount: 50.0,
         baseCurrencyCode: null,
         date: '2025-01-15',
+        time: null,
         categoryId: null,
         notes: null,
       };
@@ -202,6 +207,7 @@ describe('transactionsRepository', () => {
           '2025-01-15',
           null,
           null,
+          null,
         ],
       );
 
@@ -220,6 +226,7 @@ describe('transactionsRepository', () => {
         baseAmount: 100.5,
         baseCurrencyCode: 'USD',
         date: '2025-01-15',
+        time: null,
         categoryId: null,
         notes: null,
       };
@@ -252,6 +259,7 @@ describe('transactionsRepository', () => {
         baseAmount: 100.5,
         baseCurrencyCode: 'USD',
         date: '2025-01-15',
+        time: null,
         categoryId: null,
         notes: null,
       };
@@ -299,6 +307,7 @@ describe('transactionsRepository', () => {
         baseAmount: 220.825,
         baseCurrencyCode: 'USD',
         date: '2025-01-16',
+        time: null,
         categoryId: 2,
         notes: 'Updated notes',
       };
@@ -357,6 +366,7 @@ describe('transactionsRepository', () => {
           220.825,
           'USD',
           '2025-01-16',
+          null,
           2,
           'Updated notes',
           42,
@@ -373,6 +383,7 @@ describe('transactionsRepository', () => {
         baseAmount: 220.825,
         baseCurrencyCode: 'USD',
         date: '2025-01-16',
+        time: null,
         categoryId: 2,
         notes: 'Updated notes',
         createdAt: '2025-01-15T10:00:00.000Z',
@@ -392,6 +403,7 @@ describe('transactionsRepository', () => {
         baseAmount: 220.825,
         baseCurrencyCode: 'USD',
         date: '2025-01-16',
+        time: null,
         categoryId: null,
         notes: null,
       };
@@ -425,6 +437,7 @@ describe('transactionsRepository', () => {
         baseAmount: 220.825,
         baseCurrencyCode: 'USD',
         date: '2025-01-16',
+        time: null,
         categoryId: null,
         notes: null,
       };
@@ -563,6 +576,7 @@ describe('transactionsRepository', () => {
         baseAmount: 100.5,
         baseCurrencyCode: 'USD',
         date: '2025-01-15',
+        time: null,
         categoryId: 1,
         notes: 'Test notes',
         createdAt: '2025-01-15T10:00:00.000Z',
@@ -635,13 +649,65 @@ describe('transactionsRepository', () => {
       const result = await listTransactions(mockDb);
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
-        expect.stringContaining('ORDER BY date DESC, id DESC'),
+        expect.stringContaining('ORDER BY date DESC, time DESC, id DESC'),
         [],
       );
 
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe(1);
       expect(result[1].id).toBe(2);
+    });
+
+    it('orders by time between date and id, without a NULLS clause', async () => {
+      const mockSelectResult: ResultSet = {
+        insertId: undefined,
+        rowsAffected: 0,
+        rows: { length: 0, raw: () => [], item: () => null },
+      };
+      mockDb.executeSql.mockResolvedValueOnce([mockSelectResult]);
+
+      await listTransactions(mockDb);
+
+      const sql = mockDb.executeSql.mock.calls[0][0] as string;
+      expect(sql).toContain('ORDER BY date DESC, time DESC, id DESC');
+      expect(sql).not.toContain('NULLS');
+    });
+
+    it('reads a stored time back onto the record, and null when absent', async () => {
+      const row = {
+        type: 'expense',
+        description: 'Lunch',
+        payee: 'Cafe',
+        amount_native: 10,
+        currency_code: 'USD',
+        fx_rate_to_base: 1,
+        base_amount: 10,
+        base_currency_code: 'USD',
+        date: '2025-01-15',
+        category_id: null,
+        notes: null,
+        created_at: '',
+        updated_at: '',
+      };
+      const rows = [
+        { ...row, id: 1, time: '14:30' },
+        { ...row, id: 2, time: null },
+      ];
+      const mockSelectResult: ResultSet = {
+        insertId: undefined,
+        rowsAffected: 0,
+        rows: {
+          length: 2,
+          raw: () => rows,
+          item: (index: number) => rows[index] ?? null,
+        },
+      };
+      mockDb.executeSql.mockResolvedValueOnce([mockSelectResult]);
+
+      const result = await listTransactions(mockDb);
+
+      expect(result[0].time).toBe('14:30');
+      expect(result[1].time).toBeNull();
     });
 
     it('should filter by categoryId', async () => {
@@ -837,12 +903,13 @@ describe('transactionsRepository', () => {
       const params = (call[1] ?? []) as Array<string | number | null>;
       expect(sql).toContain('INSERT INTO transactions');
       expect(
-        sql.match(/\(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/g),
+        sql.match(/\(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/g),
       ).toHaveLength(2);
-      expect(params).toHaveLength(22);
+      expect(params).toHaveLength(24);
       expect(params[0]).toBe('expense');
       expect(params[1]).toBe('A');
-      expect(params[9]).toBe(5);
+      expect(params[9]).toBeNull();
+      expect(params[10]).toBe(5);
     });
 
     it('splits large batches across multiple statements', async () => {

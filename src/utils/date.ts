@@ -27,6 +27,82 @@ export const formatDateRangeBritish = (
   return 'All time';
 };
 
+const pad = (value: number): string => String(value).padStart(2, '0');
+
+/**
+ * Today's calendar day in the device's own timezone. Deriving it from UTC
+ * misfiles the hours where the two calendars disagree: ahead of UTC the early
+ * morning falls under the previous day, behind UTC the late evening falls under
+ * the next one.
+ */
+export const localIsoDate = (now: Date = new Date()): string =>
+  `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+/** The device's current wall-clock time as `HH:MM`. */
+export const localTimeOfDay = (now: Date = new Date()): string =>
+  `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+/**
+ * Render a stored date and optional time as one display string. A record with
+ * no time shows the date alone, since absence is the normal state rather than
+ * something missing.
+ */
+export const formatDateTimeBritish = (
+  isoDate: string,
+  time: string | null | undefined,
+): string => {
+  const date = formatDateBritish(isoDate);
+  return time ? `${date} ${time}` : date;
+};
+
+const TIME_MERIDIEM = /^(.*?)\s*([ap])\.?m\.?$/i;
+const TIME_PARTS = /^(\d{1,2})[:.]?(\d{2})$/;
+
+/**
+ * Parse a typed time of day to `HH:MM`. Accepts `:` or `.` as the separator or
+ * none at all (`1430`), with an optional 12-hour suffix.
+ *
+ * Returns `''` for empty input — the field is optional, so blank is a valid
+ * answer meaning "no time" — and `null` when the value cannot be read, so a
+ * caller can tell a cleared field from a malformed one.
+ */
+export const parseTimeInput = (input: string): string | null => {
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  const meridiemMatch = trimmed.match(TIME_MERIDIEM);
+  const meridiem = meridiemMatch ? meridiemMatch[2].toLowerCase() : null;
+  const body = (meridiemMatch ? meridiemMatch[1] : trimmed).trim();
+
+  const parts = body.match(TIME_PARTS);
+  if (!parts) {
+    return null;
+  }
+
+  let hours = Number(parts[1]);
+  const minutes = Number(parts[2]);
+  if (minutes > 59) {
+    return null;
+  }
+
+  if (meridiem) {
+    if (hours < 1 || hours > 12) {
+      return null;
+    }
+    if (meridiem === 'a') {
+      hours = hours === 12 ? 0 : hours;
+    } else if (hours !== 12) {
+      hours += 12;
+    }
+  } else if (hours > 23) {
+    return null;
+  }
+
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+};
+
 export const parseBritishDateInput = (input: string): string | null => {
   const trimmed = input.trim();
   if (!trimmed) {

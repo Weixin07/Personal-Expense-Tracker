@@ -1,9 +1,11 @@
 import {
   applyMapping,
   autoDetectMapping,
+  extractTimeFromDate,
   inferDateOrder,
   missingRequiredFields,
   normalizeDate,
+  normalizeTime,
   resolveTransactionType,
 } from '../mapping';
 import { TRANSACTION_CSV_COLUMNS } from '../../export/csvColumns';
@@ -324,5 +326,94 @@ describe('resolveTransactionType', () => {
     expect(resolveTransactionType('')).toBeNull();
     expect(resolveTransactionType('   ')).toBeNull();
     expect(resolveTransactionType('transfer')).toBeNull();
+  });
+});
+
+describe('extractTimeFromDate', () => {
+  it('reads the time riding along in a date value', () => {
+    expect(extractTimeFromDate('2024-03-02 10:11')).toBe('10:11');
+    expect(extractTimeFromDate('2024-03-02T10:11')).toBe('10:11');
+    expect(extractTimeFromDate('3/2/2022 10:11')).toBe('10:11');
+    expect(extractTimeFromDate('Jan 5, 2024 09:05')).toBe('09:05');
+    expect(extractTimeFromDate('5 January 2024 09:05')).toBe('09:05');
+  });
+
+  it('truncates seconds to the minute a record stores', () => {
+    expect(extractTimeFromDate('2024-03-02 10:11:30')).toBe('10:11');
+    expect(extractTimeFromDate('2024-03-02 10:11:30.500')).toBe('10:11');
+  });
+
+  it('converts a 12-hour suffix to 24-hour', () => {
+    expect(extractTimeFromDate('3/2/2022 10:11 PM')).toBe('22:11');
+    expect(extractTimeFromDate('3/2/2022 10:11pm')).toBe('22:11');
+    expect(extractTimeFromDate('3/2/2022 12:30am')).toBe('00:30');
+    expect(extractTimeFromDate('3/2/2022 12:30pm')).toBe('12:30');
+  });
+
+  it('keeps the wall-clock reading when the source states an offset', () => {
+    expect(extractTimeFromDate('2024-03-02 10:11Z')).toBe('10:11');
+    expect(extractTimeFromDate('2024-03-02 10:11+05:30')).toBe('10:11');
+  });
+
+  it('returns null when the value carries no time', () => {
+    expect(extractTimeFromDate('2024-03-02')).toBeNull();
+    expect(extractTimeFromDate('3/2/2022')).toBeNull();
+    expect(extractTimeFromDate('')).toBeNull();
+  });
+});
+
+describe('normalizeTime', () => {
+  it('normalises a dedicated time column', () => {
+    expect(normalizeTime('14:30')).toBe('14:30');
+    expect(normalizeTime('9:05')).toBe('09:05');
+    expect(normalizeTime('14:30:59')).toBe('14:30');
+    expect(normalizeTime('2:30 PM')).toBe('14:30');
+    expect(normalizeTime('  14:30  ')).toBe('14:30');
+  });
+
+  it('returns null for values that do not name a time', () => {
+    expect(normalizeTime('25:00')).toBeNull();
+    expect(normalizeTime('12:60')).toBeNull();
+    expect(normalizeTime('lunch')).toBeNull();
+    expect(normalizeTime('')).toBeNull();
+  });
+
+  it('does not read bare digits as a time', () => {
+    expect(normalizeTime('1430')).toBeNull();
+    expect(normalizeTime('1200')).toBeNull();
+  });
+
+  it('rejects a 12-hour value whose hour cannot be one', () => {
+    expect(normalizeTime('13:00 PM')).toBeNull();
+    expect(normalizeTime('0:30 am')).toBeNull();
+  });
+});
+
+describe('time column mapping', () => {
+  it('auto-maps the time column this app exports', () => {
+    const mapping = autoDetectMapping([...TRANSACTION_CSV_COLUMNS]);
+    expect(mapping.time).toBe(TRANSACTION_CSV_COLUMNS.indexOf('time'));
+  });
+
+  it('maps every exported column, so a backup round-trips', () => {
+    const mapping = autoDetectMapping([...TRANSACTION_CSV_COLUMNS]);
+    expect(mapping.date).toBe(TRANSACTION_CSV_COLUMNS.indexOf('date'));
+    expect(mapping.time).toBe(TRANSACTION_CSV_COLUMNS.indexOf('time'));
+    expect(mapping.amountNative).toBe(
+      TRANSACTION_CSV_COLUMNS.indexOf('amount_native'),
+    );
+  });
+
+  it('recognises common time header names', () => {
+    expect(autoDetectMapping(['Time of day']).time).toBe(0);
+    expect(autoDetectMapping(['Transaction Time']).time).toBe(0);
+    expect(autoDetectMapping(['entry_time']).time).toBe(0);
+  });
+
+  it('keeps a datetime column on the date field, which also yields its time', () => {
+    const mapping = autoDetectMapping(['datetime', 'amount']);
+    expect(mapping.date).toBe(0);
+    expect(mapping.time).toBeUndefined();
+    expect(extractTimeFromDate('2024-03-02 10:11')).toBe('10:11');
   });
 });

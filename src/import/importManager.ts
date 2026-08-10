@@ -24,9 +24,11 @@ import { computeBaseAmount } from '../screens/transactionFormUtils';
 import { parseCsv } from './csvParser';
 import {
   applyMapping,
+  extractTimeFromDate,
   inferDateOrder,
   missingRequiredFields,
   normalizeDate,
+  normalizeTime,
   resolveTransactionType,
 } from './mapping';
 import { fxPairKey } from './types';
@@ -85,8 +87,20 @@ const foldIdentityText = (value: string): string =>
   value.trim().toLowerCase().replace(/\s+/g, ' ');
 
 /**
+ * Two times identify the same moment when both are present and equal, or when
+ * either is absent. A row that never recorded a time carries no evidence
+ * against a match, so it must not count as disagreement — under strict equality
+ * a date-only file would flag nothing against rows stored with a time.
+ */
+const timesMatch = (a: string | null, b: string | null): boolean =>
+  a == null || b == null || a === b;
+
+/**
  * Direction is part of the key: a refund and a purchase can share a date,
  * amount and payee without being the same row.
+ *
+ * Time is deliberately absent: it is compared separately, because a wildcard
+ * match cannot be expressed in a concatenated key.
  */
 const duplicateKey = (
   type: TransactionType,
@@ -270,19 +284,23 @@ export const previewImport = (
     ? ctx.baseCurrency.trim().toUpperCase()
     : null;
 
-  const existingKeys = new Map<string, number>();
+  const existingKeys = new Map<string, { id: number; time: string | null }[]>();
   ctx.existingTransactions.forEach(transaction => {
-    existingKeys.set(
-      duplicateKey(
-        transaction.type,
-        transaction.date,
-        transaction.amountNative,
-        transaction.currencyCode,
-        transaction.payee,
-        transaction.description,
-      ),
-      transaction.id,
+    const key = duplicateKey(
+      transaction.type,
+      transaction.date,
+      transaction.amountNative,
+      transaction.currencyCode,
+      transaction.payee,
+      transaction.description,
     );
+    const entry = { id: transaction.id, time: transaction.time };
+    const bucket = existingKeys.get(key);
+    if (bucket) {
+      bucket.push(entry);
+    } else {
+      existingKeys.set(key, [entry]);
+    }
   });
 
   const existingCategoryNames = new Set(
@@ -319,10 +337,11 @@ export const previewImport = (
   const valid: PreparedTransaction[] = [];
   const invalid: ImportRowError[] = [];
   const needsFxRate: ImportRowError[] = [];
+  const unreadableTimes: ImportRowError[] = [];
   const fxReview = new Map<string, FxSuggestion>();
   const currencyReview = new Map<string, AmbiguousCurrency>();
   const duplicates: DuplicateFlag[] = [];
-  const seenKeys = new Map<string, number>();
+  const seenKeys = new Map<string, { line: number; time: string | null }[]>();
   const newCategoryNames = new Set<string>();
 
   rows.forEach(row => {
@@ -429,6 +448,20 @@ export const previewImport = (
       return;
     }
 
+    const rawTime = (raw.time ?? '').trim();
+    let time: string | null;
+    if (rawTime) {
+      time = normalizeTime(rawTime);
+      if (!time) {
+        unreadableTimes.push({
+          line,
+          reason: `Could not read the time "${rawTime}".`,
+        });
+      }
+    } else {
+      time = extractTimeFromDate(raw.date ?? '');
+    }
+
     let fxRate: number;
     let fxRateSource: FxRateSource;
     const mappedRate = (raw.fxRateToBase ?? '').trim();
@@ -508,19 +541,29 @@ export const previewImport = (
       payee,
       description,
     );
-    const dupId = existingKeys.get(key);
-    const seenLine = seenKeys.get(key);
-    if (dupId !== undefined) {
-      duplicates.push({ line, matchesTransactionId: dupId });
-    } else if (seenLine !== undefined) {
+    const existingMatch = existingKeys
+      .get(key)
+      ?.find(entry => timesMatch(entry.time, time));
+    const seenMatch = seenKeys
+      .get(key)
+      ?.find(entry => timesMatch(entry.time, time));
+    if (existingMatch) {
+      duplicates.push({ line, matchesTransactionId: existingMatch.id });
+    } else if (seenMatch) {
       duplicates.push({
         line,
         matchesTransactionId: null,
-        matchesLine: seenLine,
+        matchesLine: seenMatch.line,
       });
     }
-    if (seenLine === undefined) {
-      seenKeys.set(key, line);
+    if (!seenMatch) {
+      const bucket = seenKeys.get(key);
+      const entry = { line, time };
+      if (bucket) {
+        bucket.push(entry);
+      } else {
+        seenKeys.set(key, [entry]);
+      }
     }
 
     if (
@@ -542,6 +585,7 @@ export const previewImport = (
         baseAmount,
         baseCurrencyCode: baseCurrencyCode ?? null,
         date: normalizedDate,
+        time,
         notes: notes.length ? notes : null,
       },
       categoryName,
@@ -553,6 +597,7 @@ export const previewImport = (
     valid,
     invalid,
     needsFxRate,
+    unreadableTimes,
     fxReview: [...fxReview.values()],
     currencyReview: [...currencyReview.values()],
     duplicates,

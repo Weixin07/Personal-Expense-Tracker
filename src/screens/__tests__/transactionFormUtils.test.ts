@@ -44,6 +44,7 @@ describe('transactionFormUtils', () => {
         baseAmount: 10,
         baseCurrencyCode: 'USD',
         date: '2025-01-01',
+        time: null,
         categoryId: 1,
         notes: 'Receipt #123',
         createdAt: '',
@@ -72,6 +73,7 @@ describe('transactionFormUtils', () => {
       baseAmount: 1234.56,
       baseCurrencyCode: 'USD',
       date: '2025-01-01',
+      time: null,
       categoryId: 1,
       notes: null,
       createdAt: '',
@@ -123,6 +125,7 @@ describe('transactionFormUtils', () => {
         baseAmount: '',
         baseCurrencyCode: 'USD',
         date: futureDateStr,
+        time: '',
         categoryId: null,
         notes: '',
       });
@@ -154,6 +157,7 @@ describe('transactionFormUtils', () => {
         baseAmount: '',
         baseCurrencyCode: 'USD',
         date: '2025-01-10',
+        time: '',
         categoryId: 1,
         notes: 'Friends',
       });
@@ -172,6 +176,7 @@ describe('transactionFormUtils', () => {
       baseAmount: '',
       baseCurrencyCode: 'USD',
       date: '2025-01-10',
+      time: '',
       notes: '',
     } as const;
 
@@ -236,6 +241,7 @@ describe('transactionFormUtils', () => {
       baseAmount: 50,
       baseCurrencyCode: 'USD',
       date: '2025-01-09',
+      time: null,
       categoryId: 1,
       notes: 'Farmer market',
     } as const;
@@ -246,6 +252,127 @@ describe('transactionFormUtils', () => {
 
     it('builds update payload', () => {
       expect(buildUpdatePayload(5, valid)).toEqual({ id: 5, ...valid });
+    });
+  });
+  describe('time of day', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('prefills a new form with the local date and clock time', () => {
+      const now = new Date(2026, 7, 8, 23, 30);
+      jest.useFakeTimers().setSystemTime(now);
+
+      const values = getDefaultTransactionFormValues('USD', categories);
+
+      const expectedDate = `${now.getFullYear()}-${String(
+        now.getMonth() + 1,
+      ).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      expect(values.date).toBe(expectedDate);
+      expect(values.time).toBe('23:30');
+    });
+
+    it('keeps an existing record without a time rather than stamping now', () => {
+      jest.useFakeTimers().setSystemTime(new Date(2026, 7, 8, 23, 30));
+      const existing: TransactionRecord = {
+        type: 'expense',
+        id: 7,
+        description: 'Legacy',
+        payee: 'Shop',
+        amountNative: 5,
+        currencyCode: 'USD',
+        fxRateToBase: 1,
+        baseAmount: 5,
+        baseCurrencyCode: 'USD',
+        date: '2024-03-02',
+        time: null,
+        categoryId: null,
+        notes: null,
+        createdAt: '',
+        updatedAt: '',
+      };
+
+      const values = getDefaultTransactionFormValues(
+        'USD',
+        categories,
+        existing,
+      );
+
+      expect(values.time).toBe('');
+      expect(values.date).toBe('2024-03-02');
+    });
+
+    it('hydrates a recorded time from an existing record', () => {
+      const existing: TransactionRecord = {
+        type: 'expense',
+        id: 8,
+        description: 'Lunch',
+        payee: 'Cafe',
+        amountNative: 5,
+        currencyCode: 'USD',
+        fxRateToBase: 1,
+        baseAmount: 5,
+        baseCurrencyCode: 'USD',
+        date: '2026-08-08',
+        time: '14:30',
+        categoryId: null,
+        notes: null,
+        createdAt: '',
+        updatedAt: '',
+      };
+
+      expect(
+        getDefaultTransactionFormValues('USD', categories, existing).time,
+      ).toBe('14:30');
+    });
+
+    const timeBase = {
+      type: 'expense',
+      description: 'Dinner',
+      payee: 'Bistro',
+      amountNative: '20.50',
+      currencyCode: 'USD',
+      fxRateToBase: '1.123456',
+      baseAmount: '',
+      baseCurrencyCode: 'USD',
+      date: '2025-01-10',
+      categoryId: 1,
+      notes: '',
+    } as const;
+
+    it('carries a valid time through to the payload', () => {
+      const result = validateTransactionForm({ ...timeBase, time: '14:30' });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.time).toBe('14:30');
+      }
+    });
+
+    it('records a blank time as absent rather than as an error', () => {
+      const result = validateTransactionForm({ ...timeBase, time: '   ' });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.value.time).toBeNull();
+      }
+    });
+
+    it('rejects a time that could not be read', () => {
+      const result = validateTransactionForm({ ...timeBase, time: 'lunch' });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.errors.time).toBe(
+          'Time must be in 24-hour format HH:MM.',
+        );
+      }
+    });
+
+    it('carries the time through both payload builders', () => {
+      const result = validateTransactionForm({ ...timeBase, time: '08:15' });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(buildCreatePayload(result.value).time).toBe('08:15');
+        expect(buildUpdatePayload(42, result.value).time).toBe('08:15');
+      }
     });
   });
 });

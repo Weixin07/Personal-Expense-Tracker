@@ -33,7 +33,11 @@ import {
   type TransactionFormValues,
 } from './transactionFormUtils';
 import type { TransactionType } from '../database';
-import { formatDateBritish, parseBritishDateInput } from '../utils/date';
+import {
+  formatDateBritish,
+  parseBritishDateInput,
+  parseTimeInput,
+} from '../utils/date';
 import { formatDirectionalMoney, formatMoneyAmount } from '../utils/formatting';
 
 const TYPE_OPTIONS = [
@@ -83,6 +87,7 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
   const [dateInput, setDateInput] = useState<string>(
     formatDateBritish(initialFormValues.date),
   );
+  const [timeInput, setTimeInput] = useState<string>(initialFormValues.time);
   const [errors, setErrors] = useState<TransactionFormErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [currencyDialogVisible, setCurrencyDialogVisible] = useState(false);
@@ -93,6 +98,7 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
   useEffect(() => {
     setValues(initialFormValues);
     setDateInput(formatDateBritish(initialFormValues.date));
+    setTimeInput(initialFormValues.time);
     setErrors({});
     setFormError(null);
   }, [initialFormValues]);
@@ -140,6 +146,18 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
     setValues(prev => ({ ...prev, date: iso ?? '' }));
     if (errors.date) {
       setErrors(prev => ({ ...prev, date: undefined }));
+    }
+  };
+
+  const handleTimeChange = (text: string) => {
+    setTimeInput(text);
+    // An unreadable entry keeps its raw text so submit-time validation reports
+    // it. Blanking it would be indistinguishable from clearing the field, which
+    // is a valid way to say the time is not known.
+    const parsed = parseTimeInput(text);
+    setValues(prev => ({ ...prev, time: parsed ?? text }));
+    if (errors.time) {
+      setErrors(prev => ({ ...prev, time: undefined }));
     }
   };
 
@@ -409,6 +427,19 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
           />
           <HelperText type="error" visible={Boolean(errors.date)}>
             {errors.date}
+          </HelperText>
+
+          <TextInput
+            label="Time (HH:MM)"
+            value={timeInput}
+            onChangeText={handleTimeChange}
+            mode="outlined"
+            keyboardType="default"
+            accessibilityLabel="Transaction time"
+            error={Boolean(errors.time)}
+          />
+          <HelperText type="error" visible={Boolean(errors.time)}>
+            {errors.time}
           </HelperText>
 
           <SelectField

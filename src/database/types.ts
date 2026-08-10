@@ -18,6 +18,12 @@ export type TransactionRecord = {
   baseAmount: number;
   baseCurrencyCode: string | null;
   date: string;
+  /**
+   * Naive local wall-clock `HH:MM` as the user entered it — no timezone, no
+   * offset, never converted. `null` means no time was recorded, which is
+   * distinct from `'00:00'` (midnight).
+   */
+  time: string | null;
   categoryId: number | null;
   notes: string | null;
   createdAt: string;

@@ -35,6 +35,7 @@ const makeTransaction = (
   baseAmount: 3.5,
   baseCurrencyCode: 'USD',
   date: '2025-01-10',
+  time: null,
   categoryId: null,
   notes: null,
   createdAt: '2025-01-10T00:00:00.000Z',
@@ -376,6 +377,30 @@ describe('HomeScreen', () => {
 
       fireEvent.press(screen.getByLabelText('Filter Income'));
       expect(value.actions.setFilters).toHaveBeenCalledWith({ type: 'income' });
+    });
+  });
+
+  describe('row date and time', () => {
+    const renderRow = (transaction: ReturnType<typeof makeTransaction>) => {
+      mockedUseExpenseData.mockReturnValue(
+        makeContextValue({
+          state: { transactions: [transaction] },
+          selectors: { filteredTransactions: [transaction] },
+        }),
+      );
+      renderWithProviders(<HomeScreen />);
+    };
+
+    it('shows the time beside the date when one was recorded', () => {
+      renderRow(makeTransaction({ date: '2026-08-08', time: '14:30' }));
+      expect(screen.getByText(/08\/08\/2026 14:30/)).toBeOnTheScreen();
+    });
+
+    it('shows the date alone when no time was recorded', () => {
+      renderRow(makeTransaction({ date: '2026-08-08', time: null }));
+      const row = screen.getByText(/08\/08\/2026/);
+      expect(row).toBeOnTheScreen();
+      expect(row.props.children).not.toMatch(/\d{2}:\d{2}/);
     });
   });
 });

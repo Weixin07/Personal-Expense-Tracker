@@ -13,6 +13,21 @@ export type Migration = {
 
 const MIGRATIONS: readonly Migration[] = [
   {
+    version: 9,
+    name: 'add-transaction-time',
+    statements: [
+      {
+        sql: `ALTER TABLE transactions ADD COLUMN time TEXT NULL CHECK (time IS NULL OR LENGTH(time) = 5);`,
+      },
+      {
+        sql: `DROP INDEX IF EXISTS idx_transactions_date;`,
+      },
+      {
+        sql: `CREATE INDEX IF NOT EXISTS idx_transactions_date_time ON transactions(date DESC, time DESC);`,
+      },
+    ],
+  },
+  {
     version: 8,
     name: 'transaction-and-category-type',
     statements: [

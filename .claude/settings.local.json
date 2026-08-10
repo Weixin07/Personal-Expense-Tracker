@@ -250,7 +250,14 @@
       "Bash(echo \"--- jq exit: $? ---\")",
       "Bash(echo \"=== comment-policy exit: $? ===\")",
       "Bash(echo \"--- ignore check exit: $? ---\")",
-      "Bash(echo \"\\(exit $?\\)\")"
+      "Bash(echo \"\\(exit $?\\)\")",
+      "Bash(python -)",
+      "Bash(python -c ' *)",
+      "PowerShell(npx jest src/import src/database src/utils/__tests__/date.test.ts --silent 2>&1 | Select-Object -Last 25)",
+      "PowerShell(node scripts/comment-policy.mjs 2>&1 | Select-Object -Last 15)",
+      "PowerShell(node scripts/comment-policy.mjs; \"exit=$LASTEXITCODE\")",
+      "PowerShell(npx jest src/import/__tests__/zzScratchSample.test.ts 2>&1 | Select-Object -First 250)",
+      "PowerShell(npx jest src/import/__tests__/zzScratchSample.test.ts 2>&1 | Select-Object -First 120)"
     ],
     "deny": [],
     "ask": []

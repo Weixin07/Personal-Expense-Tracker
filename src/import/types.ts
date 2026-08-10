@@ -9,6 +9,7 @@ export type ImportTargetField =
   | 'baseAmount'
   | 'baseCurrencyCode'
   | 'date'
+  | 'time'
   | 'categoryName'
   | 'notes'
   | 'transactionType';
@@ -142,6 +143,12 @@ export type ImportPreview = {
    * supplying the rate makes the row importable.
    */
   needsFxRate: ImportRowError[];
+  /**
+   * Rows imported with no time because their time cell could not be read.
+   * Advisory, not a rejection: time is not a required field, so an unreadable
+   * one must not discard a row whose amount, currency and date are all valid.
+   */
+  unreadableTimes: ImportRowError[];
   fxReview: FxSuggestion[];
   /** Ambiguous currency cells blocking rows until the user picks a code. */
   currencyReview: AmbiguousCurrency[];

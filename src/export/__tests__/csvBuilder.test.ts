@@ -1,4 +1,5 @@
 import { buildTransactionsCsv } from '../csvBuilder';
+import { TRANSACTION_CSV_COLUMNS } from '../csvColumns';
 import type { CategoryRecord, TransactionRecord } from '../../database';
 
 describe('buildTransactionsCsv', () => {
@@ -13,6 +14,7 @@ describe('buildTransactionsCsv', () => {
     baseAmount: 3.5,
     baseCurrencyCode: 'USD',
     date: '2025-01-10',
+    time: null,
     categoryId: 2,
     notes: 'Morning brew',
     createdAt: '',
@@ -41,7 +43,7 @@ describe('buildTransactionsCsv', () => {
 
     // Quoted fields carry embedded CRLF, so a line split cannot separate records here.
     expect(content).toContain(
-      'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee,type',
+      'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee,type,time',
     );
     expect(content).toContain('"Breakfast, ""delicious""\nandalusian"');
     expect(content).toContain('3.50,USD,1.000000,3.50,2025-01-10,Essentials');
@@ -62,7 +64,7 @@ describe('buildTransactionsCsv', () => {
 
     const rows = content.slice(1).split('\r\n');
     expect(rows[1]).toBe(
-      '5,Coffee,3.50,USD,1.000000,3.50,2025-01-10,,Morning brew,USD,Corner Cafe,expense',
+      '5,Coffee,3.50,USD,1.000000,3.50,2025-01-10,,Morning brew,USD,Corner Cafe,expense,',
     );
   });
 
@@ -101,10 +103,11 @@ describe('buildTransactionsCsv', () => {
       });
 
       const rows = content.slice(1).split('\r\n');
+      const typeColumn = TRANSACTION_CSV_COLUMNS.indexOf('type');
       expect(rows[1]).toContain('3.50,USD,1.000000,3.50');
-      expect(rows[1].endsWith('expense')).toBe(true);
+      expect(rows[1].split(',')[typeColumn]).toBe('expense');
       expect(rows[2]).toContain('3.50,USD,1.000000,3.50');
-      expect(rows[2].endsWith('income')).toBe(true);
+      expect(rows[2].split(',')[typeColumn]).toBe('income');
       expect(content).not.toContain('-3.50');
       expect(content).not.toContain('+3.50');
     });
@@ -117,6 +120,7 @@ describe('buildTransactionsCsv', () => {
       amountNative: 1.23 + index,
       baseAmount: 1.23 + index,
       date: `2025-01-${String((index % 28) + 1).padStart(2, '0')}`,
+      time: null,
       categoryId: index % 2 === 0 ? 2 : null,
       notes: index % 3 === 0 ? `Note ${index}` : null,
     }));

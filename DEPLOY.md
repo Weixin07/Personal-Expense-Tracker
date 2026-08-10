@@ -289,13 +289,17 @@ biometric, SAF export, and the offline queue. Also confirm icons and themed UI r
 
 1. App launches; pick a base currency.
 2. Add, edit, and delete an expense; totals update correctly.
-3. Filter by date preset / custom range / category.
-4. Manage categories (add a custom one, use it on an expense).
-5. **Google Drive export** — Settings → sign in with Google → grant the `drive.file`
+3. **Time of day** — a new entry prefills today's date and the current clock time, both in
+   device-local terms (check near midnight if the device is not on UTC). Enter a time, clear
+   it, and re-edit it; confirm same-day rows sort newest-first by time and that rows with no
+   time still appear. Export, then re-import, and confirm the times survive the round trip.
+4. Filter by date preset / custom range / category.
+5. Manage categories (add a custom one, use it on an expense).
+6. **Google Drive export** — Settings → sign in with Google → grant the `drive.file`
    consent → export → confirm a CSV appears in the "Expense Tracker Backups" folder.
-6. **Offline queue** — disable network, add an expense, queue an export; re-enable network
+7. **Offline queue** — disable network, add an expense, queue an export; re-enable network
    and confirm it auto-uploads.
-7. **Biometric lock** (if supported) — enable it, background the app 5+ minutes, confirm
+8. **Biometric lock** (if supported) — enable it, background the app 5+ minutes, confirm
    the unlock prompt. Then fully kill the app and relaunch; confirm the unlock prompt appears
    on cold start, and that the device-credential (PIN/passcode) fallback unlocks if biometrics fail.
    Re-enroll a biometric (add a fingerprint/face), relaunch, and confirm the device-passcode
@@ -321,10 +325,11 @@ be rolled back on a device that has already run it.**
 
 Two migrations in the current schema make that consequential:
 
-| Version | Change                                                  | What an older APK does after it has run                                                                                   |
-| ------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| **7**   | `expenses` renamed to `transactions`                    | Queries a table that no longer exists — every read fails at launch. Breaks loudly.                                        |
-| **8**   | `type` columns added to `transactions` and `categories` | Inserts omit `type`, so the column default silently records new **income** as an expense. Breaks quietly, which is worse. |
+| Version | Change                                                                                   | What an older APK does after it has run                                                                                                                                                                                                      |
+| ------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **7**   | `expenses` renamed to `transactions`                                                     | Queries a table that no longer exists — every read fails at launch. Breaks loudly.                                                                                                                                                           |
+| **8**   | `type` columns added to `transactions` and `categories`                                  | Inserts omit `type`, so the column default silently records new **income** as an expense. Breaks quietly, which is worse.                                                                                                                    |
+| **9**   | nullable `time` column; `idx_transactions_date` replaced by `idx_transactions_date_time` | Nothing harmful. Inserts omit `time`, the column is nullable with no default, and the row simply carries no time. The index swap is invisible to an older build, whose date-only queries are still served by the composite's leading column. |
 
 Practical rules:
 
@@ -336,6 +341,9 @@ Practical rules:
 - After upgrading across v8, confirm existing rows read back as expenses and existing
   categories as `both`, and that re-importing a CSV exported by the _previous_ version
   still lands every row as an expense.
+- After upgrading across v9, confirm pre-upgrade rows still list (they carry no time) and
+  that a CSV exported by the _previous_ version — which has no `time` column — still
+  imports, leaving every row without a time.
 
 A device that commits one migration and fails the next recovers on its own: the failure
 propagates out of `openDatabase`, the app shows its normal load-error state, and only

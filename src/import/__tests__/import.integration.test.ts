@@ -24,6 +24,7 @@ const transactions: TransactionRecord[] = [
     baseAmount: 100,
     baseCurrencyCode: 'USD',
     date: '2024-01-01',
+    time: null,
     categoryId: 1,
     notes: 'line1\nline2',
     createdAt: '',
@@ -40,6 +41,7 @@ const transactions: TransactionRecord[] = [
     baseAmount: 55.55,
     baseCurrencyCode: 'USD',
     date: '2024-02-15',
+    time: null,
     categoryId: 1,
     notes: null,
     createdAt: '',
@@ -56,6 +58,7 @@ const transactions: TransactionRecord[] = [
     baseAmount: 1234.5,
     baseCurrencyCode: 'USD',
     date: '2024-03-20',
+    time: null,
     categoryId: 1,
     notes: null,
     createdAt: '',
@@ -95,6 +98,7 @@ describe('export -> import round trip', () => {
       baseAmount: 100,
       baseCurrencyCode: 'USD',
       date: '2024-01-01',
+      time: null,
       notes: 'line1\nline2',
     });
     expect(preview.valid[0].categoryName).toBe('Food');
@@ -394,5 +398,72 @@ describe('a backup exported before the type column existed', () => {
     expect(preview.signConventionBypassed).toBe(false);
     expect(preview.valid[0].record.type).toBe('expense');
     expect(preview.valid[1].record.type).toBe('income');
+  });
+});
+
+describe('time round trip', () => {
+  const ctx: ImportContext = {
+    baseCurrency: 'USD',
+    defaultCurrency: null,
+    currencyChoices: {},
+    negativeMeans: 'income',
+    numberFormat: 'auto',
+    fxRateCache: [],
+    existingTransactions: [],
+    existingCategories: categories,
+  };
+
+  const timed: TransactionRecord[] = [
+    { ...transactions[0], time: '14:30' },
+    { ...transactions[1], time: '00:00' },
+    { ...transactions[2], time: null },
+  ];
+
+  it('carries every recorded time back through export and import', () => {
+    const { content } = buildTransactionsCsv({
+      transactions: timed,
+      categories,
+    });
+    const mapping = autoDetectMapping(parseCsv(content).header);
+    const preview = previewImport(content, mapping, 'iso', ctx);
+
+    expect(preview.invalid).toEqual([]);
+    expect(preview.unreadableTimes).toEqual([]);
+    expect(preview.valid.map(item => item.record.time)).toEqual([
+      '14:30',
+      '00:00',
+      null,
+    ]);
+  });
+
+  it('keeps midnight distinct from no time recorded', () => {
+    const { content } = buildTransactionsCsv({
+      transactions: timed,
+      categories,
+    });
+    const mapping = autoDetectMapping(parseCsv(content).header);
+    const preview = previewImport(content, mapping, 'iso', ctx);
+
+    expect(preview.valid[1].record.time).toBe('00:00');
+    expect(preview.valid[2].record.time).toBeNull();
+  });
+
+  it('imports a CSV exported before the time column existed', () => {
+    // A backup written by an earlier release: the same columns in the same
+    // order, without the appended time column.
+    const legacy =
+      '﻿id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee,type\r\n' +
+      '1,Lunch,100.00,USD,1.000000,100.00,2024-01-01,Food,,USD,Cafe,expense\r\n' +
+      '2,Hotel,50.50,EUR,1.100000,55.55,2024-02-15,Food,,USD,Ibis,expense\r\n';
+
+    const parsed = parseCsv(legacy);
+    const mapping = autoDetectMapping(parsed.header);
+    const preview = previewImport(legacy, mapping, 'iso', ctx);
+
+    expect(mapping.time).toBeUndefined();
+    expect(preview.invalid).toEqual([]);
+    expect(preview.unreadableTimes).toEqual([]);
+    expect(preview.valid).toHaveLength(2);
+    expect(preview.valid.every(item => item.record.time === null)).toBe(true);
   });
 });

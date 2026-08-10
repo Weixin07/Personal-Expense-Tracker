@@ -18,6 +18,7 @@ const transactions: TransactionRecord[] = [
     baseAmount: 45.5,
     baseCurrencyCode: 'GBP',
     date: '2025-01-15',
+    time: null,
     categoryId: 1,
     notes: null,
     createdAt: '2025-01-15T10:00:00.000Z',

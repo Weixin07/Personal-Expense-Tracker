@@ -31,7 +31,7 @@ import {
   formatDateRangeLabel,
   type DateRangePreset,
 } from './homeUtils';
-import { formatDateBritish } from '../utils/date';
+import { formatDateTimeBritish } from '../utils/date';
 import {
   formatDirectionalMoney,
   formatDisplayMoney,
@@ -242,7 +242,7 @@ const HomeScreen: React.FC = () => {
       const title = payee || description || '(no payee)';
       const isIncome = item.type === 'income';
       const descriptionParts = [
-        formatDateBritish(item.date),
+        formatDateTimeBritish(item.date, item.time),
         categoryName ?? 'No category',
         formatDisplayMoney(item.amountNative, item.currencyCode),
       ];

@@ -4,8 +4,10 @@ import {
   validateIsoDateWithinFutureWindow,
   validatePositiveAmount,
   validatePositiveRate,
+  validateTimeOfDay,
 } from '../utils/validation';
 import { formatMoneyAmount, formatFxRate } from '../utils/formatting';
+import { localIsoDate, localTimeOfDay } from '../utils/date';
 import type {
   CategoryRecord,
   CurrencyFxRateRecord,
@@ -37,13 +39,19 @@ export type TransactionFormValues = {
   baseAmount: string;
   baseCurrencyCode: string | null;
   date: string;
+  time: string;
   categoryId: number | null;
   notes: string;
 };
 
 export type TransactionFormErrors = Partial<
   Record<
-    'amountNative' | 'currencyCode' | 'fxRateToBase' | 'baseAmount' | 'date',
+    | 'amountNative'
+    | 'currencyCode'
+    | 'fxRateToBase'
+    | 'baseAmount'
+    | 'date'
+    | 'time',
     string
   >
 > & { form?: string };
@@ -62,6 +70,7 @@ export type ValidTransactionPayload = {
   baseAmount: number;
   baseCurrencyCode: string | null;
   date: string;
+  time: string | null;
   categoryId: number | null;
   notes: string | null;
 };
@@ -133,13 +142,14 @@ export const getDefaultTransactionFormValues = (
       baseAmount: formatMoneyAmount(existing.baseAmount),
       baseCurrencyCode: existing.baseCurrencyCode ?? baseCurrency,
       date: existing.date,
+      time: existing.time ?? '',
       categoryId: existing.categoryId ?? null,
       notes: existing.notes ?? '',
     };
   }
 
-  const today = new Date();
-  const isoDate = today.toISOString().slice(0, 10);
+  const now = new Date();
+  const isoDate = localIsoDate(now);
   const currencyCode = baseCurrency ?? '';
   const selectable = categoriesForDirection(categories, 'expense');
 
@@ -157,6 +167,7 @@ export const getDefaultTransactionFormValues = (
     baseAmount: '',
     baseCurrencyCode: baseCurrency,
     date: isoDate,
+    time: localTimeOfDay(now),
     categoryId: selectable.length ? selectable[0].id : null,
     notes: '',
   };
@@ -224,6 +235,11 @@ export const validateTransactionForm = (
     errors.date = dateCheck.message;
   }
 
+  const timeCheck = validateTimeOfDay(values.time);
+  if (!timeCheck.valid) {
+    errors.time = timeCheck.message;
+  }
+
   if (!errors.form && !description && !payee && values.categoryId == null) {
     errors.form = 'Add a description, payee, or category.';
   }
@@ -246,6 +262,7 @@ export const validateTransactionForm = (
         ? values.baseCurrencyCode.trim().toUpperCase()
         : null,
       date: values.date,
+      time: values.time.trim() || null,
       categoryId: values.categoryId ?? null,
       notes: ensureNotes(values.notes),
     },
@@ -264,6 +281,7 @@ export const buildCreatePayload = (
   baseAmount: value.baseAmount,
   baseCurrencyCode: value.baseCurrencyCode,
   date: value.date,
+  time: value.time,
   categoryId: value.categoryId,
   notes: value.notes,
 });
@@ -282,6 +300,7 @@ export const buildUpdatePayload = (
   baseAmount: value.baseAmount,
   baseCurrencyCode: value.baseCurrencyCode,
   date: value.date,
+  time: value.time,
   categoryId: value.categoryId,
   notes: value.notes,
 });

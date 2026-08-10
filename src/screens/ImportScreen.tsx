@@ -49,6 +49,7 @@ type Step = 'source' | 'drive' | 'mapping' | 'preview';
 
 const TARGET_FIELDS: { field: ImportTargetField; label: string }[] = [
   { field: 'date', label: 'Date *' },
+  { field: 'time', label: 'Time' },
   { field: 'amountNative', label: 'Amount *' },
   { field: 'currencyCode', label: 'Currency *' },
   { field: 'fxRateToBase', label: 'FX rate' },
@@ -791,6 +792,15 @@ const ImportScreen: React.FC = () => {
                   {preview.duplicates.length} row
                   {preview.duplicates.length === 1 ? '' : 's'} look like
                   existing transactions and will be added again.
+                </Text>
+              </View>
+            ) : null}
+            {preview.unreadableTimes.length > 0 ? (
+              <View style={styles.banner}>
+                <Text variant="bodySmall">
+                  {preview.unreadableTimes.length} row
+                  {preview.unreadableTimes.length === 1 ? '' : 's'} had a time
+                  that could not be read and will be imported without one.
                 </Text>
               </View>
             ) : null}

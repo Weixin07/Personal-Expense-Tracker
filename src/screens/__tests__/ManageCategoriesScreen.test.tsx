@@ -41,6 +41,7 @@ const makeTransaction = (
   baseAmount: 3.5,
   baseCurrencyCode: 'USD',
   date: '2025-01-10',
+  time: null,
   categoryId: 1,
   notes: null,
   createdAt: '2025-01-10T00:00:00.000Z',

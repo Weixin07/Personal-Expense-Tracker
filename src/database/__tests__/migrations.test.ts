@@ -28,7 +28,7 @@ describe('migrations', () => {
   describe('latestMigrationVersion', () => {
     it('should return the latest migration version', () => {
       const version = latestMigrationVersion();
-      expect(version).toBe(8);
+      expect(version).toBe(9);
     });
   });
 
@@ -92,7 +92,7 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      expect(mockDb.transaction).toHaveBeenCalledTimes(8);
+      expect(mockDb.transaction).toHaveBeenCalledTimes(9);
     });
 
     it('should run only pending migrations', async () => {
@@ -122,7 +122,7 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      expect(mockDb.transaction).toHaveBeenCalledTimes(6);
+      expect(mockDb.transaction).toHaveBeenCalledTimes(7);
     });
 
     it('should not run any migrations if already at latest version', async () => {
@@ -141,8 +141,8 @@ describe('migrations', () => {
         rowsAffected: 0,
         rows: {
           length: 1,
-          raw: () => [{ version: 8 }],
-          item: (index: number) => (index === 0 ? { version: 8 } : null),
+          raw: () => [{ version: 9 }],
+          item: (index: number) => (index === 0 ? { version: 9 } : null),
         },
       };
 
@@ -233,7 +233,7 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      expect(mockDb.transaction).toHaveBeenCalledTimes(5);
+      expect(mockDb.transaction).toHaveBeenCalledTimes(6);
 
       const transactionCall = (mockDb.transaction as jest.Mock).mock.calls[0];
       const executor = transactionCall[0];
@@ -273,7 +273,7 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      expect(mockDb.transaction).toHaveBeenCalledTimes(8);
+      expect(mockDb.transaction).toHaveBeenCalledTimes(9);
     });
 
     it('should apply migrations in version order', async () => {
@@ -327,6 +327,7 @@ describe('migrations', () => {
         'expense-payee',
         'rename-expenses-to-transactions',
         'transaction-and-category-type',
+        'add-transaction-time',
       ]);
     });
 
@@ -581,6 +582,105 @@ describe('migrations', () => {
         'INSERT INTO schema_migrations (version, name) VALUES (?, ?)',
         [8, 'transaction-and-category-type'],
       );
+    });
+
+    it('should add the nullable time column and reindex in migration 9', async () => {
+      const mockCreateTableResult: ResultSet = {
+        insertId: undefined,
+        rowsAffected: 0,
+        rows: {
+          length: 0,
+          raw: () => [],
+          item: () => null,
+        },
+      };
+
+      const mockVersionResult: ResultSet = {
+        insertId: undefined,
+        rowsAffected: 0,
+        rows: {
+          length: 1,
+          raw: () => [{ version: 8 }],
+          item: (index: number) => (index === 0 ? { version: 8 } : null),
+        },
+      };
+
+      mockDb.executeSql
+        .mockResolvedValueOnce([mockCreateTableResult])
+        .mockResolvedValueOnce([mockVersionResult]);
+
+      await runMigrations(mockDb);
+
+      const transactionCall = (mockDb.transaction as jest.Mock).mock.calls[0];
+      const executor = transactionCall[0];
+
+      const statements: string[] = [];
+      const capturedTx = {
+        executeSql: jest.fn((sql: string) => {
+          statements.push(sql);
+        }),
+      } as unknown as Transaction;
+      executor(capturedTx);
+
+      expect(statements[0]).toContain(
+        'ALTER TABLE transactions ADD COLUMN time TEXT NULL',
+      );
+      expect(statements[0]).toContain(
+        'CHECK (time IS NULL OR LENGTH(time) = 5)',
+      );
+      expect(statements[1]).toContain(
+        'DROP INDEX IF EXISTS idx_transactions_date',
+      );
+      expect(statements[2]).toContain(
+        'CREATE INDEX IF NOT EXISTS idx_transactions_date_time ON transactions(date DESC, time DESC)',
+      );
+    });
+
+    it('should add the time column before the index that references it', async () => {
+      const mockCreateTableResult: ResultSet = {
+        insertId: undefined,
+        rowsAffected: 0,
+        rows: {
+          length: 0,
+          raw: () => [],
+          item: () => null,
+        },
+      };
+
+      const mockVersionResult: ResultSet = {
+        insertId: undefined,
+        rowsAffected: 0,
+        rows: {
+          length: 1,
+          raw: () => [{ version: 8 }],
+          item: (index: number) => (index === 0 ? { version: 8 } : null),
+        },
+      };
+
+      mockDb.executeSql
+        .mockResolvedValueOnce([mockCreateTableResult])
+        .mockResolvedValueOnce([mockVersionResult]);
+
+      await runMigrations(mockDb);
+
+      const executor = (mockDb.transaction as jest.Mock).mock.calls[0][0];
+      const statements: string[] = [];
+      const capturedTx = {
+        executeSql: jest.fn((sql: string) => {
+          statements.push(sql);
+        }),
+      } as unknown as Transaction;
+      executor(capturedTx);
+
+      const addColumnIndex = statements.findIndex(sql =>
+        sql.includes('ADD COLUMN time'),
+      );
+      const createIndexIndex = statements.findIndex(sql =>
+        sql.includes('idx_transactions_date_time'),
+      );
+
+      expect(addColumnIndex).toBeGreaterThanOrEqual(0);
+      expect(createIndexIndex).toBeGreaterThan(addColumnIndex);
     });
   });
 });
