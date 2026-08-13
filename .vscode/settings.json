@@ -1,0 +1,19 @@
+{
+  "terminal.integrated.profiles.windows": {
+    "vm-1 (PowerShell)": {
+      "path": ["pwsh.exe", "powershell.exe"],
+      "args": [
+        "-NoExit",
+        "-Command",
+        ". '${workspaceFolder}\\vm-1\\Activate.ps1'"
+      ],
+      "icon": "terminal-powershell"
+    },
+    "vm-1 (Git Bash)": {
+      "path": ["C:\\Program Files\\Git\\bin\\bash.exe", "bash.exe"],
+      "args": ["--rcfile", "${workspaceFolder}/vm-1/bashrc", "-i"],
+      "icon": "terminal-bash"
+    }
+  },
+  "terminal.integrated.defaultProfile.windows": "vm-1 (PowerShell)"
+}

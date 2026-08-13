@@ -1,0 +1,8 @@
+# Startup file for the "vm-1 (Git Bash)" VS Code terminal profile. Bash's
+# --rcfile replaces ~/.bashrc rather than adding to it, so load that first.
+
+if [ -f "$HOME/.bashrc" ]; then
+  . "$HOME/.bashrc"
+fi
+
+. "$(dirname "${BASH_SOURCE[0]}")/activate.sh"

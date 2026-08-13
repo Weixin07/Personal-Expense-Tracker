@@ -69,7 +69,12 @@ const HomeScreen: React.FC = () => {
       isInitialised,
       isLoading,
     },
-    selectors: { filteredTransactions, totals, hasActiveFilters },
+    selectors: {
+      filteredTransactions,
+      totals,
+      hasActiveFilters,
+      categoryUsageCounts,
+    },
     actions: { refresh, setFilters, setBaseCurrency },
   } = useTransactionData();
 
@@ -590,6 +595,7 @@ const HomeScreen: React.FC = () => {
         onDismiss={() => setCategoryDialogVisible(false)}
         categories={categories}
         selectedId={categoryFilterId}
+        usageCounts={categoryUsageCounts.all}
         onSelect={handleCategorySelect}
       />
     </Surface>

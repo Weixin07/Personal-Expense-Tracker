@@ -44,6 +44,8 @@ import type {
   TransactionType,
 } from '../database';
 import { bankersRound } from '../utils/math';
+import { buildCategoryUsageCounts } from '../utils/suggestions';
+import type { CategoryUsageCounts } from '../utils/suggestions';
 import { toError, toErrorMessage } from '../utils/errors';
 import {
   useBiometricGate,
@@ -122,6 +124,12 @@ export type TransactionDataSelectors = {
   filteredTransactions: TransactionRecord[];
   totals: TransactionTotals;
   hasActiveFilters: boolean;
+  /**
+   * Counted over the whole history rather than the filtered view: a picker
+   * whose order depended on the filter it sets would reorder itself between
+   * one opening and the next.
+   */
+  categoryUsageCounts: CategoryUsageCounts;
 };
 
 export type TransactionDataActions = {
@@ -1034,13 +1042,19 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     [filteredTransactions],
   );
 
+  const categoryUsageCounts = useMemo(
+    () => buildCategoryUsageCounts(state.transactions),
+    [state.transactions],
+  );
+
   const selectors = useMemo<TransactionDataSelectors>(
     () => ({
       filteredTransactions,
       totals,
       hasActiveFilters: hasActiveFilters(state.filters),
+      categoryUsageCounts,
     }),
-    [filteredTransactions, totals, state.filters],
+    [filteredTransactions, totals, state.filters, categoryUsageCounts],
   );
 
   const actions = useMemo<TransactionDataActions>(

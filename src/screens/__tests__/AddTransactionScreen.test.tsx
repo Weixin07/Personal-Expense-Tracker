@@ -574,4 +574,146 @@ describe('AddTransactionScreen', () => {
       ).toBeOnTheScreen();
     });
   });
+
+  describe('suggested fills', () => {
+    const today = new Date();
+    const recent = (daysAgo: number): string => {
+      const date = new Date(today);
+      date.setDate(date.getDate() - daysAgo);
+      return date.toISOString().slice(0, 10);
+    };
+
+    const history: TransactionRecord[] = [
+      ...Array.from({ length: 3 }, (_, index) =>
+        makeTransaction({
+          id: 100 + index,
+          payee: 'Tesco',
+          description: 'Weekly shop',
+          date: recent(index + 1),
+        }),
+      ),
+      makeTransaction({
+        id: 200,
+        payee: 'The Bistro',
+        description: 'Team lunch',
+        date: recent(5),
+      }),
+      makeTransaction({
+        id: 300,
+        payee: 'Salary Ltd',
+        description: 'Monthly pay',
+        type: 'income',
+        date: recent(6),
+      }),
+    ];
+
+    const renderWithHistory = (params?: { transactionId?: number }) =>
+      renderScreen(params, { state: { transactions: history } });
+
+    const focusAndType = (label: string, text: string) => {
+      const field = screen.getByLabelText(label);
+      fireEvent(field, 'focus');
+      fireEvent.changeText(field, text);
+      return field;
+    };
+
+    const suggestionLabels = () =>
+      screen
+        .queryAllByLabelText(/^Use /)
+        .map(node => String(node.props.accessibilityLabel).replace('Use ', ''));
+
+    it('shows nothing before anything is typed', () => {
+      renderWithHistory();
+      fireEvent(screen.getByLabelText('Transaction payee'), 'focus');
+      expect(suggestionLabels()).toEqual([]);
+    });
+
+    it('suggests matching payees from the first character', () => {
+      renderWithHistory();
+      focusAndType('Transaction payee', 't');
+      expect(suggestionLabels()).toEqual(['Tesco', 'The Bistro']);
+    });
+
+    it('orders suggestions by frequency, not alphabetically', () => {
+      renderWithHistory();
+      focusAndType('Transaction payee', 'e');
+      expect(suggestionLabels()).toEqual(['Tesco', 'The Bistro']);
+    });
+
+    it('matches anywhere in the value', () => {
+      renderWithHistory();
+      focusAndType('Transaction payee', 'bistro');
+      expect(suggestionLabels()).toEqual(['The Bistro']);
+    });
+
+    it('fills only the tapped field and closes the list', () => {
+      renderWithHistory();
+      focusAndType('Transaction payee', 'te');
+      fireEvent.press(screen.getByLabelText('Use Tesco'));
+
+      expect(screen.getByLabelText('Transaction payee').props.value).toBe(
+        'Tesco',
+      );
+      expect(screen.getByLabelText('Transaction description').props.value).toBe(
+        '',
+      );
+      expect(suggestionLabels()).toEqual([]);
+    });
+
+    it('closes the list when the field loses focus', () => {
+      renderWithHistory();
+      const field = focusAndType('Transaction payee', 'te');
+      expect(suggestionLabels()).toEqual(['Tesco']);
+
+      fireEvent(field, 'blur');
+      expect(suggestionLabels()).toEqual([]);
+    });
+
+    it('keeps the description and payee lists independent', () => {
+      renderWithHistory();
+      focusAndType('Transaction description', 'week');
+      expect(suggestionLabels()).toEqual(['Weekly shop']);
+
+      focusAndType('Transaction payee', 'tes');
+      expect(suggestionLabels()).toEqual(['Tesco']);
+    });
+
+    it('offers only values used in the selected direction', () => {
+      renderWithHistory();
+      focusAndType('Transaction payee', 'salary');
+      expect(suggestionLabels()).toEqual([]);
+
+      fireEvent.press(screen.getByText('Income'));
+      focusAndType('Transaction payee', 'salary');
+      expect(suggestionLabels()).toEqual(['Salary Ltd']);
+    });
+
+    it('suggests nothing when there is no history', () => {
+      renderScreen(undefined);
+      focusAndType('Transaction payee', 't');
+      expect(suggestionLabels()).toEqual([]);
+    });
+
+    it('excludes the transaction being edited from its own suggestions', () => {
+      renderScreen(
+        { transactionId: 200 },
+        { state: { transactions: history } },
+      );
+      focusAndType('Transaction payee', 'bistro');
+      expect(suggestionLabels()).toEqual([]);
+    });
+
+    it('caps the list at six rows', () => {
+      const many = Array.from({ length: 9 }, (_, index) =>
+        makeTransaction({
+          id: 400 + index,
+          payee: `Payee ${index}`,
+          date: recent(index + 1),
+        }),
+      );
+      renderScreen(undefined, { state: { transactions: many } });
+      focusAndType('Transaction payee', 'payee');
+      expect(suggestionLabels()).toHaveLength(6);
+    });
+  });
 });

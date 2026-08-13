@@ -5,6 +5,10 @@ import {
   formatBytes,
   generateMockTransactions,
 } from './testHelpers';
+import {
+  buildSuggestionIndex,
+  filterSuggestions,
+} from '../../utils/suggestions';
 import type { TransactionRecord } from '../../database/types';
 
 describe('Performance: Large Dataset (10k expenses)', () => {
@@ -329,6 +333,47 @@ describe('Performance: Large Dataset (10k expenses)', () => {
         metrics,
         { maxDuration: 300 },
         'Complete workflow (filter + sort + paginate)',
+      );
+    });
+  });
+
+  describe('Suggestion Ranking Performance', () => {
+    it('should build a payee suggestion index over 10k transactions in under 100ms', async () => {
+      const { result, metrics } = await measurePerformance(() => {
+        return buildSuggestionIndex(mockTransactions, 'payee');
+      });
+
+      console.log(`⏱️  Index Build Time: ${formatDuration(metrics.duration)}`);
+      console.log(`🔤 Distinct Payees: ${result.length}`);
+
+      expect(result.length).toBeGreaterThan(0);
+      assertPerformance(
+        metrics,
+        { maxDuration: 100 },
+        'Building a payee suggestion index over 10k transactions',
+      );
+    });
+
+    // A keystroke must not re-rank the history: filtering a prebuilt index has
+    // to fit inside a frame, or the list stutters as the user types.
+    it('should filter a prebuilt index in under 16ms per keystroke', async () => {
+      const index = buildSuggestionIndex(mockTransactions, 'payee');
+
+      const { metrics } = await measurePerformance(() => {
+        return ['t', 'te', 'tes', 'tesc', 'tesco'].map(query =>
+          filterSuggestions(index, query),
+        );
+      });
+
+      const perKeystroke = metrics.duration / 5;
+      console.log(
+        `⏱️  Filter Time per Keystroke: ${formatDuration(perKeystroke)}`,
+      );
+
+      assertPerformance(
+        { ...metrics, duration: perKeystroke },
+        { maxDuration: 16 },
+        'Filtering a prebuilt suggestion index',
       );
     });
   });

@@ -8,6 +8,7 @@ import type {
   TransactionDataState,
 } from '../../context/AppContext';
 import { makeImportSummary } from './importFixtures';
+import { EMPTY_CATEGORY_USAGE_COUNTS } from '../../utils/suggestions';
 
 // react-native maps requestAnimationFrame to setTimeout; Paper's transition
 // animations would otherwise leave timers that fire after env teardown. Fake
@@ -71,6 +72,7 @@ export const makeContextSelectors = (
     mixedBase: false,
   },
   hasActiveFilters: false,
+  categoryUsageCounts: EMPTY_CATEGORY_USAGE_COUNTS,
   ...overrides,
 });
 

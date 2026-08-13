@@ -2,6 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { FlatList, StyleSheet } from 'react-native';
 import { Button, Dialog, List, Portal, Searchbar } from 'react-native-paper';
 import { CATEGORY_TYPE_LABELS } from '../constants/categoryTypeLabels';
+import { EMPTY_CATEGORY_USAGE } from '../utils/suggestions';
+import type { CategoryUsage } from '../utils/suggestions';
 import type {
   CategoryRecord,
   CategoryType,
@@ -23,13 +25,34 @@ export type CategoryPickerDialogProps = {
    * type, or `both`. Omit to offer every category.
    */
   directionFilter?: TransactionType;
+  /**
+   * Orders the list by how much each category is used. Omit to order by name.
+   */
+  usageCounts?: ReadonlyMap<number, CategoryUsage>;
   onSelect: (categoryId: number | null) => void;
   onDismiss: () => void;
+};
+
+const compareByUsage = (
+  a: CategoryRecord,
+  b: CategoryRecord,
+  usageCounts: ReadonlyMap<number, CategoryUsage>,
+): number => {
+  const usageA = usageCounts.get(a.id) ?? EMPTY_CATEGORY_USAGE;
+  const usageB = usageCounts.get(b.id) ?? EMPTY_CATEGORY_USAGE;
+  if (usageA.inWindow !== usageB.inWindow) {
+    return usageB.inWindow - usageA.inWindow;
+  }
+  if (usageA.older !== usageB.older) {
+    return usageB.older - usageA.older;
+  }
+  return a.name.localeCompare(b.name);
 };
 
 const buildOptions = (
   categories: CategoryRecord[],
   directionFilter?: TransactionType,
+  usageCounts?: ReadonlyMap<number, CategoryUsage>,
 ): CategoryOption[] => {
   const eligible = directionFilter
     ? categories.filter(
@@ -37,7 +60,11 @@ const buildOptions = (
           category.type === directionFilter || category.type === 'both',
       )
     : categories;
-  const sorted = [...eligible].sort((a, b) => a.name.localeCompare(b.name));
+  const sorted = [...eligible].sort((a, b) =>
+    usageCounts
+      ? compareByUsage(a, b, usageCounts)
+      : a.name.localeCompare(b.name),
+  );
   return [
     { id: null, name: 'No category', type: null },
     ...sorted.map(category => ({
@@ -53,14 +80,15 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
   categories,
   selectedId,
   directionFilter,
+  usageCounts,
   onSelect,
   onDismiss,
 }) => {
   const [query, setQuery] = useState('');
 
   const options = useMemo(
-    () => buildOptions(categories, directionFilter),
-    [categories, directionFilter],
+    () => buildOptions(categories, directionFilter, usageCounts),
+    [categories, directionFilter, usageCounts],
   );
 
   const filteredOptions = useMemo(() => {

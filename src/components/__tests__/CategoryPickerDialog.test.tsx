@@ -111,6 +111,106 @@ describe('CategoryPickerDialog', () => {
     expect(onDismiss).toHaveBeenCalled();
   });
 
+  describe('usageCounts', () => {
+    const rankableCategories: CategoryRecord[] = [
+      { ...categories[0], id: 1, name: 'Alpha' },
+      { ...categories[0], id: 2, name: 'Bravo' },
+      { ...categories[0], id: 3, name: 'Charlie' },
+    ];
+
+    const renderedOrder = () =>
+      screen
+        .getAllByLabelText(/^Select /)
+        .map(node =>
+          String(node.props.accessibilityLabel).replace('Select ', ''),
+        );
+
+    it('orders by name when no usage is supplied', () => {
+      renderWithProviders(
+        <CategoryPickerDialog
+          visible
+          categories={rankableCategories}
+          selectedId={null}
+          onSelect={jest.fn()}
+          onDismiss={jest.fn()}
+        />,
+      );
+      expect(renderedOrder()).toEqual([
+        'No category',
+        'Alpha',
+        'Bravo',
+        'Charlie',
+      ]);
+    });
+
+    it('orders by recent usage ahead of name', () => {
+      renderWithProviders(
+        <CategoryPickerDialog
+          visible
+          categories={rankableCategories}
+          selectedId={null}
+          usageCounts={
+            new Map([
+              [2, { inWindow: 5, older: 0 }],
+              [3, { inWindow: 2, older: 0 }],
+            ])
+          }
+          onSelect={jest.fn()}
+          onDismiss={jest.fn()}
+        />,
+      );
+      expect(renderedOrder()).toEqual([
+        'No category',
+        'Bravo',
+        'Charlie',
+        'Alpha',
+      ]);
+    });
+
+    it('ranks any recent use above older use', () => {
+      renderWithProviders(
+        <CategoryPickerDialog
+          visible
+          categories={rankableCategories}
+          selectedId={null}
+          usageCounts={
+            new Map([
+              [1, { inWindow: 0, older: 9 }],
+              [3, { inWindow: 1, older: 0 }],
+            ])
+          }
+          onSelect={jest.fn()}
+          onDismiss={jest.fn()}
+        />,
+      );
+      expect(renderedOrder()).toEqual([
+        'No category',
+        'Charlie',
+        'Alpha',
+        'Bravo',
+      ]);
+    });
+
+    it('keeps never-used categories in the list, alphabetically last', () => {
+      renderWithProviders(
+        <CategoryPickerDialog
+          visible
+          categories={rankableCategories}
+          selectedId={null}
+          usageCounts={new Map([[3, { inWindow: 4, older: 0 }]])}
+          onSelect={jest.fn()}
+          onDismiss={jest.fn()}
+        />,
+      );
+      expect(renderedOrder()).toEqual([
+        'No category',
+        'Charlie',
+        'Alpha',
+        'Bravo',
+      ]);
+    });
+  });
+
   describe('directionFilter', () => {
     it('offers every category when no direction is given', () => {
       renderWithProviders(

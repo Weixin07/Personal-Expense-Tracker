@@ -19,6 +19,7 @@ import {
 import CategoryPickerDialog from '../components/CategoryPickerDialog';
 import CurrencyPickerDialog from '../components/CurrencyPickerDialog';
 import SelectField from '../components/SelectField';
+import SuggestionList from '../components/SuggestionList';
 import { findCurrencyName } from '../constants/currencyOptions';
 import { useTransactionData } from '../context/AppContext';
 import type { RootStackParamList } from '../navigation/AppNavigator';
@@ -39,6 +40,8 @@ import {
   parseTimeInput,
 } from '../utils/date';
 import { formatDirectionalMoney, formatMoneyAmount } from '../utils/formatting';
+import { buildSuggestionIndex, filterSuggestions } from '../utils/suggestions';
+import type { SuggestionField } from '../utils/suggestions';
 
 const TYPE_OPTIONS = [
   { value: 'expense', label: 'Expense' },
@@ -64,6 +67,7 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
       error,
     },
     actions: { createTransaction, updateTransaction, deleteTransaction },
+    selectors: { categoryUsageCounts },
   } = useTransactionData();
 
   const existingTransaction = useMemo(
@@ -94,6 +98,8 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
   const [categoryDialogVisible, setCategoryDialogVisible] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [activeSuggestionField, setActiveSuggestionField] =
+    useState<SuggestionField | null>(null);
 
   useEffect(() => {
     setValues(initialFormValues);
@@ -101,6 +107,7 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
     setTimeInput(initialFormValues.time);
     setErrors({});
     setFormError(null);
+    setActiveSuggestionField(null);
   }, [initialFormValues]);
 
   useEffect(() => {
@@ -130,6 +137,53 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
     values.fxRateToBase,
     values.type,
   ]);
+
+  // A field's own value must not reach the index memos: it would re-sort the
+  // entire history on every keystroke. Only the filter memos may depend on
+  // what has been typed.
+  const suggestionOptions = useMemo(
+    () => ({
+      type: values.type,
+      excludeTransactionId: transactionId ?? undefined,
+    }),
+    [values.type, transactionId],
+  );
+
+  const descriptionIndex = useMemo(
+    () => buildSuggestionIndex(transactions, 'description', suggestionOptions),
+    [transactions, suggestionOptions],
+  );
+
+  const payeeIndex = useMemo(
+    () => buildSuggestionIndex(transactions, 'payee', suggestionOptions),
+    [transactions, suggestionOptions],
+  );
+
+  const descriptionSuggestions = useMemo(
+    () =>
+      activeSuggestionField === 'description'
+        ? filterSuggestions(descriptionIndex, values.description)
+        : [],
+    [activeSuggestionField, descriptionIndex, values.description],
+  );
+
+  const payeeSuggestions = useMemo(
+    () =>
+      activeSuggestionField === 'payee'
+        ? filterSuggestions(payeeIndex, values.payee)
+        : [],
+    [activeSuggestionField, payeeIndex, values.payee],
+  );
+
+  const handleSuggestionSelect =
+    (field: SuggestionField) => (value: string) => {
+      setValues(prev => ({ ...prev, [field]: value }));
+      setActiveSuggestionField(null);
+    };
+
+  const handleSuggestionBlur = (field: SuggestionField) => () => {
+    setActiveSuggestionField(current => (current === field ? null : current));
+  };
 
   const handleChange =
     (field: keyof TransactionFormValues) => (text: string) => {
@@ -347,6 +401,15 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
             mode="outlined"
             accessibilityLabel="Transaction description"
             autoCapitalize="sentences"
+            onFocus={() => setActiveSuggestionField('description')}
+            onBlur={handleSuggestionBlur('description')}
+          />
+          <SuggestionList
+            values={descriptionSuggestions}
+            visible={activeSuggestionField === 'description'}
+            onSelect={handleSuggestionSelect('description')}
+            accessibilityLabel="Description suggestions"
+            testID="description-suggestions"
           />
 
           <TextInput
@@ -356,6 +419,15 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
             mode="outlined"
             accessibilityLabel="Transaction payee"
             autoCapitalize="words"
+            onFocus={() => setActiveSuggestionField('payee')}
+            onBlur={handleSuggestionBlur('payee')}
+          />
+          <SuggestionList
+            values={payeeSuggestions}
+            visible={activeSuggestionField === 'payee'}
+            onSelect={handleSuggestionSelect('payee')}
+            accessibilityLabel="Payee suggestions"
+            testID="payee-suggestions"
           />
 
           <TextInput
@@ -510,6 +582,7 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
         categories={categories}
         directionFilter={values.type}
         selectedId={values.categoryId ?? null}
+        usageCounts={categoryUsageCounts[values.type]}
         onSelect={handleCategorySelect}
       />
     </KeyboardAvoidingView>

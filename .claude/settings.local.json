@@ -276,7 +276,14 @@
       "PowerShell(pnpm comment-policy *)",
       "Bash(python *)",
       "PowerShell(npx jest src/import/__tests__/zzSampleAnalysis.test.ts 2>&1 | Select-Object -First 400)",
-      "PowerShell(npx eslint . --max-warnings=0; \"lint: $LASTEXITCODE\"; npx tsc --noEmit; \"tsc: $LASTEXITCODE\"; node scripts/comment-policy.mjs; \"comment-policy: $LASTEXITCODE\")"
+      "PowerShell(npx eslint . --max-warnings=0; \"lint: $LASTEXITCODE\"; npx tsc --noEmit; \"tsc: $LASTEXITCODE\"; node scripts/comment-policy.mjs; \"comment-policy: $LASTEXITCODE\")",
+      "Bash(py --version)",
+      "PowerShell(foreach \\($c in 'node','npm','pnpm','nvm','fnm','volta','corepack'\\) { $p = \\(Get-Command $c -ErrorAction SilentlyContinue\\); if \\($p\\) { \"$c -> $\\($p.Source\\)\" } else { \"$c -> NOT FOUND\" } })",
+      "PowerShell(Test-Path *)",
+      "PowerShell(& pwsh.exe -NoProfile -Command \". 'C:\\\\PET\\\\vm-1\\\\Activate.ps1'; 'PROMPT: ' + \\(prompt\\); 'VM1_ROOT: ' + $env:VM1_ROOT; 'BIN FIRST: ' + \\($env:PATH -split ';'\\)[0]; 'jest resolves: ' + \\(Get-Command jest -ErrorAction SilentlyContinue\\).Source; Disable-Vm1; 'AFTER DEACTIVATE prompt: ' + \\(prompt\\); 'AFTER VM1_ROOT: [' + $env:VM1_ROOT + ']'; 'AFTER first path: ' + \\($env:PATH -split ';'\\)[0]\")",
+      "Bash(bash --rcfile /c/PET/vm-1/bashrc -i -c 'echo \"PS1=[$PS1]\"; echo \"VM1_ROOT=$VM1_ROOT\"; echo \"PATH1=$\\(echo $PATH | cut -d: -f1\\)\"; command -v jest; vm1_deactivate; echo \"AFTER PATH1=$\\(echo $PATH | cut -d: -f1\\)\"; echo \"AFTER VM1_ROOT=[$VM1_ROOT]\"')",
+      "PowerShell(& pwsh.exe -NoProfile -File \"C:\\\\Users\\\\faith\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--PET\\\\05e2296a-bbd4-493d-85a7-ce622340f2c6\\\\scratchpad\\\\test-vm1.ps1\")",
+      "PowerShell(node scripts/comment-policy.mjs; \"comment-policy: $LASTEXITCODE\"; npx eslint . --max-warnings=0; \"lint: $LASTEXITCODE\"; npx tsc --noEmit; \"tsc: $LASTEXITCODE\")"
     ],
     "deny": [],
     "ask": []
