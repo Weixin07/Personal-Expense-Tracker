@@ -9,6 +9,10 @@ import {
   waitFor,
 } from '../../__tests__/test-utils/renderWithProviders';
 import {
+  makeImportPreview,
+  makeImportSummary,
+} from '../../__tests__/test-utils/importFixtures';
+import {
   TransactionDataProvider,
   useTransactionData,
   type TransactionDataContextValue,
@@ -60,19 +64,7 @@ const mockExport = exportModule as jest.Mocked<typeof exportModule>;
 const mockImport = importModule as jest.Mocked<typeof importModule>;
 const mockStorage = storageAccess as jest.Mocked<typeof storageAccess>;
 
-const emptyPreview: ImportPreview = {
-  valid: [],
-  invalid: [],
-  needsFxRate: [],
-  unreadableTimes: [],
-  fxReview: [],
-  currencyReview: [],
-  duplicates: [],
-  inferredDateOrder: null,
-  signConventionBypassed: false,
-  newCategoryNames: [],
-  totalRows: 0,
-};
+const emptyPreview: ImportPreview = makeImportPreview();
 
 const transaction: TransactionRecord = {
   type: 'expense',
@@ -147,13 +139,9 @@ beforeEach(() => {
     uri: 'content://dir',
   });
   mockStorage.deleteFileUri.mockResolvedValue(undefined);
-  mockImport.commitImport.mockResolvedValue({
-    insertedExpenses: 2,
-    insertedIncome: 0,
-    skippedInvalid: 0,
-    skippedNeedsFxRate: 0,
-    createdCategories: 1,
-  });
+  mockImport.commitImport.mockResolvedValue(
+    makeImportSummary({ insertedExpenses: 2, createdCategories: 1 }),
+  );
 });
 
 describe('TransactionDataProvider effects', () => {
@@ -224,21 +212,27 @@ describe('TransactionDataProvider effects', () => {
 
     let summary;
     await act(async () => {
-      summary = await ctx.actions.importTransactions(emptyPreview, {
-        'USD|EUR': 1.2,
-      });
+      summary = await ctx.actions.importTransactions(
+        emptyPreview,
+        { 'USD|EUR': 1.2 },
+        {
+          skipDuplicates: true,
+          categoryAliases: { transportation: 'Transport' },
+        },
+      );
     });
 
-    expect(mockImport.commitImport).toHaveBeenCalledWith(emptyPreview, {
-      'USD|EUR': 1.2,
-    });
-    expect(summary).toEqual({
-      insertedExpenses: 2,
-      insertedIncome: 0,
-      skippedInvalid: 0,
-      skippedNeedsFxRate: 0,
-      createdCategories: 1,
-    });
+    expect(mockImport.commitImport).toHaveBeenCalledWith(
+      emptyPreview,
+      { 'USD|EUR': 1.2 },
+      {
+        skipDuplicates: true,
+        categoryAliases: { transportation: 'Transport' },
+      },
+    );
+    expect(summary).toEqual(
+      makeImportSummary({ insertedExpenses: 2, createdCategories: 1 }),
+    );
     expect(ctx.state.transactions).toHaveLength(1);
   });
 

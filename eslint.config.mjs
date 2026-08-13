@@ -67,6 +67,7 @@ export default [
             'sample',
             'transactions_backup',
             'TransactionFormValues',
+            'findNearDuplicateCategory',
           ],
         },
       ],

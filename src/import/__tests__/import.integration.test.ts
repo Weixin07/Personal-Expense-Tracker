@@ -2,7 +2,7 @@ import { buildTransactionsCsv } from '../../export/csvBuilder';
 import { parseCsv } from '../csvParser';
 import { autoDetectMapping } from '../mapping';
 import { previewImport, commitImport } from '../importManager';
-import type { ImportContext } from '../importManager';
+import type { ImportContext } from '../types';
 import type { CategoryRecord, TransactionRecord } from '../../database';
 import * as database from '../../database';
 
@@ -119,6 +119,67 @@ describe('export -> import round trip', () => {
       baseAmount: 1234.5,
       date: '2024-03-20',
     });
+  });
+
+  it('keeps the exported rate authoritative over the exported base amount', () => {
+    const { content } = buildTransactionsCsv({ transactions, categories });
+    const parsed = parseCsv(content);
+    const mapping = autoDetectMapping(parsed.header);
+
+    // The app writes both columns, so both auto-map and compete for the rate.
+    expect(mapping.fxRateToBase).toBeDefined();
+    expect(mapping.baseAmount).toBeDefined();
+
+    const preview = previewImport(content, mapping, 'iso', {
+      baseCurrency: 'USD',
+      defaultCurrency: null,
+      currencyChoices: {},
+      negativeMeans: 'income',
+      numberFormat: 'auto',
+      fxRateCache: [],
+      existingTransactions: [],
+      existingCategories: categories,
+    });
+
+    expect(preview.valid.map(item => item.fxRateSource)).toEqual([
+      'column',
+      'column',
+      'column',
+    ]);
+    expect(preview.valid.map(item => item.record.fxRateToBase)).toEqual(
+      transactions.map(transaction => transaction.fxRateToBase),
+    );
+    expect(preview.valid.map(item => item.record.baseAmount)).toEqual(
+      transactions.map(transaction => transaction.baseAmount),
+    );
+  });
+
+  it('asks nothing about rates, so no saved rate can gate a restore', () => {
+    const { content } = buildTransactionsCsv({ transactions, categories });
+    const mapping = autoDetectMapping(parseCsv(content).header);
+
+    const preview = previewImport(content, mapping, 'iso', {
+      baseCurrency: 'USD',
+      defaultCurrency: null,
+      currencyChoices: {},
+      negativeMeans: 'income',
+      numberFormat: 'auto',
+      fxRateCache: [
+        {
+          baseCurrencyCode: 'USD',
+          currencyCode: 'EUR',
+          fxRateToBase: 9,
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ],
+      existingTransactions: [],
+      existingCategories: categories,
+    });
+
+    expect(preview.fxReview).toEqual([]);
+    expect(preview.needsFxRate).toEqual([]);
+    expect(preview.suspectDerivedRates).toEqual([]);
+    expect(preview.valid).toHaveLength(3);
   });
 
   it('commits the reconstructed rows through the bulk insert', async () => {
@@ -268,13 +329,45 @@ describe('third-party CSV whose currencies are all foreign to the base', () => {
         baseCurrencyCode: 'MYR',
         currencyCode: 'INR',
         suggestedRate: null,
+        suggestedRateUpdatedAt: null,
         rowCount: 6,
       },
       {
         baseCurrencyCode: 'MYR',
         currencyCode: 'USD',
         suggestedRate: null,
+        suggestedRateUpdatedAt: null,
         rowCount: 1,
+      },
+    ]);
+  });
+
+  it('reports the file own-currency column mapped as a base amount', () => {
+    const content = buildThirdPartyCsv();
+    const preview = previewImport(
+      content,
+      { ...thirdPartyMapping(), baseAmount: 5 },
+      'auto',
+      {
+        baseCurrency: 'MYR',
+        defaultCurrency: null,
+        currencyChoices: {},
+        negativeMeans: 'income',
+        numberFormat: 'auto',
+        fxRateCache: [],
+        existingTransactions: [],
+        existingCategories: [],
+      },
+    );
+
+    expect(preview.needsFxRate).toHaveLength(0);
+    expect(preview.valid).toHaveLength(7);
+    expect(preview.suspectDerivedRates).toEqual([
+      {
+        baseCurrencyCode: 'MYR',
+        currencyCode: 'INR',
+        rate: 1,
+        rowCount: 6,
       },
     ]);
   });

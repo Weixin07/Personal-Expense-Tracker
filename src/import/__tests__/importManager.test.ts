@@ -1,8 +1,13 @@
 import { normalizeAmount, previewImport, commitImport } from '../importManager';
-import type { ImportContext } from '../importManager';
-import type { FieldMapping, ImportPreview } from '../types';
+import type {
+  FieldMapping,
+  ImportContext,
+  ImportPreview,
+  PreparedTransaction,
+} from '../types';
 import * as database from '../../database';
 import type { CategoryRecord } from '../../database';
+import { makeImportPreview } from '../../__tests__/test-utils/importFixtures';
 
 jest.mock('../../database');
 
@@ -232,6 +237,7 @@ describe('previewImport', () => {
         baseCurrencyCode: 'USD',
         currencyCode: 'EUR',
         suggestedRate: 1.1,
+        suggestedRateUpdatedAt: '2024-01-01T00:00:00Z',
         rowCount: 1,
       },
     ]);
@@ -248,6 +254,7 @@ describe('previewImport', () => {
         baseCurrencyCode: 'USD',
         currencyCode: 'EUR',
         suggestedRate: null,
+        suggestedRateUpdatedAt: null,
         rowCount: 1,
       },
     ]);
@@ -558,6 +565,397 @@ describe('previewImport', () => {
   });
 });
 
+describe('previewImport base amount derivation', () => {
+  const MAPPING: FieldMapping = {
+    description: 0,
+    amountNative: 1,
+    currencyCode: 2,
+    baseAmount: 3,
+    date: 4,
+  };
+  const HEAD = 'description,amount,currency,converted,date\r\n';
+  const ctx: ImportContext = { ...baseCtx, baseCurrency: 'INR' };
+
+  it('derives the rate from a converted amount the file supplied', () => {
+    const text = `${HEAD}Dinner,15,USD,1120.72,2021-12-08\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', ctx);
+
+    expect(result.needsFxRate).toHaveLength(0);
+    expect(result.valid).toHaveLength(1);
+    expect(result.valid[0].fxRateSource).toBe('derived');
+    expect(result.valid[0].record.fxRateToBase).toBeCloseTo(74.7147, 4);
+  });
+
+  it('stores the supplied base amount rather than recomputing it', () => {
+    const text = `${HEAD}Dinner,15,USD,1120.72,2021-12-08\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', ctx);
+
+    expect(result.valid[0].record.baseAmount).toBe(1120.72);
+  });
+
+  it('keeps a derived pair out of the rate review', () => {
+    const text = `${HEAD}Dinner,15,USD,1120.72,2021-12-08\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', ctx);
+
+    expect(result.fxReview).toHaveLength(0);
+  });
+
+  it('counts only the rows still waiting when a pair partly derives', () => {
+    const text =
+      `${HEAD}Dinner,15,USD,1120.72,2021-12-08\r\n` +
+      `Coffee,4,USD,,2021-12-09\r\n` +
+      `Taxi,9,USD,,2021-12-10\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', ctx);
+
+    expect(result.fxReview).toHaveLength(1);
+    expect(result.fxReview[0].rowCount).toBe(2);
+    expect(result.needsFxRate).toHaveLength(2);
+  });
+
+  it('falls through to the rate ladder when the cell is blank or unreadable', () => {
+    const text =
+      `${HEAD}Coffee,4,USD,,2021-12-09\r\n` + `Taxi,9,USD,n/a,2021-12-10\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', ctx);
+
+    expect(result.valid).toHaveLength(0);
+    expect(result.needsFxRate).toHaveLength(2);
+    expect(result.invalid).toHaveLength(0);
+  });
+
+  it('reads a signed converted amount by magnitude', () => {
+    const text = `${HEAD}Dinner,15,USD,-1120.72,2021-12-08\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', ctx);
+
+    expect(result.valid[0].record.baseAmount).toBe(1120.72);
+    expect(result.valid[0].record.fxRateToBase).toBeCloseTo(74.7147, 4);
+  });
+
+  it('does not derive for a row already at parity', () => {
+    const text = `${HEAD}Chai,50,INR,999,2021-12-08\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', ctx);
+
+    expect(result.valid[0].fxRateSource).toBe('parity');
+    expect(result.valid[0].record.baseAmount).toBe(50);
+  });
+
+  it('lets a mapped rate column win over a supplied base amount', () => {
+    const withRate: FieldMapping = { ...MAPPING, fxRateToBase: 5 };
+    const text = `${HEAD.trim()},rate\r\nDinner,15,USD,1120.72,2021-12-08,80\r\n`;
+    const result = previewImport(text, withRate, 'iso', ctx);
+
+    expect(result.valid[0].fxRateSource).toBe('column');
+    expect(result.valid[0].record.fxRateToBase).toBe(80);
+    expect(result.valid[0].record.baseAmount).toBe(1200);
+  });
+});
+
+describe('previewImport suspect derived rates', () => {
+  const MAPPING: FieldMapping = {
+    description: 0,
+    amountNative: 1,
+    currencyCode: 2,
+    baseAmount: 3,
+    date: 4,
+  };
+  const HEAD = 'description,amount,currency,converted,date\r\n';
+  const ctx: ImportContext = { ...baseCtx, baseCurrency: 'MYR' };
+
+  it('reports a base-amount column holding the file own currency', () => {
+    const text =
+      `${HEAD}Brownie,50,INR,50,2022-03-02\r\n` +
+      `Dinner,78,INR,78,2022-03-01\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', ctx);
+
+    expect(result.suspectDerivedRates).toEqual([
+      {
+        baseCurrencyCode: 'MYR',
+        currencyCode: 'INR',
+        rate: 1,
+        rowCount: 2,
+      },
+    ]);
+  });
+
+  it('imports the rows it reports rather than withholding them', () => {
+    const text = `${HEAD}Brownie,50,INR,50,2022-03-02\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', ctx);
+
+    expect(result.valid).toHaveLength(1);
+    expect(result.valid[0].fxRateSource).toBe('derived');
+    expect(result.needsFxRate).toHaveLength(0);
+  });
+
+  it('leaves a genuine conversion unreported', () => {
+    const text = `${HEAD}Dinner,15,USD,1120.72,2021-12-08\r\n`;
+    const result = previewImport(text, { ...MAPPING }, 'iso', {
+      ...baseCtx,
+      baseCurrency: 'INR',
+    });
+
+    expect(result.suspectDerivedRates).toEqual([]);
+    expect(result.valid[0].fxRateSource).toBe('derived');
+  });
+
+  it('reports a rate the saved one contradicts by orders of magnitude', () => {
+    const text = `${HEAD}Dinner,15,USD,1120.72,2021-12-08\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', {
+      ...ctx,
+      fxRateCache: [
+        {
+          baseCurrencyCode: 'MYR',
+          currencyCode: 'USD',
+          fxRateToBase: 4.2,
+          updatedAt: '2024-01-01T00:00:00Z',
+        },
+      ],
+    });
+
+    expect(result.suspectDerivedRates).toHaveLength(1);
+    expect(result.suspectDerivedRates[0].rowCount).toBe(1);
+  });
+
+  it('keeps reporting the pair when a rate was typed for it', () => {
+    const text = `${HEAD}Brownie,50,INR,50,2022-03-02\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', {
+      ...ctx,
+      manualFxRates: { 'MYR|INR': 0.0562 },
+    });
+
+    expect(result.suspectDerivedRates).toEqual([
+      { baseCurrencyCode: 'MYR', currencyCode: 'INR', rate: 1, rowCount: 1 },
+    ]);
+    expect(result.valid[0].fxRateSource).toBe('derived');
+    expect(result.valid[0].record.fxRateToBase).toBe(1);
+    expect(result.fxReview).toEqual([]);
+  });
+
+  it('cannot report a row that never derives a rate', () => {
+    const text = `${HEAD}Chai,50,MYR,999,2021-12-08\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', ctx);
+
+    expect(result.valid[0].fxRateSource).toBe('parity');
+    expect(result.suspectDerivedRates).toEqual([]);
+  });
+});
+
+describe('previewImport saved-rate consent', () => {
+  const cached: ImportContext = {
+    ...baseCtx,
+    fxRateCache: [
+      {
+        baseCurrencyCode: 'USD',
+        currencyCode: 'EUR',
+        fxRateToBase: 1.1,
+        updatedAt: '2024-01-01T00:00:00Z',
+      },
+    ],
+  };
+  const text = `${HEADER}Paris,10,EUR,,2024-01-01,Food,Cafe,USD\r\n`;
+
+  it('resolves from the cache when nothing says otherwise', () => {
+    const result = previewImport(text, APP_MAPPING, 'iso', cached);
+
+    expect(result.valid[0].fxRateSource).toBe('cached');
+    expect(result.needsFxRate).toHaveLength(0);
+  });
+
+  it('holds the rows once the saved rate is rejected', () => {
+    const result = previewImport(text, APP_MAPPING, 'iso', {
+      ...cached,
+      useCachedRates: false,
+    });
+
+    expect(result.valid).toHaveLength(0);
+    expect(result.needsFxRate).toHaveLength(1);
+  });
+
+  it('keeps offering the rejected rate as a suggestion', () => {
+    const result = previewImport(text, APP_MAPPING, 'iso', {
+      ...cached,
+      useCachedRates: false,
+    });
+
+    expect(result.fxReview[0].suggestedRate).toBe(1.1);
+    expect(result.fxReview[0].suggestedRateUpdatedAt).toBe(
+      '2024-01-01T00:00:00Z',
+    );
+  });
+
+  it('lets a confirmed rate through with the cache rejected', () => {
+    const result = previewImport(text, APP_MAPPING, 'iso', {
+      ...cached,
+      useCachedRates: false,
+      manualFxRates: { 'USD|EUR': 1.2 },
+    });
+
+    expect(result.valid[0].fxRateSource).toBe('manual');
+    expect(result.valid[0].record.fxRateToBase).toBe(1.2);
+  });
+});
+
+describe('previewImport base currency guard', () => {
+  const MAPPING: FieldMapping = {
+    description: 0,
+    amountNative: 1,
+    currencyCode: 2,
+    date: 3,
+  };
+  const HEAD = 'description,amount,currency,date\r\n';
+  const noBase: ImportContext = { ...baseCtx, baseCurrency: null };
+
+  it('blocks a multi-currency file when no base currency is set', () => {
+    const text =
+      `${HEAD}Chai,50,INR,2021-12-08\r\n` + `Dinner,15,USD,2021-12-09\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', noBase);
+
+    expect(result.mixedCurrencyWithoutBase).toBe(true);
+  });
+
+  it('still imports a single-currency file with no base currency', () => {
+    const text =
+      `${HEAD}Chai,50,INR,2021-12-08\r\n` + `Samosa,20,INR,2021-12-09\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', noBase);
+
+    expect(result.mixedCurrencyWithoutBase).toBe(false);
+    expect(result.valid).toHaveLength(2);
+  });
+
+  it('does not block once a base currency is set', () => {
+    const text =
+      `${HEAD}Chai,50,INR,2021-12-08\r\n` + `Dinner,15,USD,2021-12-09\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', {
+      ...baseCtx,
+      baseCurrency: 'INR',
+      fxRateCache: [
+        {
+          baseCurrencyCode: 'INR',
+          currencyCode: 'USD',
+          fxRateToBase: 74.7,
+          updatedAt: '',
+        },
+      ],
+    });
+
+    expect(result.mixedCurrencyWithoutBase).toBe(false);
+  });
+});
+
+describe('previewImport unmapped columns', () => {
+  const MAPPING: FieldMapping = {
+    date: 0,
+    categoryName: 2,
+    amountNative: 4,
+    currencyCode: 5,
+  };
+  const HEAD = 'Date,Account,Category,Subcategory,Amount,Currency\r\n';
+
+  it('reports a populated column no field claims, with a sample value', () => {
+    const text =
+      `${HEAD}2024-01-01,CUB - online payment,Food,,50,USD\r\n` +
+      `2024-01-02,Cash,Food,,20,USD\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', baseCtx);
+
+    expect(result.unmappedColumns).toEqual([
+      { index: 1, header: 'Account', sampleValue: 'CUB - online payment' },
+    ]);
+  });
+
+  it('stays silent about an unmapped column that is empty throughout', () => {
+    const text = `${HEAD}2024-01-01,,Food,,50,USD\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', baseCtx);
+
+    expect(result.unmappedColumns).toHaveLength(0);
+  });
+
+  it('reports nothing when every column is mapped', () => {
+    const text = `${HEADER},50,USD,1,2024-01-01,Food,Cafe,USD\r\n`;
+    const result = previewImport(text, APP_MAPPING, 'iso', baseCtx);
+
+    expect(result.unmappedColumns).toHaveLength(0);
+  });
+});
+
+describe('previewImport category review', () => {
+  const MAPPING: FieldMapping = {
+    description: 0,
+    amountNative: 1,
+    currencyCode: 2,
+    date: 3,
+    categoryName: 4,
+    transactionType: 5,
+  };
+  const HEAD = 'description,amount,currency,date,category,type\r\n';
+  const category = (
+    id: number,
+    name: string,
+    type: CategoryRecord['type'],
+  ): CategoryRecord => ({ id, name, type, createdAt: '', updatedAt: '' });
+
+  it('suggests an existing category a new name may be a respelling of', () => {
+    const text =
+      `${HEAD}Bus,5,USD,2024-01-01,Transportation,Expense\r\n` +
+      `Taxi,9,USD,2024-01-02,Transportation,Expense\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', {
+      ...baseCtx,
+      existingCategories: [category(1, 'Transport', 'both')],
+    });
+
+    expect(result.categorySuggestions).toEqual([
+      {
+        sourceName: 'Transportation',
+        existingName: 'Transport',
+        existingId: 1,
+        rowCount: 2,
+      },
+    ]);
+  });
+
+  it('makes no suggestion for a name that matches an existing one exactly', () => {
+    const text = `${HEAD}Bus,5,USD,2024-01-01,Transport,Expense\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', {
+      ...baseCtx,
+      existingCategories: [category(1, 'Transport', 'both')],
+    });
+
+    expect(result.categorySuggestions).toHaveLength(0);
+    expect(result.newCategoryNames).toHaveLength(0);
+  });
+
+  it('flags a category whose type excludes the direction being filed', () => {
+    const text = `${HEAD}Returned item,20,USD,2024-01-01,Refund,Expense\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', {
+      ...baseCtx,
+      existingCategories: [category(1, 'Refund', 'income')],
+    });
+
+    expect(result.categoryTypeWidenings).toEqual([
+      { name: 'Refund', from: 'income' },
+    ]);
+  });
+
+  it('leaves a category alone when the direction already fits', () => {
+    const text = `${HEAD}Pay,2000,USD,2024-01-01,Salary,Income\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', {
+      ...baseCtx,
+      existingCategories: [category(1, 'Salary', 'income')],
+    });
+
+    expect(result.categoryTypeWidenings).toHaveLength(0);
+  });
+
+  it('leaves a both-typed category alone whichever direction is filed', () => {
+    const text =
+      `${HEAD}Gift out,20,USD,2024-01-01,Gifts,Expense\r\n` +
+      `Gift in,30,USD,2024-01-02,Gifts,Income\r\n`;
+    const result = previewImport(text, MAPPING, 'iso', {
+      ...baseCtx,
+      existingCategories: [category(1, 'Gifts', 'both')],
+    });
+
+    expect(result.categoryTypeWidenings).toHaveLength(0);
+  });
+});
+
 describe('commitImport', () => {
   let mockDb: object;
 
@@ -572,38 +970,32 @@ describe('commitImport', () => {
     (database.upsertCurrencyFxRate as jest.Mock).mockResolvedValue(undefined);
   });
 
-  const previewWith = (): ImportPreview => ({
-    valid: [
-      {
-        line: 2,
-        record: {
-          type: 'expense',
-          description: 'Lunch',
-          payee: 'Cafe',
-          amountNative: 100,
-          currencyCode: 'EUR',
-          fxRateToBase: 1.1,
-          baseAmount: 110,
-          baseCurrencyCode: 'USD',
-          date: '2024-01-01',
-          time: null,
-          notes: null,
+  const previewWith = (): ImportPreview =>
+    makeImportPreview({
+      valid: [
+        {
+          line: 2,
+          record: {
+            type: 'expense',
+            description: 'Lunch',
+            payee: 'Cafe',
+            amountNative: 100,
+            currencyCode: 'EUR',
+            fxRateToBase: 1.1,
+            baseAmount: 110,
+            baseCurrencyCode: 'USD',
+            date: '2024-01-01',
+            time: null,
+            notes: null,
+          },
+          categoryName: 'Food',
+          fxRateSource: 'cached',
         },
-        categoryName: 'Food',
-        fxRateSource: 'cached',
-      },
-    ],
-    invalid: [{ line: 3, reason: 'bad' }],
-    needsFxRate: [],
-    unreadableTimes: [],
-    fxReview: [],
-    currencyReview: [],
-    duplicates: [],
-    newCategoryNames: ['Food'],
-    totalRows: 2,
-    inferredDateOrder: null,
-    signConventionBypassed: false,
-  });
+      ],
+      invalid: [{ line: 3, reason: 'bad' }],
+      newCategoryNames: ['Food'],
+      totalRows: 2,
+    });
 
   it('creates missing categories and bulk-inserts with resolved ids', async () => {
     (database.getCategoryByName as jest.Mock).mockResolvedValue(null);
@@ -635,7 +1027,11 @@ describe('commitImport', () => {
       insertedIncome: 0,
       skippedInvalid: 1,
       skippedNeedsFxRate: 0,
+      skippedDuplicates: 0,
       createdCategories: 1,
+      seededRates: [
+        { baseCurrencyCode: 'USD', currencyCode: 'EUR', fxRateToBase: 1.1 },
+      ],
     });
   });
 
@@ -752,6 +1148,300 @@ describe('commitImport', () => {
     );
 
     await expect(commitImport(previewWith())).rejects.toThrow('insert failed');
+  });
+
+  describe('step order', () => {
+    const prepared = (
+      line: number,
+      overrides: Partial<PreparedTransaction['record']> = {},
+      categoryName: string | null = 'Food',
+      fxRateSource: PreparedTransaction['fxRateSource'] = 'cached',
+    ): PreparedTransaction => ({
+      line,
+      record: {
+        type: 'expense',
+        description: `Row ${line}`,
+        payee: 'Cafe',
+        amountNative: 100,
+        currencyCode: 'EUR',
+        fxRateToBase: 1.1,
+        baseAmount: 110,
+        baseCurrencyCode: 'USD',
+        date: '2024-01-01',
+        time: null,
+        notes: null,
+        ...overrides,
+      },
+      categoryName,
+      fxRateSource,
+    });
+
+    const insertedRecords = () =>
+      (database.createTransactionsBulk as jest.Mock).mock.calls[0][1];
+
+    it('drops duplicate rows before anything else reads them', async () => {
+      (database.getCategoryByName as jest.Mock).mockResolvedValue({
+        id: 3,
+        name: 'Food',
+        type: 'both',
+        createdAt: '',
+        updatedAt: '',
+      });
+      const preview = makeImportPreview({
+        valid: [prepared(2), prepared(3)],
+        duplicates: [{ line: 3, matchesTransactionId: 9 }],
+        totalRows: 2,
+      });
+
+      const summary = await commitImport(preview, {}, { skipDuplicates: true });
+
+      expect(insertedRecords()).toHaveLength(1);
+      expect(insertedRecords()[0].description).toBe('Row 2');
+      expect(summary.skippedDuplicates).toBe(1);
+    });
+
+    it('imports duplicates when skipping is off', async () => {
+      (database.getCategoryByName as jest.Mock).mockResolvedValue({
+        id: 3,
+        name: 'Food',
+        type: 'both',
+        createdAt: '',
+        updatedAt: '',
+      });
+      const preview = makeImportPreview({
+        valid: [prepared(2), prepared(3)],
+        duplicates: [{ line: 3, matchesTransactionId: 9 }],
+        totalRows: 2,
+      });
+
+      const summary = await commitImport(preview);
+
+      expect(insertedRecords()).toHaveLength(2);
+      expect(summary.skippedDuplicates).toBe(0);
+    });
+
+    it('skips a row duplicating an earlier line of the same file', async () => {
+      (database.getCategoryByName as jest.Mock).mockResolvedValue({
+        id: 3,
+        name: 'Food',
+        type: 'both',
+        createdAt: '',
+        updatedAt: '',
+      });
+      const preview = makeImportPreview({
+        valid: [prepared(2), prepared(3)],
+        duplicates: [{ line: 3, matchesTransactionId: null, matchesLine: 2 }],
+        totalRows: 2,
+      });
+
+      await commitImport(preview, {}, { skipDuplicates: true });
+
+      expect(insertedRecords()).toHaveLength(1);
+    });
+
+    it('does not create a category carried only by a skipped row', async () => {
+      (database.getCategoryByName as jest.Mock).mockResolvedValue(null);
+      (database.createCategory as jest.Mock).mockResolvedValue({
+        id: 7,
+        name: 'Food',
+        type: 'both',
+        createdAt: '',
+        updatedAt: '',
+      });
+      const preview = makeImportPreview({
+        valid: [prepared(2), prepared(3, {}, 'Petty cash')],
+        duplicates: [{ line: 3, matchesTransactionId: 9 }],
+        totalRows: 2,
+      });
+
+      const summary = await commitImport(preview, {}, { skipDuplicates: true });
+
+      expect(database.createCategory).toHaveBeenCalledTimes(1);
+      expect(database.createCategory).toHaveBeenCalledWith(mockDb, {
+        name: 'Food',
+        type: 'both',
+      });
+      expect(summary.createdCategories).toBe(1);
+    });
+
+    it('files an aliased name under the existing category without creating it', async () => {
+      (database.getCategoryByName as jest.Mock).mockResolvedValue({
+        id: 4,
+        name: 'Transport',
+        type: 'both',
+        createdAt: '',
+        updatedAt: '',
+      });
+      const preview = makeImportPreview({
+        valid: [prepared(2, {}, 'Transportation')],
+        totalRows: 1,
+      });
+
+      const summary = await commitImport(
+        preview,
+        {},
+        { categoryAliases: { transportation: 'Transport' } },
+      );
+
+      expect(database.getCategoryByName).toHaveBeenCalledWith(
+        mockDb,
+        'Transport',
+      );
+      expect(database.createCategory).not.toHaveBeenCalled();
+      expect(insertedRecords()[0].categoryId).toBe(4);
+      expect(summary.createdCategories).toBe(0);
+    });
+
+    it('widens an existing category that excludes the direction being filed', async () => {
+      (database.getCategoryByName as jest.Mock).mockResolvedValue({
+        id: 5,
+        name: 'Refund',
+        type: 'income',
+        createdAt: '',
+        updatedAt: '',
+      });
+      (database.updateCategory as jest.Mock).mockResolvedValue(undefined);
+      const preview = makeImportPreview({
+        valid: [prepared(2, { type: 'expense' }, 'Refund')],
+        totalRows: 1,
+      });
+
+      await commitImport(preview);
+
+      expect(database.updateCategory).toHaveBeenCalledWith(mockDb, {
+        id: 5,
+        name: 'Refund',
+        type: 'both',
+      });
+    });
+
+    it('leaves a category alone when the direction already fits', async () => {
+      (database.getCategoryByName as jest.Mock).mockResolvedValue({
+        id: 5,
+        name: 'Salary',
+        type: 'income',
+        createdAt: '',
+        updatedAt: '',
+      });
+      const preview = makeImportPreview({
+        valid: [prepared(2, { type: 'income' }, 'Salary')],
+        totalRows: 1,
+      });
+
+      await commitImport(preview);
+
+      expect(database.updateCategory).not.toHaveBeenCalled();
+    });
+
+    it('seeds the rate cache only from rows that were written', async () => {
+      (database.getCategoryByName as jest.Mock).mockResolvedValue({
+        id: 3,
+        name: 'Food',
+        type: 'both',
+        createdAt: '',
+        updatedAt: '',
+      });
+      const preview = makeImportPreview({
+        valid: [
+          prepared(2, { currencyCode: 'EUR' }),
+          prepared(3, { currencyCode: 'GBP' }),
+        ],
+        duplicates: [{ line: 3, matchesTransactionId: 9 }],
+        totalRows: 2,
+      });
+
+      await commitImport(preview, {}, { skipDuplicates: true });
+
+      expect(database.upsertCurrencyFxRate).toHaveBeenCalledTimes(1);
+      expect(database.upsertCurrencyFxRate).toHaveBeenCalledWith(
+        mockDb,
+        'USD',
+        'EUR',
+        1.1,
+      );
+    });
+
+    it('keeps a derived rate out of the cache', async () => {
+      (database.getCategoryByName as jest.Mock).mockResolvedValue({
+        id: 3,
+        name: 'Food',
+        type: 'both',
+        createdAt: '',
+        updatedAt: '',
+      });
+      const preview = makeImportPreview({
+        valid: [prepared(2, {}, 'Food', 'derived')],
+        totalRows: 1,
+      });
+
+      await commitImport(preview);
+
+      expect(database.upsertCurrencyFxRate).not.toHaveBeenCalled();
+      expect(insertedRecords()).toHaveLength(1);
+    });
+
+    it('never overrides a derived rate with a confirmed one', async () => {
+      (database.getCategoryByName as jest.Mock).mockResolvedValue({
+        id: 3,
+        name: 'Food',
+        type: 'both',
+        createdAt: '',
+        updatedAt: '',
+      });
+      const preview = makeImportPreview({
+        valid: [prepared(2, {}, 'Food', 'derived')],
+        totalRows: 1,
+      });
+
+      await commitImport(preview, { 'USD|EUR': 9 });
+
+      expect(insertedRecords()[0].fxRateToBase).toBe(1.1);
+      expect(insertedRecords()[0].baseAmount).toBe(110);
+    });
+
+    it('reports the rates it saved as current', async () => {
+      (database.getCategoryByName as jest.Mock).mockResolvedValue({
+        id: 3,
+        name: 'Food',
+        type: 'both',
+        createdAt: '',
+        updatedAt: '',
+      });
+      const preview = makeImportPreview({
+        valid: [
+          prepared(2, { currencyCode: 'EUR' }),
+          prepared(3, { currencyCode: 'EUR' }),
+          prepared(4, { currencyCode: 'GBP' }),
+        ],
+        totalRows: 3,
+      });
+
+      const summary = await commitImport(preview);
+
+      expect(summary.seededRates).toEqual([
+        { baseCurrencyCode: 'USD', currencyCode: 'EUR', fxRateToBase: 1.1 },
+        { baseCurrencyCode: 'USD', currencyCode: 'GBP', fxRateToBase: 1.1 },
+      ]);
+    });
+
+    it('saves nothing for a row already in its base currency', async () => {
+      (database.getCategoryByName as jest.Mock).mockResolvedValue({
+        id: 3,
+        name: 'Food',
+        type: 'both',
+        createdAt: '',
+        updatedAt: '',
+      });
+      const preview = makeImportPreview({
+        valid: [prepared(2, { currencyCode: 'USD' }, 'Food', 'parity')],
+        totalRows: 1,
+      });
+
+      const summary = await commitImport(preview);
+
+      expect(summary.seededRates).toEqual([]);
+      expect(database.upsertCurrencyFxRate).not.toHaveBeenCalled();
+    });
   });
 });
 

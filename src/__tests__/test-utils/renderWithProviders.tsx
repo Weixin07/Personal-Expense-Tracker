@@ -7,6 +7,7 @@ import type {
   TransactionDataSelectors,
   TransactionDataState,
 } from '../../context/AppContext';
+import { makeImportSummary } from './importFixtures';
 
 // react-native maps requestAnimationFrame to setTimeout; Paper's transition
 // animations would otherwise leave timers that fire after env teardown. Fake
@@ -95,12 +96,7 @@ export const makeContextActions = (
   removeExport: jest.fn().mockResolvedValue(undefined),
   clearCompletedExports: jest.fn().mockResolvedValue(undefined),
   uploadQueuedExports: jest.fn().mockResolvedValue(null),
-  importTransactions: jest.fn().mockResolvedValue({
-    inserted: 0,
-    skippedInvalid: 0,
-    skippedNeedsFxRate: 0,
-    createdCategories: 0,
-  }),
+  importTransactions: jest.fn().mockResolvedValue(makeImportSummary()),
   unlockWithBiometrics: jest.fn().mockResolvedValue(true),
   ...overrides,
 });

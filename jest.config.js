@@ -23,6 +23,7 @@ module.exports = {
     '!src/database/types.ts',
     '!src/database/repositories/index.ts',
     '!src/export/index.ts',
+    '!src/import/index.ts',
     // Native-module IO bootstrap/wrappers covered by integration, not unit tests.
     '!src/database/index.ts',
     '!src/database/seeding.ts',

@@ -4,12 +4,12 @@ import {
   createTransactionsBulk,
   getCategoryByName,
   createCategory,
+  updateCategory,
   upsertCurrencyFxRate,
 } from '../database';
 import type {
-  CategoryRecord,
+  CategoryType,
   CurrencyFxRateRecord,
-  TransactionRecord,
   TransactionType,
   NewTransactionRecord,
 } from '../database';
@@ -25,57 +25,40 @@ import { parseCsv } from './csvParser';
 import {
   applyMapping,
   extractTimeFromDate,
+  hasAnyValue,
   inferDateOrder,
   missingRequiredFields,
   normalizeDate,
   normalizeTime,
   resolveTransactionType,
 } from './mapping';
+import { findNearDuplicateCategory } from './categoryMatching';
+import { isSuspectDerivedRate } from './fxGuards';
 import { fxPairKey } from './types';
 import type {
   AmbiguousCurrency,
-  CsvDelimiter,
+  CategorySuggestion,
+  CategoryTypeWidening,
+  CommitImportOptions,
   DateFormat,
   DateOrder,
   DuplicateFlag,
   FieldMapping,
   FxRateSource,
   FxSuggestion,
+  ImportContext,
   ImportPreview,
   ImportRowError,
   ImportSummary,
-  NegativeAmountMeaning,
+  ImportTargetField,
   NumberFormat,
   PreparedTransaction,
+  SeededRate,
+  SuspectDerivedRate,
+  UnmappedColumn,
 } from './types';
 
 const UNKNOWN_PAYEE = 'Unknown';
-
-export type ImportContext = {
-  baseCurrency: string | null;
-  /**
-   * Applied when the source has no currency column, or the column is blank.
-   * Without it such rows cannot be imported at all.
-   */
-  defaultCurrency: string | null;
-  /**
-   * Chosen ISO code per raw currency cell that maps to more than one currency,
-   * keyed by the lower-cased raw value (e.g. `$` → `AUD`).
-   */
-  currencyChoices: Record<string, string>;
-  negativeMeans: NegativeAmountMeaning;
-  numberFormat: NumberFormat;
-  delimiter?: CsvDelimiter;
-  /**
-   * Rates the user confirmed during review, keyed by `fxPairKey`. Consulted
-   * after a rate the file supplied and before the cache, so confirming a rate
-   * corrects a stale cached one rather than being shadowed by it.
-   */
-  manualFxRates?: Record<string, number>;
-  fxRateCache: readonly CurrencyFxRateRecord[];
-  existingTransactions: readonly TransactionRecord[];
-  existingCategories: readonly CategoryRecord[];
-};
 
 /**
  * Free text differs in case and spacing between exports of the same ledger, so
@@ -116,14 +99,12 @@ const findCachedRate = (
   cache: readonly CurrencyFxRateRecord[],
   base: string,
   currency: string,
-): number | null => {
-  const found = cache.find(
+): CurrencyFxRateRecord | null =>
+  cache.find(
     rate =>
       rate.baseCurrencyCode.toUpperCase() === base &&
       rate.currencyCode.toUpperCase() === currency,
-  );
-  return found ? found.fxRateToBase : null;
-};
+  ) ?? null;
 
 /**
  * Strips symbols, spaces and letters. Digits survive along with the separators,
@@ -211,6 +192,58 @@ export const normalizeAmount = (
   return negative ? -value : value;
 };
 
+/**
+ * Read a converted amount the file supplied and the rate it implies, so a source
+ * that recorded its own conversion does not need one supplied for the whole
+ * import. The amount is taken as given rather than recomputed from the rate:
+ * it is the figure the source recorded, and multiplying it back out would only
+ * introduce rounding the file never had.
+ *
+ * Returns null when the cell holds no usable positive number, so the caller
+ * falls through to the rest of the rate ladder rather than losing the row.
+ */
+const deriveRateFromBaseAmount = (
+  rawBaseAmount: string,
+  magnitude: number,
+  format: NumberFormat,
+): { rate: number; baseAmount: number } | null => {
+  const parsed = normalizeAmount(rawBaseAmount, format);
+  if (parsed == null) {
+    return null;
+  }
+
+  // Quantised through the same helper every other base amount passes, so a
+  // file-supplied figure is stored to the same precision as a computed one.
+  const baseAmount = computeBaseAmount(String(Math.abs(parsed)), '1');
+  if (
+    baseAmount == null ||
+    !validatePositiveAmount(baseAmount, 'Base amount').valid
+  ) {
+    return null;
+  }
+
+  const rate = baseAmount / magnitude;
+  if (!validatePositiveRate(rate, 'FX rate').valid) {
+    return null;
+  }
+
+  return { rate, baseAmount };
+};
+
+/**
+ * Whether a category must be widened before this import can file these
+ * directions under it. A `both` category already accepts either; a narrower one
+ * is widened rather than made to reject an otherwise valid row.
+ *
+ * Shared by the preview and the commit so the disclosure a user accepts and the
+ * write that follows cannot disagree.
+ */
+export const categoryNeedsWidening = (
+  type: CategoryType,
+  directions: ReadonlySet<TransactionType>,
+): boolean =>
+  type !== 'both' && [...directions].some(direction => direction !== type);
+
 type CurrencyResolution =
   | { status: 'ok'; code: string }
   | { status: 'ambiguous'; candidates: string[] }
@@ -250,13 +283,14 @@ const resolveCurrency = (
 
 /**
  * Read-only phase: parse + map + validate every row, resolve FX rates, flag
- * duplicates, and list categories that would be created. Performs no database
- * writes.
+ * duplicates, and report everything the caller must weigh before committing.
+ * Performs no database writes.
  *
  * Rows that are well-formed but whose currency pair yielded no rate go to
  * `needsFxRate`, disjoint from `invalid`. See `FxRateSource` for the precedence
  * a rate is resolved by and `NegativeMeans` for how direction is decided.
- * Duplicates are flagged, never rejected.
+ * Duplicates are flagged, never rejected; so are pairs whose derived rate
+ * contradicts what they are worth, reported in `suspectDerivedRates`.
  *
  * Throws only when required columns are unmapped — individual bad rows are
  * reported in `invalid`, never thrown.
@@ -307,7 +341,25 @@ export const previewImport = (
     ctx.existingCategories.map(category => category.name.toLowerCase()),
   );
 
-  const { rows } = parseCsv(text, { delimiter: ctx.delimiter });
+  const { header, rows } = parseCsv(text, { delimiter: ctx.delimiter });
+
+  const mappedColumns = new Set(
+    (Object.keys(mapping) as ImportTargetField[])
+      .map(field => mapping[field])
+      .filter((index): index is number => index !== undefined),
+  );
+  const unmappedColumns: UnmappedColumn[] = [];
+  header.forEach((name, index) => {
+    if (mappedColumns.has(index) || !hasAnyValue(rows, index)) {
+      return;
+    }
+    const sample = rows.find(row => (row.cells[index] ?? '').trim().length > 0);
+    unmappedColumns.push({
+      index,
+      header: name.trim(),
+      sampleValue: (sample?.cells[index] ?? '').trim(),
+    });
+  });
 
   const dateColumn = mapping.date;
   let inferredDateOrder: DateOrder | null = null;
@@ -333,16 +385,21 @@ export const previewImport = (
     });
 
   const manualFxRates = ctx.manualFxRates ?? {};
+  const useCachedRates = ctx.useCachedRates ?? true;
 
   const valid: PreparedTransaction[] = [];
   const invalid: ImportRowError[] = [];
   const needsFxRate: ImportRowError[] = [];
   const unreadableTimes: ImportRowError[] = [];
   const fxReview = new Map<string, FxSuggestion>();
+  const suspectDerived = new Map<string, SuspectDerivedRate>();
   const currencyReview = new Map<string, AmbiguousCurrency>();
   const duplicates: DuplicateFlag[] = [];
   const seenKeys = new Map<string, { line: number; time: string | null }[]>();
   const newCategoryNames = new Set<string>();
+  const newCategoryRowCounts = new Map<string, number>();
+  const categoryDirections = new Map<string, Set<TransactionType>>();
+  const validCurrencies = new Set<string>();
 
   rows.forEach(row => {
     const { line } = row;
@@ -464,6 +521,7 @@ export const previewImport = (
 
     let fxRate: number;
     let fxRateSource: FxRateSource;
+    let suppliedBaseAmount: number | null = null;
     const mappedRate = (raw.fxRateToBase ?? '').trim();
     if (mappedRate) {
       const parsed = normalizeAmount(mappedRate, ctx.numberFormat);
@@ -482,40 +540,80 @@ export const previewImport = (
       fxRate = 1;
       fxRateSource = 'parity';
     } else {
-      const cached = findCachedRate(
-        ctx.fxRateCache,
-        baseCurrencyCode,
-        currencyCode,
+      const derived = deriveRateFromBaseAmount(
+        raw.baseAmount ?? '',
+        magnitude,
+        ctx.numberFormat,
       );
-      const key = fxPairKey(baseCurrencyCode, currencyCode);
-      const seen = fxReview.get(key);
-      if (seen) {
-        seen.rowCount += 1;
+      if (derived) {
+        fxRate = derived.rate;
+        fxRateSource = 'derived';
+        suppliedBaseAmount = derived.baseAmount;
+
+        const suspect = isSuspectDerivedRate({
+          rate: derived.rate,
+          currencyCode,
+          baseCurrencyCode,
+          cachedRate:
+            findCachedRate(ctx.fxRateCache, baseCurrencyCode, currencyCode)
+              ?.fxRateToBase ?? null,
+        });
+        if (suspect) {
+          const key = fxPairKey(baseCurrencyCode, currencyCode);
+          const seen = suspectDerived.get(key);
+          if (seen) {
+            seen.rowCount += 1;
+          } else {
+            suspectDerived.set(key, {
+              baseCurrencyCode,
+              currencyCode,
+              rate: derived.rate,
+              rowCount: 1,
+            });
+          }
+        }
       } else {
-        fxReview.set(key, {
+        const cachedRecord = findCachedRate(
+          ctx.fxRateCache,
           baseCurrencyCode,
           currencyCode,
-          suggestedRate: cached,
-          rowCount: 1,
-        });
-      }
+        );
+        const key = fxPairKey(baseCurrencyCode, currencyCode);
+        const seen = fxReview.get(key);
+        if (seen) {
+          seen.rowCount += 1;
+        } else {
+          fxReview.set(key, {
+            baseCurrencyCode,
+            currencyCode,
+            suggestedRate: cachedRecord?.fxRateToBase ?? null,
+            suggestedRateUpdatedAt: cachedRecord?.updatedAt ?? null,
+            rowCount: 1,
+          });
+        }
 
-      const manual = manualFxRates[key];
-      const manualUsable =
-        manual != null && validatePositiveRate(manual, 'FX rate').valid;
-      const resolved = manualUsable ? manual : cached;
-      if (resolved == null) {
-        needsFxRate.push({
-          line,
-          reason: `FX rate required for ${currencyCode} to ${baseCurrencyCode}.`,
-        });
-        return;
+        const cached = useCachedRates
+          ? (cachedRecord?.fxRateToBase ?? null)
+          : null;
+        const manual = manualFxRates[key];
+        const manualUsable =
+          manual != null && validatePositiveRate(manual, 'FX rate').valid;
+        const resolved = manualUsable ? manual : cached;
+        if (resolved == null) {
+          needsFxRate.push({
+            line,
+            reason: `FX rate required for ${currencyCode} to ${baseCurrencyCode}.`,
+          });
+          return;
+        }
+        fxRate = resolved;
+        fxRateSource = manualUsable ? 'manual' : 'cached';
       }
-      fxRate = resolved;
-      fxRateSource = manualUsable ? 'manual' : 'cached';
     }
 
-    const baseAmount = computeBaseAmount(String(magnitude), String(fxRate));
+    const baseAmount =
+      suppliedBaseAmount ??
+      computeBaseAmount(String(magnitude), String(fxRate));
     if (baseAmount == null) {
       invalid.push({ line, reason: 'Base amount could not be computed.' });
       return;
@@ -566,11 +664,22 @@ export const previewImport = (
       }
     }
 
-    if (
-      categoryName &&
-      !existingCategoryNames.has(categoryName.toLowerCase())
-    ) {
-      newCategoryNames.add(categoryName);
+    validCurrencies.add(currencyCode);
+
+    if (categoryName) {
+      const categoryKey = categoryName.toLowerCase();
+      const directions =
+        categoryDirections.get(categoryKey) ?? new Set<TransactionType>();
+      directions.add(transactionType);
+      categoryDirections.set(categoryKey, directions);
+
+      if (!existingCategoryNames.has(categoryKey)) {
+        newCategoryNames.add(categoryName);
+        newCategoryRowCounts.set(
+          categoryKey,
+          (newCategoryRowCounts.get(categoryKey) ?? 0) + 1,
+        );
+      }
     }
 
     valid.push({
@@ -593,61 +702,156 @@ export const previewImport = (
     });
   });
 
+  const categorySuggestions: CategorySuggestion[] = [];
+  newCategoryNames.forEach(name => {
+    const match = findNearDuplicateCategory(name, ctx.existingCategories);
+    if (match) {
+      categorySuggestions.push({
+        sourceName: name,
+        existingName: match.name,
+        existingId: match.id,
+        rowCount: newCategoryRowCounts.get(name.toLowerCase()) ?? 0,
+      });
+    }
+  });
+
+  const categoryTypeWidenings: CategoryTypeWidening[] = [];
+  ctx.existingCategories.forEach(category => {
+    const directions = categoryDirections.get(category.name.toLowerCase());
+    if (directions && categoryNeedsWidening(category.type, directions)) {
+      categoryTypeWidenings.push({ name: category.name, from: category.type });
+    }
+  });
+
   return {
     valid,
     invalid,
     needsFxRate,
     unreadableTimes,
     fxReview: [...fxReview.values()],
+    suspectDerivedRates: [...suspectDerived.values()],
     currencyReview: [...currencyReview.values()],
     duplicates,
     newCategoryNames: [...newCategoryNames],
+    unmappedColumns,
+    mixedCurrencyWithoutBase: !baseCurrency && validCurrencies.size > 1,
+    categorySuggestions,
+    categoryTypeWidenings,
     totalRows: rows.length,
     inferredDateOrder,
     signConventionBypassed: !fileHasAnyNegativeAmount,
   };
 };
 
+type SeedCandidate = {
+  record: Pick<
+    NewTransactionRecord,
+    'baseCurrencyCode' | 'currencyCode' | 'fxRateToBase'
+  >;
+  fxRateSource: FxRateSource;
+};
+
 /**
- * Write phase: inside a single transaction, create any missing categories,
- * bulk-insert the valid rows, and seed the FX-rate cache — all atomic, so a
- * failure rolls the whole import back.
+ * The rates an import saves as current, one per pair, taking the first row that
+ * carries it. A derived rate reconstructs what the source recorded at the time
+ * of the transaction, so it is history rather than a rate to reuse; a row whose
+ * currency already matches its base carries no conversion to save.
+ *
+ * Shared by the commit and the disclosure that precedes it, so what a user is
+ * told will be saved is what gets saved.
+ */
+export const ratesToSeed = (items: readonly SeedCandidate[]): SeededRate[] => {
+  const seeded = new Map<string, SeededRate>();
+  items.forEach(({ record, fxRateSource }) => {
+    const { baseCurrencyCode, currencyCode, fxRateToBase } = record;
+    if (
+      fxRateSource === 'derived' ||
+      !baseCurrencyCode ||
+      baseCurrencyCode === currencyCode
+    ) {
+      return;
+    }
+    const key = fxPairKey(baseCurrencyCode, currencyCode);
+    if (!seeded.has(key)) {
+      seeded.set(key, { baseCurrencyCode, currencyCode, fxRateToBase });
+    }
+  });
+  return [...seeded.values()];
+};
+
+/**
+ * Write phase: inside a single transaction, drop skipped rows, resolve and where
+ * necessary widen categories, bulk-insert, and seed the FX-rate cache — all
+ * atomic, so a failure rolls the whole import back.
+ *
+ * The steps run in that order by necessity: categories are resolved from the
+ * rows that survive skipping and aliasing, so a name carried only by a dropped
+ * row is never created, and the cache is seeded only from what was written.
  *
  * `acceptedRates` (keyed by `fxPairKey`) overrides the rate for rows that did
- * not get one from the file, recomputing the base amount to match; `column` and
- * `parity` rows are never overridden, per `FxRateSource`.
- *
- * Every committed pair is written to the FX-rate cache, so a rate confirmed here
- * becomes the prefill for later manual entry.
+ * not get one from the file, recomputing the base amount to match; see
+ * `FxRateSource` for which rows are overridable and `ratesToSeed` for which
+ * reach the cache. What reached it is reported on the summary.
  */
 export const commitImport = async (
   preview: ImportPreview,
   acceptedRates: Record<string, number> = {},
+  options: CommitImportOptions = {},
 ): Promise<ImportSummary> =>
   withDatabase(db =>
     withTransaction(db, async () => {
+      const skippedLines = options.skipDuplicates
+        ? new Set(preview.duplicates.map(duplicate => duplicate.line))
+        : new Set<number>();
+      const items = preview.valid.filter(item => !skippedLines.has(item.line));
+
+      const aliases = options.categoryAliases ?? {};
+      const resolveName = (name: string): string =>
+        aliases[name.toLowerCase()] ?? name;
+
+      const directions = new Map<string, Set<TransactionType>>();
+      items.forEach(item => {
+        if (!item.categoryName) {
+          return;
+        }
+        const key = resolveName(item.categoryName).toLowerCase();
+        const used = directions.get(key) ?? new Set<TransactionType>();
+        used.add(item.record.type);
+        directions.set(key, used);
+      });
+
       const distinctNames = [
         ...new Set(
-          preview.valid
+          items
             .map(item => item.categoryName)
-            .filter((name): name is string => Boolean(name)),
+            .filter((name): name is string => Boolean(name))
+            .map(resolveName),
         ),
       ];
 
       const nameToId = new Map<string, number>();
       let createdCategories = 0;
       for (const name of distinctNames) {
+        const key = name.toLowerCase();
         const existing = await getCategoryByName(db, name);
         if (existing) {
-          nameToId.set(name.toLowerCase(), existing.id);
+          nameToId.set(key, existing.id);
+          const used = directions.get(key);
+          if (used && categoryNeedsWidening(existing.type, used)) {
+            await updateCategory(db, {
+              id: existing.id,
+              name: existing.name,
+              type: 'both',
+            });
+          }
         } else {
           const created = await createCategory(db, { name, type: 'both' });
-          nameToId.set(name.toLowerCase(), created.id);
+          nameToId.set(key, created.id);
           createdCategories += 1;
         }
       }
 
-      const records: NewTransactionRecord[] = preview.valid.map(item => {
+      const prepared = items.map(item => {
         let { fxRateToBase, baseAmount } = item.record;
         const overridable =
           item.fxRateSource === 'manual' || item.fxRateSource === 'cached';
@@ -664,36 +868,33 @@ export const commitImport = async (
               String(override),
             ) ?? baseAmount;
         }
-        return {
+        const categoryName = item.categoryName
+          ? resolveName(item.categoryName)
+          : null;
+        const record: NewTransactionRecord = {
           ...item.record,
           fxRateToBase,
           baseAmount,
-          categoryId: item.categoryName
-            ? (nameToId.get(item.categoryName.toLowerCase()) ?? null)
+          categoryId: categoryName
+            ? (nameToId.get(categoryName.toLowerCase()) ?? null)
             : null,
         };
+        return { record, fxRateSource: item.fxRateSource };
       });
 
+      const records = prepared.map(entry => entry.record);
       await createTransactionsBulk(db, records);
       const insertedIncome = records.filter(
         record => record.type === 'income',
       ).length;
 
-      const seeded = new Set<string>();
-      for (const record of records) {
-        if (!record.baseCurrencyCode) {
-          continue;
-        }
-        const key = fxPairKey(record.baseCurrencyCode, record.currencyCode);
-        if (seeded.has(key)) {
-          continue;
-        }
-        seeded.add(key);
+      const seededRates = ratesToSeed(prepared);
+      for (const rate of seededRates) {
         await upsertCurrencyFxRate(
           db,
-          record.baseCurrencyCode,
-          record.currencyCode,
-          record.fxRateToBase,
+          rate.baseCurrencyCode,
+          rate.currencyCode,
+          rate.fxRateToBase,
         );
       }
 
@@ -702,7 +903,9 @@ export const commitImport = async (
         insertedIncome,
         skippedInvalid: preview.invalid.length,
         skippedNeedsFxRate: preview.needsFxRate.length,
+        skippedDuplicates: preview.valid.length - items.length,
         createdCategories,
+        seededRates,
       };
     }),
   );

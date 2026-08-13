@@ -9,6 +9,7 @@ import {
   Menu,
   SegmentedButtons,
   Surface,
+  Switch,
   Text,
   TextInput,
 } from 'react-native-paper';
@@ -17,6 +18,8 @@ import {
   formatExpenseCount,
   formatIncomeCount,
 } from '../utils/transactionLabels';
+import { formatDateBritish } from '../utils/date';
+import { formatFxRate } from '../utils/formatting';
 import { pickCsvFile, readFileAsString } from '../security/storageAccess';
 import { GoogleAuthError } from '../security/googleAuth';
 import {
@@ -27,18 +30,21 @@ import { listBackupFiles, downloadFileContent } from '../export';
 import type { DriveBackupFile } from '../export';
 import {
   autoDetectMapping,
+  describeSuspectDerivedRate,
+  describeSuspectRate,
   fxPairKey,
+  implausibleRates,
   inferDateOrder,
   missingRequiredFields,
   parseCsv,
   previewImport,
+  ratesToSeed,
 } from '../import';
 import type {
   CsvDelimiter,
   DateFormat,
   DateOrder,
   FieldMapping,
-  FxSuggestion,
   ImportPreview,
   ImportTargetField,
   NegativeAmountMeaning,
@@ -95,14 +101,6 @@ const LARGE_IMPORT_THRESHOLD = 5000;
 
 const MAX_LISTED_ERRORS = 10;
 
-/**
- * How far a confirmed rate may sit from the last known one before it is queried.
- * An order of magnitude rather than a percentage, so ordinary drift against a
- * stale cached rate passes quietly while a reciprocal — the usual way this field
- * is filled in wrongly — never does.
- */
-const IMPLAUSIBLE_RATE_FACTOR = 10;
-
 const parseRateEntries = (
   entries: Record<string, string>,
 ): Record<string, number> => {
@@ -128,44 +126,17 @@ const sameRates = (
 };
 
 /**
- * Rates worth a second look before they are applied to the whole import. A pair
- * with a known rate is judged against it; a pair with none — the case when
- * nothing has ever been imported for it — is judged against parity, since a rate
- * of exactly 1 between two different currencies is nearly always a misread of
- * which way the conversion runs.
+ * Names the base currency a Base amount column is read as, so a column holding
+ * some other currency is visible as a mismatch at the moment it is chosen.
  */
-const implausibleRates = (
-  fxReview: readonly FxSuggestion[],
-  rates: Record<string, number>,
-): FxSuggestion[] =>
-  fxReview.filter(item => {
-    const rate = rates[fxPairKey(item.baseCurrencyCode, item.currencyCode)];
-    if (rate == null) {
-      return false;
-    }
-    if (item.suggestedRate != null && item.suggestedRate > 0) {
-      const ratio = rate / item.suggestedRate;
-      return (
-        ratio >= IMPLAUSIBLE_RATE_FACTOR || ratio <= 1 / IMPLAUSIBLE_RATE_FACTOR
-      );
-    }
-    return rate === 1;
-  });
-
-const describeSuspectRate = (
-  item: FxSuggestion,
-  rates: Record<string, number>,
-): string => {
-  const rate = rates[fxPairKey(item.baseCurrencyCode, item.currencyCode)];
-  const known =
-    item.suggestedRate != null && item.suggestedRate > 0
-      ? ` The rate you last used was ${item.suggestedRate}.`
-      : '';
-  return (
-    `1 ${item.currencyCode} = ${rate} ${item.baseCurrencyCode}` +
-    ` affects ${item.rowCount} row${item.rowCount === 1 ? '' : 's'}.${known}`
-  );
-};
+const targetFieldLabel = (
+  field: ImportTargetField,
+  label: string,
+  baseCurrency: string | null,
+): string =>
+  field === 'baseAmount' && baseCurrency
+    ? `${label} (in ${baseCurrency})`
+    : label;
 
 const ImportScreen: React.FC = () => {
   const {
@@ -199,6 +170,19 @@ const ImportScreen: React.FC = () => {
     {},
   );
   const [appliedRates, setAppliedRates] = useState<Record<string, number>>({});
+  // Whether the preview on screen was built with saved rates standing in for
+  // unconfirmed ones, tracked alongside `appliedRates` for the same reason.
+  const [appliedUseCachedRates, setAppliedUseCachedRates] = useState(true);
+  // Duplicate skipping starts on so that re-running an import cannot double a
+  // ledger without the choice being made deliberately.
+  const [skipDuplicates, setSkipDuplicates] = useState(true);
+  // Keyed by lower-cased incoming category name, matching `CommitImportOptions`.
+  // Holds accepted merges only; a declined suggestion is recorded separately so
+  // that declining leaves the incoming name untouched.
+  const [categoryAliases, setCategoryAliases] = useState<
+    Record<string, string>
+  >({});
+  const [declinedSuggestions, setDeclinedSuggestions] = useState<string[]>([]);
   const [driveFiles, setDriveFiles] = useState<DriveBackupFile[]>([]);
   const [openMenuField, setOpenMenuField] = useState<ImportTargetField | null>(
     null,
@@ -354,7 +338,11 @@ const ImportScreen: React.FC = () => {
   );
 
   const runPreview = useCallback(
-    (choices: Record<string, string>, rates: Record<string, number>) => {
+    (
+      choices: Record<string, string>,
+      rates: Record<string, number>,
+      useCached: boolean,
+    ) => {
       try {
         const result = previewImport(csvText, mapping, dateFormat, {
           baseCurrency: settings.baseCurrency,
@@ -366,6 +354,7 @@ const ImportScreen: React.FC = () => {
           numberFormat,
           delimiter,
           manualFxRates: rates,
+          useCachedRates: useCached,
           fxRateCache,
           existingTransactions: transactions,
           existingCategories: categories,
@@ -384,6 +373,7 @@ const ImportScreen: React.FC = () => {
           return next;
         });
         setAppliedRates(rates);
+        setAppliedUseCachedRates(useCached);
         setPreview(result);
         setStep('preview');
       } catch (error) {
@@ -408,31 +398,105 @@ const ImportScreen: React.FC = () => {
     ],
   );
 
+  // What Confirm would actually write. Every count on screen reads this rather
+  // than `preview.valid`, which still holds the rows skipping removes.
+  const readyRows = useMemo(() => {
+    if (!preview) {
+      return [];
+    }
+    if (!skipDuplicates) {
+      return preview.valid;
+    }
+    const duplicateLines = new Set(preview.duplicates.map(item => item.line));
+    return preview.valid.filter(item => !duplicateLines.has(item.line));
+  }, [preview, skipDuplicates]);
+
   const incomeReady = useMemo(
+    () => readyRows.filter(item => item.record.type === 'income').length,
+    [readyRows],
+  );
+
+  const skippedDuplicateCount = preview
+    ? preview.valid.length - readyRows.length
+    : 0;
+  const derivedRateCount = readyRows.filter(
+    item => item.fxRateSource === 'derived',
+  ).length;
+  const ratesToBeSaved = useMemo(() => ratesToSeed(readyRows), [readyRows]);
+  const allRowsDuplicated = Boolean(
+    preview && preview.valid.length > 0 && readyRows.length === 0,
+  );
+
+  const suggestionsPending = useMemo(
     () =>
       preview
-        ? preview.valid.filter(item => item.record.type === 'income').length
-        : 0,
-    [preview],
+        ? preview.categorySuggestions.filter(item => {
+            const key = item.sourceName.toLowerCase();
+            return (
+              categoryAliases[key] === undefined &&
+              !declinedSuggestions.includes(key)
+            );
+          })
+        : [],
+    [categoryAliases, declinedSuggestions, preview],
+  );
+
+  const needsDecision = Boolean(
+    preview &&
+      (preview.currencyReview.length > 0 ||
+        preview.fxReview.length > 0 ||
+        preview.suspectDerivedRates.length > 0 ||
+        suggestionsPending.length > 0),
+  );
+
+  // A name the user merged into an existing category is no longer being created.
+  const newCategoryNames = useMemo(
+    () =>
+      preview
+        ? preview.newCategoryNames.filter(
+            name => categoryAliases[name.toLowerCase()] === undefined,
+          )
+        : [],
+    [categoryAliases, preview],
   );
 
   const pendingRates = useMemo(
     () => parseRateEntries(acceptedRates),
     [acceptedRates],
   );
-  const hasUnappliedRates = !sameRates(pendingRates, appliedRates);
+
+  /**
+   * Saved rates the user has emptied the field for. Clearing one is a rejection
+   * of that rate, so it must stop standing in for a confirmed one — otherwise
+   * deleting a rate you disagree with is what lets it through.
+   */
+  const clearedSavedRates = useMemo(
+    () =>
+      (preview?.fxReview ?? []).filter(item => {
+        const entry =
+          acceptedRates[fxPairKey(item.baseCurrencyCode, item.currencyCode)];
+        return (
+          item.suggestedRate != null && entry !== undefined && !entry.trim()
+        );
+      }),
+    [acceptedRates, preview],
+  );
+  const useCachedRates = clearedSavedRates.length === 0;
+  const hasUnappliedRates =
+    !sameRates(pendingRates, appliedRates) ||
+    useCachedRates !== appliedUseCachedRates;
 
   const handlePreview = useCallback(() => {
-    runPreview(currencyChoices, appliedRates);
-  }, [appliedRates, currencyChoices, runPreview]);
+    runPreview(currencyChoices, appliedRates, useCachedRates);
+  }, [appliedRates, currencyChoices, runPreview, useCachedRates]);
 
   const handleChooseCurrency = useCallback(
     (raw: string, code: string) => {
       const next = { ...currencyChoices, [raw.toLowerCase()]: code };
       setCurrencyChoices(next);
-      runPreview(next, appliedRates);
+      runPreview(next, appliedRates, useCachedRates);
     },
-    [appliedRates, currencyChoices, runPreview],
+    [appliedRates, currencyChoices, runPreview, useCachedRates],
   );
 
   // Deferred so the spinner paints before the file is re-parsed; the work is
@@ -442,13 +506,13 @@ const ImportScreen: React.FC = () => {
       setBusy(true);
       setTimeout(() => {
         try {
-          runPreview(currencyChoices, rates);
+          runPreview(currencyChoices, rates, useCachedRates);
         } finally {
           setBusy(false);
         }
       }, 0);
     },
-    [currencyChoices, runPreview],
+    [currencyChoices, runPreview, useCachedRates],
   );
 
   const handleApplyRates = useCallback(() => {
@@ -475,6 +539,20 @@ const ImportScreen: React.FC = () => {
     );
   }, [applyRates, pendingRates, preview]);
 
+  const handleAcceptSuggestion = useCallback(
+    (sourceName: string, existingName: string) => {
+      setCategoryAliases(current => ({
+        ...current,
+        [sourceName.toLowerCase()]: existingName,
+      }));
+    },
+    [],
+  );
+
+  const handleDeclineSuggestion = useCallback((sourceName: string) => {
+    setDeclinedSuggestions(current => [...current, sourceName.toLowerCase()]);
+  }, []);
+
   const resetToStart = useCallback(() => {
     setStep('source');
     setCsvText('');
@@ -490,15 +568,21 @@ const ImportScreen: React.FC = () => {
     setNumberFormat('auto');
     setNegativeMeans('expense');
     setDateFormat('auto');
+    setSkipDuplicates(true);
+    setCategoryAliases({});
+    setDeclinedSuggestions([]);
   }, []);
 
-  const handleConfirm = useCallback(async () => {
+  const runImport = useCallback(async () => {
     if (!preview) {
       return;
     }
     setBusy(true);
     try {
-      const summary = await importTransactions(preview, appliedRates);
+      const summary = await importTransactions(preview, appliedRates, {
+        skipDuplicates,
+        categoryAliases,
+      });
       Alert.alert(
         'Import complete',
         `${formatExpenseCount(summary.insertedExpenses)}` +
@@ -509,8 +593,19 @@ const ImportScreen: React.FC = () => {
           (summary.skippedInvalid
             ? `. ${summary.skippedInvalid} row${summary.skippedInvalid === 1 ? '' : 's'} skipped.`
             : '.') +
+          (summary.skippedDuplicates
+            ? ` ${summary.skippedDuplicates} duplicate row${summary.skippedDuplicates === 1 ? '' : 's'} skipped.`
+            : '') +
           (summary.skippedNeedsFxRate
             ? ` ${summary.skippedNeedsFxRate} row${summary.skippedNeedsFxRate === 1 ? '' : 's'} still need an FX rate.`
+            : '') +
+          (summary.seededRates.length
+            ? `\n\nSaved as your current rates: ${summary.seededRates
+                .map(
+                  rate =>
+                    `1 ${rate.currencyCode} = ${formatFxRate(rate.fxRateToBase)} ${rate.baseCurrencyCode}`,
+                )
+                .join(', ')}.`
             : ''),
       );
       resetToStart();
@@ -524,7 +619,32 @@ const ImportScreen: React.FC = () => {
     } finally {
       setBusy(false);
     }
-  }, [appliedRates, importTransactions, preview, resetToStart]);
+  }, [
+    appliedRates,
+    categoryAliases,
+    importTransactions,
+    preview,
+    resetToStart,
+    skipDuplicates,
+  ]);
+
+  const handleConfirm = useCallback(() => {
+    if (!preview || preview.suspectDerivedRates.length === 0) {
+      void runImport();
+      return;
+    }
+    Alert.alert(
+      'Check the converted amounts',
+      `${preview.suspectDerivedRates
+        .map(describeSuspectDerivedRate)
+        .join('\n\n')}\n\nA Base amount column holding the file's own` +
+        ' currency converts nothing. Import anyway?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Import anyway', onPress: () => void runImport() },
+      ],
+    );
+  }, [preview, runImport]);
 
   return (
     <Surface style={styles.container}>
@@ -606,7 +726,12 @@ const ImportScreen: React.FC = () => {
               Required fields are marked with *. Detected {header.length} column
               {header.length === 1 ? '' : 's'}.
             </Text>
-            {TARGET_FIELDS.map(({ field, label }) => {
+            {TARGET_FIELDS.map(({ field, label: fieldLabel }) => {
+              const label = targetFieldLabel(
+                field,
+                fieldLabel,
+                settings.baseCurrency,
+              );
               const mapped = mapping[field];
               const anchorLabel =
                 mapped !== undefined
@@ -734,26 +859,42 @@ const ImportScreen: React.FC = () => {
           <View style={styles.section}>
             <Text variant="titleMedium">Review import</Text>
             <Text variant="bodyMedium">
-              {preview.valid.length} of {preview.totalRows} rows ready to
-              import.
+              {readyRows.length} of {preview.totalRows} rows ready to import.
             </Text>
             <Text variant="bodySmall" style={styles.muted}>
-              {formatExpenseCount(preview.valid.length - incomeReady)} and{' '}
+              {formatExpenseCount(readyRows.length - incomeReady)} and{' '}
               {formatIncomeCount(incomeReady)}.
             </Text>
-            {preview.signConventionBypassed ? (
-              <Text variant="bodySmall" style={styles.muted}>
-                This file has no negative amounts, so rows without a type column
-                are imported as expenses.
-              </Text>
-            ) : null}
-            {preview.totalRows > LARGE_IMPORT_THRESHOLD ? (
-              <View style={styles.banner}>
-                <Text variant="bodySmall">
-                  Large file ({preview.totalRows} rows). Importing may take a
-                  moment.
-                </Text>
+
+            {preview.mixedCurrencyWithoutBase || hasUnappliedRates ? (
+              <View style={styles.section}>
+                <Text variant="bodyMedium">Before you can import</Text>
+                {preview.mixedCurrencyWithoutBase ? (
+                  <View style={styles.bannerBlocking}>
+                    <Text variant="bodySmall">
+                      This file holds more than one currency, but no base
+                      currency is set. Set your base currency in Settings, then
+                      import again — otherwise every amount would be stored at
+                      face value with nothing to tell the currencies apart.
+                    </Text>
+                  </View>
+                ) : null}
+                {hasUnappliedRates ? (
+                  <HelperText type="error" visible>
+                    {Object.keys(pendingRates).length === 0 &&
+                    clearedSavedRates.length > 0
+                      ? 'Apply your change to the saved rates before importing.'
+                      : 'Apply the rates you entered before importing.'}
+                  </HelperText>
+                ) : null}
               </View>
+            ) : null}
+
+            {needsDecision ? (
+              <>
+                <Divider />
+                <Text variant="bodyMedium">Needs a decision</Text>
+              </>
             ) : null}
 
             {preview.currencyReview.length > 0 ? (
@@ -786,28 +927,41 @@ const ImportScreen: React.FC = () => {
               </View>
             ) : null}
 
-            {preview.duplicates.length > 0 ? (
-              <View style={styles.banner}>
-                <Text variant="bodySmall">
-                  {preview.duplicates.length} row
-                  {preview.duplicates.length === 1 ? '' : 's'} look like
-                  existing transactions and will be added again.
-                </Text>
+            {suggestionsPending.length > 0 ? (
+              <View style={styles.section}>
+                <Text variant="bodyMedium">Similar categories</Text>
+                {suggestionsPending.map(item => (
+                  <View key={item.sourceName} style={styles.section}>
+                    <Text variant="bodySmall" style={styles.muted}>
+                      &quot;{item.sourceName}&quot; ({item.rowCount} row
+                      {item.rowCount === 1 ? '' : 's'}) is close to your
+                      existing &quot;{item.existingName}&quot;. Use the existing
+                      one?
+                    </Text>
+                    <View style={styles.choiceRow}>
+                      <Button
+                        mode="contained"
+                        onPress={() =>
+                          handleAcceptSuggestion(
+                            item.sourceName,
+                            item.existingName,
+                          )
+                        }
+                        accessibilityLabel={`Use ${item.existingName} for ${item.sourceName}`}
+                      >
+                        Use {item.existingName}
+                      </Button>
+                      <Button
+                        mode="outlined"
+                        onPress={() => handleDeclineSuggestion(item.sourceName)}
+                        accessibilityLabel={`Keep ${item.sourceName} separate`}
+                      >
+                        Keep separate
+                      </Button>
+                    </View>
+                  </View>
+                ))}
               </View>
-            ) : null}
-            {preview.unreadableTimes.length > 0 ? (
-              <View style={styles.banner}>
-                <Text variant="bodySmall">
-                  {preview.unreadableTimes.length} row
-                  {preview.unreadableTimes.length === 1 ? '' : 's'} had a time
-                  that could not be read and will be imported without one.
-                </Text>
-              </View>
-            ) : null}
-            {preview.newCategoryNames.length > 0 ? (
-              <Text variant="bodySmall" style={styles.muted}>
-                New categories: {preview.newCategoryNames.join(', ')}
-              </Text>
             ) : null}
 
             {preview.needsFxRate.length > 0 ? (
@@ -829,26 +983,40 @@ const ImportScreen: React.FC = () => {
                     item.currencyCode,
                   );
                   return (
-                    <TextInput
-                      key={key}
-                      mode="outlined"
-                      label={`1 ${item.currencyCode} = ? ${item.baseCurrencyCode}`}
-                      keyboardType="numeric"
-                      value={acceptedRates[key] ?? ''}
-                      onChangeText={text =>
-                        setAcceptedRates(current => ({
-                          ...current,
-                          [key]: text,
-                        }))
-                      }
-                      accessibilityLabel={`FX rate ${item.currencyCode} to ${item.baseCurrencyCode}`}
-                    />
+                    <View key={key} style={styles.rateRow}>
+                      <TextInput
+                        mode="outlined"
+                        label={`1 ${item.currencyCode} = ? ${item.baseCurrencyCode}`}
+                        keyboardType="numeric"
+                        value={acceptedRates[key] ?? ''}
+                        onChangeText={text =>
+                          setAcceptedRates(current => ({
+                            ...current,
+                            [key]: text,
+                          }))
+                        }
+                        accessibilityLabel={`FX rate ${item.currencyCode} to ${item.baseCurrencyCode}`}
+                      />
+                      {item.suggestedRate != null ? (
+                        <Text variant="bodySmall" style={styles.muted}>
+                          Filled in from your saved rate: 1 {item.currencyCode}{' '}
+                          = {formatFxRate(item.suggestedRate)}{' '}
+                          {item.baseCurrencyCode}
+                          {item.suggestedRateUpdatedAt
+                            ? `, saved on ${formatDateBritish(item.suggestedRateUpdatedAt.slice(0, 10))}`
+                            : ''}
+                          . {item.rowCount} row
+                          {item.rowCount === 1 ? ' is' : 's are'} counted at it
+                          — clear the field to hold them back instead.
+                        </Text>
+                      ) : null}
+                    </View>
                   );
                 })}
                 <Button
                   mode="contained-tonal"
                   onPress={handleApplyRates}
-                  disabled={busy || Object.keys(pendingRates).length === 0}
+                  disabled={busy || !hasUnappliedRates}
                   accessibilityLabel="Apply FX rates"
                 >
                   Apply rates
@@ -856,9 +1024,150 @@ const ImportScreen: React.FC = () => {
               </View>
             ) : null}
 
+            {preview.suspectDerivedRates.length > 0 ? (
+              <View style={styles.banner}>
+                <Text variant="bodySmall">
+                  These rates come from the Base amount column, and they do not
+                  look like conversions:
+                </Text>
+                {preview.suspectDerivedRates.map(item => (
+                  <Text
+                    key={fxPairKey(item.baseCurrencyCode, item.currencyCode)}
+                    variant="bodySmall"
+                    style={styles.muted}
+                  >
+                    {describeSuspectDerivedRate(item)}
+                  </Text>
+                ))}
+                <Text variant="bodySmall">
+                  A Base amount column must hold the amount in{' '}
+                  {settings.baseCurrency ?? 'your base currency'}. If it holds
+                  the file&apos;s own currency, go Back and unmap it, then enter
+                  a rate instead.
+                </Text>
+              </View>
+            ) : null}
+
+            <Divider />
+            <Text variant="bodyMedium">For your information</Text>
+
+            {preview.duplicates.length > 0 ? (
+              <View style={styles.bannerInfo}>
+                <View style={styles.toggleRow}>
+                  <Text variant="bodySmall" style={styles.toggleLabel}>
+                    {preview.duplicates.length} row
+                    {preview.duplicates.length === 1 ? '' : 's'} match a stored
+                    transaction or an earlier row in this file. Skip them?
+                  </Text>
+                  <Switch
+                    value={skipDuplicates}
+                    onValueChange={setSkipDuplicates}
+                    accessibilityLabel="Skip duplicate rows"
+                  />
+                </View>
+                <Text variant="bodySmall" style={styles.muted}>
+                  {skipDuplicates
+                    ? `${skippedDuplicateCount} row${skippedDuplicateCount === 1 ? '' : 's'} will not be imported.`
+                    : 'They will be added again.'}
+                </Text>
+              </View>
+            ) : null}
+
+            {ratesToBeSaved.length > 0 ? (
+              <View style={styles.bannerInfo}>
+                <Text variant="bodySmall">
+                  These rates will also be saved as your current ones, and
+                  filled in when you add a transaction by hand:
+                </Text>
+                {ratesToBeSaved.map(rate => (
+                  <Text
+                    key={fxPairKey(rate.baseCurrencyCode, rate.currencyCode)}
+                    variant="bodySmall"
+                    style={styles.muted}
+                  >
+                    1 {rate.currencyCode} = {formatFxRate(rate.fxRateToBase)}{' '}
+                    {rate.baseCurrencyCode}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+
+            {preview.unmappedColumns.length > 0 ? (
+              <View style={styles.bannerInfo}>
+                <Text variant="bodySmall">
+                  These columns hold values but are not mapped, so they will not
+                  be imported. Go Back to map them.
+                </Text>
+                {preview.unmappedColumns.map(column => (
+                  <Text
+                    key={column.index}
+                    variant="bodySmall"
+                    style={styles.muted}
+                  >
+                    {column.header || `Column ${column.index + 1}`} — e.g.{' '}
+                    {column.sampleValue}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+
+            {preview.categoryTypeWidenings.length > 0 ? (
+              <View style={styles.bannerInfo}>
+                <Text variant="bodySmall">
+                  These categories will be changed to work for both income and
+                  expenses, because this file files rows against them in both
+                  directions:{' '}
+                  {preview.categoryTypeWidenings
+                    .map(item => item.name)
+                    .join(', ')}
+                  .
+                </Text>
+              </View>
+            ) : null}
+
+            {preview.unreadableTimes.length > 0 ? (
+              <View style={styles.bannerInfo}>
+                <Text variant="bodySmall">
+                  {preview.unreadableTimes.length} row
+                  {preview.unreadableTimes.length === 1 ? '' : 's'} had a time
+                  that could not be read and will be imported without one.
+                </Text>
+              </View>
+            ) : null}
+
+            {preview.totalRows > LARGE_IMPORT_THRESHOLD ? (
+              <View style={styles.bannerInfo}>
+                <Text variant="bodySmall">
+                  Large file ({preview.totalRows} rows). Importing may take a
+                  moment.
+                </Text>
+              </View>
+            ) : null}
+
+            {preview.signConventionBypassed ? (
+              <Text variant="bodySmall" style={styles.muted}>
+                This file has no negative amounts, so rows without a type column
+                are imported as expenses.
+              </Text>
+            ) : null}
+
+            {derivedRateCount > 0 &&
+            preview.suspectDerivedRates.length === 0 ? (
+              <Text variant="bodySmall" style={styles.muted}>
+                {derivedRateCount} row{derivedRateCount === 1 ? '' : 's'} used a
+                converted amount from the file, keeping the rate the source
+                recorded rather than a current one.
+              </Text>
+            ) : null}
+
+            {newCategoryNames.length > 0 ? (
+              <Text variant="bodySmall" style={styles.muted}>
+                New categories: {newCategoryNames.join(', ')}
+              </Text>
+            ) : null}
+
             {preview.invalid.length > 0 ? (
               <View style={styles.section}>
-                <Divider />
                 <Text variant="bodyMedium">
                   {preview.invalid.length} row
                   {preview.invalid.length === 1 ? '' : 's'} skipped
@@ -880,19 +1189,25 @@ const ImportScreen: React.FC = () => {
               </View>
             ) : null}
 
-            {hasUnappliedRates ? (
+            {allRowsDuplicated ? (
               <HelperText type="error" visible>
-                Apply the rates you entered before importing.
+                Every row is a duplicate. Turn off skipping above to import them
+                again.
               </HelperText>
             ) : null}
 
             <Button
               mode="contained"
               onPress={handleConfirm}
-              disabled={busy || preview.valid.length === 0 || hasUnappliedRates}
+              disabled={
+                busy ||
+                readyRows.length === 0 ||
+                hasUnappliedRates ||
+                preview.mixedCurrencyWithoutBase
+              }
               accessibilityLabel="Confirm import"
             >
-              Import {preview.valid.length} transactions
+              Import {readyRows.length} transactions
             </Button>
             <Button onPress={() => setStep('mapping')}>Back</Button>
           </View>
@@ -932,6 +1247,30 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 8,
     backgroundColor: '#fff4e5',
+    gap: 8,
+  },
+  bannerBlocking: {
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#fdecea',
+  },
+  bannerInfo: {
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#eef1f5',
+    gap: 8,
+  },
+  rateRow: {
+    gap: 4,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  toggleLabel: {
+    flex: 1,
   },
   choiceRow: {
     flexDirection: 'row',

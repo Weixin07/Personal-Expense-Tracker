@@ -151,8 +151,10 @@ export type RawCandidate = Partial<Record<ImportTargetField, string>>;
 const normalizeHeader = (raw: string): string =>
   raw.trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
 
-const hasAnyValue = (rows: readonly ParsedRow[], index: number): boolean =>
-  rows.some(row => (row.cells[index] ?? '').trim().length > 0);
+export const hasAnyValue = (
+  rows: readonly ParsedRow[],
+  index: number,
+): boolean => rows.some(row => (row.cells[index] ?? '').trim().length > 0);
 
 /**
  * Auto-map a header to target fields. `rows` are consulted only to break ties

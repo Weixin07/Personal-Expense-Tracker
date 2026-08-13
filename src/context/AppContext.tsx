@@ -9,7 +9,11 @@ import React, {
 } from 'react';
 import type { UploadPendingExportsResult } from '../export';
 import { commitImport } from '../import';
-import type { ImportPreview, ImportSummary } from '../import';
+import type {
+  CommitImportOptions,
+  ImportPreview,
+  ImportSummary,
+} from '../import';
 import { requestDirectorySelection } from '../security/storageAccess';
 import {
   withDatabase,
@@ -146,10 +150,14 @@ export type TransactionDataActions = {
   uploadQueuedExports: (options?: {
     interactive?: boolean;
   }) => Promise<UploadPendingExportsResult | null>;
-  /** `acceptedRates` is keyed by `fxPairKey`, matching `commitImport`. */
+  /**
+   * `acceptedRates` is keyed by `fxPairKey` and `options` carries the review
+   * step's choices, both matching `commitImport`.
+   */
   importTransactions: (
     preview: ImportPreview,
     acceptedRates?: Record<string, number>,
+    options?: CommitImportOptions,
   ) => Promise<ImportSummary>;
   unlockWithBiometrics: () => Promise<boolean>;
 };
@@ -1000,10 +1008,10 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
   const importTransactions = useCallback<
     TransactionDataActions['importTransactions']
   >(
-    async (preview, acceptedRates) => {
+    async (preview, acceptedRates, options) => {
       dispatch({ type: 'operation/start' });
       try {
-        const summary = await commitImport(preview, acceptedRates);
+        const summary = await commitImport(preview, acceptedRates, options);
         await loadFromDatabase();
         return summary;
       } catch (error) {
