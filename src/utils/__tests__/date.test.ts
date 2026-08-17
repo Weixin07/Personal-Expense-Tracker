@@ -4,6 +4,7 @@ import {
   parseBritishDateInput,
   formatDateTimeBritish,
   localIsoDate,
+  localIsoDateOffset,
   localTimeOfDay,
   parseTimeInput,
 } from '../date';
@@ -206,5 +207,42 @@ describe('local now helpers', () => {
   it('zero-pads single-digit months, days, hours and minutes', () => {
     expect(localIsoDate(new Date(2026, 0, 5, 9, 7))).toBe('2026-01-05');
     expect(localTimeOfDay(new Date(2026, 0, 5, 9, 7))).toBe('09:07');
+  });
+});
+
+describe('localIsoDateOffset', () => {
+  const august14 = new Date(2026, 7, 14, 6, 27);
+
+  it('shifts by whole days in either direction', () => {
+    expect(localIsoDateOffset(august14, { days: -6 })).toBe('2026-08-08');
+    expect(localIsoDateOffset(august14, { days: -29 })).toBe('2026-07-16');
+    expect(localIsoDateOffset(august14, { days: 3 })).toBe('2026-08-17');
+  });
+
+  it('shifts by whole months', () => {
+    expect(localIsoDateOffset(august14, { months: -12 })).toBe('2025-08-14');
+    expect(localIsoDateOffset(august14, { months: 5 })).toBe('2027-01-14');
+  });
+
+  it('applies days and months together', () => {
+    expect(localIsoDateOffset(august14, { months: -1, days: -13 })).toBe(
+      '2026-07-01',
+    );
+  });
+
+  it('rolls over year boundaries', () => {
+    expect(localIsoDateOffset(new Date(2026, 0, 1), { days: -1 })).toBe(
+      '2025-12-31',
+    );
+  });
+
+  it('overflows a month shift past the shorter month, rather than clamping', () => {
+    expect(localIsoDateOffset(new Date(2026, 2, 31), { months: -1 })).toBe(
+      '2026-03-03',
+    );
+  });
+
+  it('returns the local day itself when nothing is offset', () => {
+    expect(localIsoDateOffset(august14, {})).toBe(localIsoDate(august14));
   });
 });

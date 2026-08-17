@@ -1,4 +1,5 @@
 import currencies from '../constants/currencies.json';
+import { localIsoDateOffset } from './date';
 
 export type ValidationResult =
   | { valid: true }
@@ -13,7 +14,6 @@ const invalid = (message: string): ValidationResult => ({
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 const MAX_FUTURE_DAYS = 3;
-const MS_IN_DAY = 24 * 60 * 60 * 1000;
 
 const currencyCodes: Set<string> = new Set(
   Object.keys(currencies as Record<string, unknown>)
@@ -107,11 +107,6 @@ export const normalizeCurrency = (
     ? { status: 'ok', code: candidates[0] }
     : { status: 'ambiguous', candidates: [...candidates] };
 };
-
-const truncateUtcDate = (date: Date): Date =>
-  new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
-  );
 
 const toUtcDate = (value: string): Date | null => {
   if (!ISO_DATE_PATTERN.test(value)) {
@@ -227,15 +222,14 @@ export const validateIsoDateWithinFutureWindow = (
     return invalid('Date must be in ISO format YYYY-MM-DD.');
   }
 
-  const parsed = toUtcDate(date);
-  if (!parsed) {
+  if (!toUtcDate(date)) {
     return invalid('Date must be valid.');
   }
 
-  const todayUtc = truncateUtcDate(now);
-  const limit = new Date(todayUtc.getTime() + MAX_FUTURE_DAYS * MS_IN_DAY);
-
-  if (parsed.getTime() > limit.getTime()) {
+  // Safe as a string comparison only because the pattern check above has
+  // already fixed the width and zero-padding, which is what makes ISO dates
+  // sort chronologically.
+  if (date > localIsoDateOffset(now, { days: MAX_FUTURE_DAYS })) {
     return invalid('Date cannot be more than 3 days in the future.');
   }
 

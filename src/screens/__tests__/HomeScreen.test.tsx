@@ -112,6 +112,28 @@ describe('HomeScreen', () => {
     expect(mockNavigate).toHaveBeenCalledWith('AddTransaction');
   });
 
+  // The screen reads the device clock to pick its opening period, and this
+  // effect is the only place it does so. An end date taken from the UTC
+  // calendar drops anything entered during local early morning, which is the
+  // instant faked below.
+  it('defaults the period to a window ending on the local day', () => {
+    const realNow = Date.now();
+    jest.setSystemTime(new Date(2026, 7, 14, 6, 27));
+    try {
+      const setFilters = jest.fn();
+      mockedUseExpenseData.mockReturnValue(
+        makeContextValue({ actions: { setFilters } }),
+      );
+      renderWithProviders(<HomeScreen />);
+      expect(setFilters).toHaveBeenCalledWith({
+        startDate: '2026-07-16',
+        endDate: '2026-08-14',
+      });
+    } finally {
+      jest.setSystemTime(realNow);
+    }
+  });
+
   it('applies a preset filter when a quick-filter chip is pressed', () => {
     const setFilters = jest.fn();
     mockedUseExpenseData.mockReturnValue(

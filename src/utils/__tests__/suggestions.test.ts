@@ -233,9 +233,32 @@ describe('filterSuggestions', () => {
     makeTransaction({ payee: 'Costa' }),
   ];
 
-  it('returns nothing for an empty query', () => {
-    expect(rankedPayees(transactions, '')).toEqual([]);
-    expect(rankedPayees(transactions, '   ')).toEqual([]);
+  it('returns the ranking itself for an empty query', () => {
+    const byUsage = [
+      makeTransaction({ payee: 'Costa' }),
+      ...Array.from({ length: 3 }, () =>
+        makeTransaction({ payee: 'Sainsbury — Tesco Metro' }),
+      ),
+    ];
+    expect(rankedPayees(byUsage, '')).toEqual([
+      'Sainsbury — Tesco Metro',
+      'Costa',
+    ]);
+    expect(rankedPayees(byUsage, '   ')).toEqual([
+      'Sainsbury — Tesco Metro',
+      'Costa',
+    ]);
+  });
+
+  it('caps an empty query at the limit like any other', () => {
+    const many = Array.from({ length: MAX_SUGGESTIONS + 4 }, (_, index) =>
+      makeTransaction({ payee: `Payee ${index}` }),
+    );
+    expect(rankedPayees(many, '')).toHaveLength(MAX_SUGGESTIONS);
+  });
+
+  it('returns nothing for an empty query when there is no history', () => {
+    expect(rankedPayees([], '')).toEqual([]);
   });
 
   it('matches from a single character', () => {

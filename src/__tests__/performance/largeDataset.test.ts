@@ -6,6 +6,7 @@ import {
   generateMockTransactions,
 } from './testHelpers';
 import {
+  MAX_SUGGESTIONS,
   buildSuggestionIndex,
   filterSuggestions,
 } from '../../utils/suggestions';
@@ -374,6 +375,26 @@ describe('Performance: Large Dataset (10k expenses)', () => {
         { ...metrics, duration: perKeystroke },
         { maxDuration: 16 },
         'Filtering a prebuilt suggestion index',
+      );
+    });
+
+    // An empty query matches every entry, so this walks the index from the top
+    // until the cap is reached. It runs on every field focus, ahead of the
+    // first keystroke, and so has to fit inside a frame too.
+    it('should open the list on an empty query in under 16ms', async () => {
+      const index = buildSuggestionIndex(mockTransactions, 'payee');
+
+      const { result, metrics } = await measurePerformance(() =>
+        filterSuggestions(index, ''),
+      );
+
+      console.log(`⏱️  Focus Open Time: ${formatDuration(metrics.duration)}`);
+
+      expect(result).toHaveLength(MAX_SUGGESTIONS);
+      assertPerformance(
+        metrics,
+        { maxDuration: 16 },
+        'Opening a suggestion list on focus',
       );
     });
   });

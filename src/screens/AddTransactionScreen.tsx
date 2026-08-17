@@ -385,6 +385,11 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
     >
       <ScrollView
         contentContainerStyle={styles.scrollContainer}
+        testID="transaction-form-scroll"
+        // Suggestion rows are tapped while the field above them still holds
+        // focus. Without persisted taps the scroll view dismisses the keyboard
+        // on touch, which blurs that field and unmounts the list before the
+        // row's press resolves.
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.formGroup}>

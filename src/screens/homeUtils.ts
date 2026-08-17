@@ -1,4 +1,8 @@
-import { formatDateRangeBritish } from '../utils/date';
+import {
+  formatDateRangeBritish,
+  localIsoDate,
+  localIsoDateOffset,
+} from '../utils/date';
 
 export type DateRangePreset =
   | 'last7Days'
@@ -23,43 +27,24 @@ type DateRange = {
   endDate: string | null;
 };
 
-const MS_IN_DAY = 24 * 60 * 60 * 1000;
-
-const toUtcDate = (date: Date): Date =>
-  new Date(
-    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
-  );
-
 export const computePresetRange = (
   preset: DateRangePreset,
   now = new Date(),
 ): DateRange => {
-  const today = toUtcDate(now);
+  // These bounds are compared against a transaction's `date`, so they have to
+  // name a day on the same calendar it was written on — see `localIsoDate`.
+  const endDate = localIsoDate(now);
 
   switch (preset) {
-    case 'last7Days': {
-      const start = new Date(today.getTime() - 6 * MS_IN_DAY);
+    case 'last7Days':
+      return { startDate: localIsoDateOffset(now, { days: -6 }), endDate };
+    case 'last30Days':
+      return { startDate: localIsoDateOffset(now, { days: -29 }), endDate };
+    case 'thisMonth':
       return {
-        startDate: start.toISOString().slice(0, 10),
-        endDate: today.toISOString().slice(0, 10),
+        startDate: localIsoDate(new Date(now.getFullYear(), now.getMonth(), 1)),
+        endDate,
       };
-    }
-    case 'last30Days': {
-      const start = new Date(today.getTime() - 29 * MS_IN_DAY);
-      return {
-        startDate: start.toISOString().slice(0, 10),
-        endDate: today.toISOString().slice(0, 10),
-      };
-    }
-    case 'thisMonth': {
-      const start = new Date(
-        Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1),
-      );
-      return {
-        startDate: start.toISOString().slice(0, 10),
-        endDate: today.toISOString().slice(0, 10),
-      };
-    }
     case 'allTime':
     default:
       return { startDate: null, endDate: null };

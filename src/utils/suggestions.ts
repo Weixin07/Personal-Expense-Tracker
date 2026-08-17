@@ -1,4 +1,4 @@
-import { localIsoDate } from './date';
+import { localIsoDateOffset } from './date';
 import type { TransactionRecord, TransactionType } from '../database';
 
 export type SuggestionField = 'description' | 'payee';
@@ -12,8 +12,6 @@ export type SuggestionField = 'description' | 'payee';
 export const SUGGESTION_WINDOW_MONTHS = 12;
 
 export const MAX_SUGGESTIONS = 6;
-
-export const MIN_QUERY_LENGTH = 1;
 
 export type FrequencyOptions = {
   now?: Date;
@@ -70,9 +68,7 @@ const groupKey = (value: string): string =>
   collapseWhitespace(value).toLowerCase();
 
 const windowStartDate = (now: Date, windowMonths: number): string =>
-  localIsoDate(
-    new Date(now.getFullYear(), now.getMonth() - windowMonths, now.getDate()),
-  );
+  localIsoDateOffset(now, { months: -windowMonths });
 
 type Occurrence = {
   date: string;
@@ -202,8 +198,9 @@ export const buildSuggestionIndex = (
 };
 
 /**
- * The best `limit` suggestions for what has been typed so far, in the index's
- * own order. Returns nothing below `MIN_QUERY_LENGTH` characters.
+ * The best `limit` values for a query, in the index's own order. An empty
+ * query matches every entry and so yields the top of the ranking, which is
+ * what a field that has been focused but not yet typed into should offer.
  */
 export const filterSuggestions = (
   index: SuggestionIndex,
@@ -211,10 +208,6 @@ export const filterSuggestions = (
   limit: number = MAX_SUGGESTIONS,
 ): string[] => {
   const needle = groupKey(query);
-  if (needle.length < MIN_QUERY_LENGTH) {
-    return [];
-  }
-
   const matches: string[] = [];
   for (const entry of index) {
     if (entry.matchKey.includes(needle)) {

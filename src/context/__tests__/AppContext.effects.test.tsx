@@ -21,6 +21,8 @@ import * as db from '../../database';
 import * as exportModule from '../../export';
 import * as importModule from '../../import';
 import * as storageAccess from '../../security/storageAccess';
+import { computePresetRange } from '../../screens/homeUtils';
+import { localIsoDate } from '../../utils/date';
 import type { TransactionRecord, CategoryRecord } from '../../database';
 import type { ImportPreview } from '../../import';
 
@@ -591,6 +593,33 @@ describe('TransactionDataProvider queue and connectivity', () => {
       ctx.actions.setFilters({ startDate: undefined, endDate: '2025-01-31' }),
     );
     expect(ctx.selectors.filteredTransactions).toHaveLength(1);
+  });
+
+  // The window and the transaction's own date are read from two separate
+  // clocks, so nothing but a shared calendar keeps them agreeing. The instant
+  // below is local early morning, where a UTC reading still names yesterday
+  // and would put today's entry past the end of the range.
+  it('keeps a transaction dated today inside the default last-30-days window', async () => {
+    const realNow = Date.now();
+    jest.setSystemTime(new Date(2026, 7, 14, 6, 27));
+    try {
+      mockDb.listTransactions.mockResolvedValue([
+        { ...transaction, id: 3, date: localIsoDate() },
+      ]);
+      await renderProvider();
+
+      const range = computePresetRange('last30Days');
+      act(() =>
+        ctx.actions.setFilters({
+          startDate: range.startDate ?? undefined,
+          endDate: range.endDate ?? undefined,
+        }),
+      );
+
+      expect(ctx.selectors.filteredTransactions).toHaveLength(1);
+    } finally {
+      jest.setSystemTime(realNow);
+    }
   });
 
   it('records a cancelled biometric unlock', async () => {

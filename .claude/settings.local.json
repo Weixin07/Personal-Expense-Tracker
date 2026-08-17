@@ -283,7 +283,10 @@
       "PowerShell(& pwsh.exe -NoProfile -Command \". 'C:\\\\PET\\\\vm-1\\\\Activate.ps1'; 'PROMPT: ' + \\(prompt\\); 'VM1_ROOT: ' + $env:VM1_ROOT; 'BIN FIRST: ' + \\($env:PATH -split ';'\\)[0]; 'jest resolves: ' + \\(Get-Command jest -ErrorAction SilentlyContinue\\).Source; Disable-Vm1; 'AFTER DEACTIVATE prompt: ' + \\(prompt\\); 'AFTER VM1_ROOT: [' + $env:VM1_ROOT + ']'; 'AFTER first path: ' + \\($env:PATH -split ';'\\)[0]\")",
       "Bash(bash --rcfile /c/PET/vm-1/bashrc -i -c 'echo \"PS1=[$PS1]\"; echo \"VM1_ROOT=$VM1_ROOT\"; echo \"PATH1=$\\(echo $PATH | cut -d: -f1\\)\"; command -v jest; vm1_deactivate; echo \"AFTER PATH1=$\\(echo $PATH | cut -d: -f1\\)\"; echo \"AFTER VM1_ROOT=[$VM1_ROOT]\"')",
       "PowerShell(& pwsh.exe -NoProfile -File \"C:\\\\Users\\\\faith\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--PET\\\\05e2296a-bbd4-493d-85a7-ce622340f2c6\\\\scratchpad\\\\test-vm1.ps1\")",
-      "PowerShell(node scripts/comment-policy.mjs; \"comment-policy: $LASTEXITCODE\"; npx eslint . --max-warnings=0; \"lint: $LASTEXITCODE\"; npx tsc --noEmit; \"tsc: $LASTEXITCODE\")"
+      "PowerShell(node scripts/comment-policy.mjs; \"comment-policy: $LASTEXITCODE\"; npx eslint . --max-warnings=0; \"lint: $LASTEXITCODE\"; npx tsc --noEmit; \"tsc: $LASTEXITCODE\")",
+      "Bash(echo \"=== EXIT: $? ===\")",
+      "Bash(echo \"=== VALIDATE EXIT: $? ===\")",
+      "Bash(echo \"=== GATE EXIT: $? ===\")"
     ],
     "deny": [],
     "ask": []

@@ -38,6 +38,27 @@ const pad = (value: number): string => String(value).padStart(2, '0');
 export const localIsoDate = (now: Date = new Date()): string =>
   `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 
+/**
+ * `now`'s local calendar day shifted by a signed offset, as `YYYY-MM-DD`.
+ *
+ * The shift is calendar arithmetic rather than elapsed milliseconds: across a
+ * DST boundary a day is not 24 hours, so subtracting `n * 86_400_000` lands on
+ * the wrong day. Months overflow rather than clamp to month length — one month
+ * back from 31 March is 3 March, so a caller wanting a month boundary must
+ * construct it directly.
+ */
+export const localIsoDateOffset = (
+  now: Date,
+  offset: { days?: number; months?: number },
+): string =>
+  localIsoDate(
+    new Date(
+      now.getFullYear(),
+      now.getMonth() + (offset.months ?? 0),
+      now.getDate() + (offset.days ?? 0),
+    ),
+  );
+
 /** The device's current wall-clock time as `HH:MM`. */
 export const localTimeOfDay = (now: Date = new Date()): string =>
   `${pad(now.getHours())}:${pad(now.getMinutes())}`;

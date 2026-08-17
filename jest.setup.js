@@ -1,5 +1,11 @@
 // Jest setup file for React Native testing
 
+// Pin the zone so logic reading the local calendar is deterministic across
+// machines. A UTC-ahead zone is deliberate: local and UTC disagree on the
+// calendar day during local early morning, which is where date-window faults
+// hide. It has no DST, so day arithmetic does not vary by season.
+process.env.TZ = 'Asia/Kuala_Lumpur';
+
 // Keep Animated on the JS driver in tests. The native driver path loads
 // react-native's bundled renderer, which mismatches the installed react version.
 jest.mock('react-native/src/private/animated/NativeAnimatedHelper', () => {

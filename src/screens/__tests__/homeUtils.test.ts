@@ -114,6 +114,49 @@ describe('homeUtils', () => {
     });
   });
 
+  // Transaction dates are the device's local calendar day, so the window that
+  // filters them must be read from the same calendar. Local early morning in a
+  // UTC-ahead zone is where the two disagree: below, local is the 14th while
+  // UTC is still the 13th, so a UTC-derived end date excludes the whole of
+  // today. Anchors elsewhere in this file sit at noon UTC, where every
+  // populated zone agrees and the distinction is unobservable.
+  describe('computePresetRange across the local/UTC day boundary', () => {
+    const localEarlyMorning = new Date(2026, 7, 14, 6, 27);
+
+    it('ends the window on the local day, not the UTC day', () => {
+      expect(computePresetRange('last7Days', localEarlyMorning).endDate).toBe(
+        '2026-08-14',
+      );
+      expect(computePresetRange('last30Days', localEarlyMorning).endDate).toBe(
+        '2026-08-14',
+      );
+      expect(computePresetRange('thisMonth', localEarlyMorning).endDate).toBe(
+        '2026-08-14',
+      );
+    });
+
+    it('starts the window on the local day', () => {
+      expect(computePresetRange('last7Days', localEarlyMorning).startDate).toBe(
+        '2026-08-08',
+      );
+      expect(
+        computePresetRange('last30Days', localEarlyMorning).startDate,
+      ).toBe('2026-07-16');
+      expect(computePresetRange('thisMonth', localEarlyMorning).startDate).toBe(
+        '2026-08-01',
+      );
+    });
+
+    it('detects back the preset it computed', () => {
+      (['last7Days', 'last30Days', 'thisMonth', 'allTime'] as const).forEach(
+        preset => {
+          const range = computePresetRange(preset, localEarlyMorning);
+          expect(detectPreset(range, localEarlyMorning)).toBe(preset);
+        },
+      );
+    });
+  });
+
   describe('detectPreset', () => {
     const mockDate = new Date('2025-01-15T12:00:00Z');
 

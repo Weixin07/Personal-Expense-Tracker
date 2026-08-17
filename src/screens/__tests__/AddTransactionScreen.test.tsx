@@ -12,6 +12,7 @@ import {
 import AddTransactionScreen from '../AddTransactionScreen';
 import { useTransactionData } from '../../context/AppContext';
 import type { CategoryRecord, TransactionRecord } from '../../database';
+import { localIsoDateOffset } from '../../utils/date';
 
 jest.mock('../../context/AppContext', () => ({
   useTransactionData: jest.fn(),
@@ -577,11 +578,8 @@ describe('AddTransactionScreen', () => {
 
   describe('suggested fills', () => {
     const today = new Date();
-    const recent = (daysAgo: number): string => {
-      const date = new Date(today);
-      date.setDate(date.getDate() - daysAgo);
-      return date.toISOString().slice(0, 10);
-    };
+    const recent = (daysAgo: number): string =>
+      localIsoDateOffset(today, { days: -daysAgo });
 
     const history: TransactionRecord[] = [
       ...Array.from({ length: 3 }, (_, index) =>
@@ -622,10 +620,35 @@ describe('AddTransactionScreen', () => {
         .queryAllByLabelText(/^Use /)
         .map(node => String(node.props.accessibilityLabel).replace('Use ', ''));
 
-    it('shows nothing before anything is typed', () => {
+    it('offers the most-used values as soon as the field is focused', () => {
       renderWithHistory();
       fireEvent(screen.getByLabelText('Transaction payee'), 'focus');
+      expect(suggestionLabels()).toEqual(['Tesco', 'The Bistro']);
+    });
+
+    it('narrows the focused list as characters are typed', () => {
+      renderWithHistory();
+      const field = focusAndType('Transaction payee', 'b');
+      expect(suggestionLabels()).toEqual(['The Bistro']);
+
+      fireEvent.changeText(field, '');
+      expect(suggestionLabels()).toEqual(['Tesco', 'The Bistro']);
+    });
+
+    it('shows nothing on focus when there is no history', () => {
+      renderScreen(undefined);
+      fireEvent(screen.getByLabelText('Transaction payee'), 'focus');
       expect(suggestionLabels()).toEqual([]);
+    });
+
+    it('offers only the selected direction before anything is typed', () => {
+      renderWithHistory();
+      fireEvent(screen.getByLabelText('Transaction payee'), 'focus');
+      expect(suggestionLabels()).not.toContain('Salary Ltd');
+
+      fireEvent.press(screen.getByText('Income'));
+      fireEvent(screen.getByLabelText('Transaction payee'), 'focus');
+      expect(suggestionLabels()).toEqual(['Salary Ltd']);
     });
 
     it('suggests matching payees from the first character', () => {
@@ -644,6 +667,17 @@ describe('AddTransactionScreen', () => {
       renderWithHistory();
       focusAndType('Transaction payee', 'bistro');
       expect(suggestionLabels()).toEqual(['The Bistro']);
+    });
+
+    // Nothing else in the suite can observe this: the native focus machinery
+    // that would blur the field is not simulated here, so the prop guarding
+    // against it has to be asserted directly.
+    it('persists taps through the scroll view so a row survives the press', () => {
+      renderWithHistory();
+      expect(
+        screen.getByTestId('transaction-form-scroll').props
+          .keyboardShouldPersistTaps,
+      ).toBe('handled');
     });
 
     it('fills only the tapped field and closes the list', () => {

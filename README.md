@@ -51,7 +51,7 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 - **Category Organization**: Flexible categorization with 23 default categories (customizable), each usable for expenses, income, or both
 - **Date Filtering**: Quick filters (Last 7/30 days, This month, All time) plus custom date ranges
 - **Income and Expenses**: Record money in as well as out. Home summarises the filtered period as Spent, Received and Net, signed and grouped per base currency, with a transaction count for each direction
-- **Suggested Fills**: Typing a description or payee offers values from your own history, ranked by how much you use them in the last 12 months rather than alphabetically. The category picker is ordered the same way
+- **Suggested Fills**: Tapping the description or payee field offers values from your own history, ranked by how much you use them in the last 12 months rather than alphabetically, and typing narrows the list. The category picker is ordered the same way
 - **Rich Metadata**: Add notes, select categories, and track precise amounts with proper rounding
 
 ### 📊 Data & Analytics
