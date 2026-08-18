@@ -18,6 +18,7 @@ import {
 } from 'react-native-paper';
 import CategoryPickerDialog from '../components/CategoryPickerDialog';
 import CurrencyPickerDialog from '../components/CurrencyPickerDialog';
+import FundPickerDialog from '../components/FundPickerDialog';
 import SelectField from '../components/SelectField';
 import SuggestionList from '../components/SuggestionList';
 import { findCurrencyName } from '../constants/currencyOptions';
@@ -28,24 +29,30 @@ import {
   buildUpdatePayload,
   computeBaseAmount,
   getDefaultTransactionFormValues,
+  resolveFundCurrencySeed,
   resolveFxRateForCurrency,
   validateTransactionForm,
   type TransactionFormErrors,
   type TransactionFormValues,
 } from './transactionFormUtils';
-import type { TransactionType } from '../database';
+import type { TransactionDirection, TransactionType } from '../database';
 import {
   formatDateBritish,
   parseBritishDateInput,
   parseTimeInput,
 } from '../utils/date';
 import { formatDirectionalMoney, formatMoneyAmount } from '../utils/formatting';
-import { buildSuggestionIndex, filterSuggestions } from '../utils/suggestions';
+import {
+  buildSuggestionIndex,
+  filterSuggestions,
+  rankFundIdsByFrequency,
+} from '../utils/suggestions';
 import type { SuggestionField } from '../utils/suggestions';
 
 const TYPE_OPTIONS = [
   { value: 'expense', label: 'Expense' },
   { value: 'income', label: 'Income' },
+  { value: 'transfer', label: 'Transfer' },
 ];
 
 const currencyDialogDescription =
@@ -59,6 +66,7 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
   const {
     state: {
       categories,
+      funds,
       transactions,
       settings,
       fxRateCache,
@@ -82,8 +90,15 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
         categories,
         existingTransaction ?? undefined,
         fxRateCache,
+        funds,
       ),
-    [settings.baseCurrency, categories, existingTransaction, fxRateCache],
+    [
+      settings.baseCurrency,
+      categories,
+      existingTransaction,
+      fxRateCache,
+      funds,
+    ],
   );
 
   const [values, setValues] =
@@ -100,6 +115,43 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
   const [deleting, setDeleting] = useState(false);
   const [activeSuggestionField, setActiveSuggestionField] =
     useState<SuggestionField | null>(null);
+  const [fundDialogVisible, setFundDialogVisible] = useState(false);
+  const [counterpartDialogVisible, setCounterpartDialogVisible] =
+    useState(false);
+  /**
+   * Whether the currency is the user's own choice rather than a derived
+   * default. A stored transaction's currency is a recorded fact about a past
+   * event, so editing one starts out true: choosing a different fund must never
+   * restate what a transaction was denominated in when it happened.
+   */
+  const [currencyTouched, setCurrencyTouched] = useState(
+    existingTransaction != null,
+  );
+
+  const isTransfer = values.type === 'transfer';
+  /**
+   * Direction to read category and suggestion data with. A transfer has no
+   * direction of its own, so it borrows `expense` purely to keep those lookups
+   * total; both are hidden while it is selected.
+   */
+  const direction: TransactionDirection = isTransfer
+    ? 'expense'
+    : (values.type as TransactionDirection);
+
+  const fundUsageCounts = useMemo(
+    () => rankFundIdsByFrequency(transactions),
+    [transactions],
+  );
+
+  const selectedFund = useMemo(
+    () => funds.find(fund => fund.id === values.fundId) ?? null,
+    [funds, values.fundId],
+  );
+
+  const counterpartFund = useMemo(
+    () => funds.find(fund => fund.id === values.counterpartFundId) ?? null,
+    [funds, values.counterpartFundId],
+  );
 
   useEffect(() => {
     setValues(initialFormValues);
@@ -143,10 +195,10 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
   // what has been typed.
   const suggestionOptions = useMemo(
     () => ({
-      type: values.type,
+      type: direction,
       excludeTransactionId: transactionId ?? undefined,
     }),
-    [values.type, transactionId],
+    [direction, transactionId],
   );
 
   const descriptionIndex = useMemo(
@@ -219,6 +271,33 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
     setValues(prev => ({ ...prev, categoryId }));
   };
 
+  const handleFundSelect = (fundId: number) => {
+    const fund = funds.find(item => item.id === fundId) ?? null;
+    setValues(prev => ({
+      ...prev,
+      fundId,
+      ...(resolveFundCurrencySeed(
+        fund,
+        currencyTouched,
+        prev.fxRateToBase,
+        settings.baseCurrency,
+        fxRateCache,
+      ) ?? {}),
+    }));
+  };
+
+  // The destination's currency is captured with the choice so the stored row
+  // records what the received amount was denominated in, not what the fund is
+  // denominated in whenever it is next read.
+  const handleCounterpartSelect = (fundId: number) => {
+    const fund = funds.find(item => item.id === fundId) ?? null;
+    setValues(prev => ({
+      ...prev,
+      counterpartFundId: fundId,
+      counterpartCurrencyCode: fund?.currencyCode ?? settings.baseCurrency,
+    }));
+  };
+
   const applyType = (nextType: TransactionType, clearCategory: boolean) => {
     setValues(prev => ({
       ...prev,
@@ -230,6 +309,24 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
   const handleTypeChange = (value: string) => {
     const nextType = value as TransactionType;
     if (nextType === values.type) {
+      return;
+    }
+
+    // A transfer files under no category at all, so switching into it always
+    // clears one rather than testing whether it still fits.
+    if (nextType === 'transfer') {
+      setValues(prev => ({ ...prev, type: nextType, categoryId: null }));
+      return;
+    }
+
+    if (values.type === 'transfer') {
+      setValues(prev => ({
+        ...prev,
+        type: nextType,
+        counterpartFundId: null,
+        counterpartAmount: '',
+        counterpartCurrencyCode: null,
+      }));
       return;
     }
 
@@ -274,6 +371,7 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
       currencyCode: option.code,
       fxRateToBase: resolvedRate !== '' ? resolvedRate : prev.fxRateToBase,
     }));
+    setCurrencyTouched(true);
     setCurrencyDialogVisible(false);
     if (errors.currencyCode) {
       setErrors(prev => ({ ...prev, currencyCode: undefined }));
@@ -520,12 +618,63 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
           </HelperText>
 
           <SelectField
-            label="Category"
-            value={selectedCategory ? selectedCategory.name : 'No category'}
-            onPress={() => setCategoryDialogVisible(true)}
-            accessibilityLabel="Select category"
-            accessibilityHint="Opens the category picker"
+            label={isTransfer ? 'From fund' : 'Fund'}
+            value={selectedFund ? selectedFund.name : 'No fund'}
+            onPress={() => setFundDialogVisible(true)}
+            accessibilityLabel="Select fund"
+            accessibilityHint="Opens the fund picker"
+            error={Boolean(errors.fundId)}
           />
+          <HelperText type="error" visible={Boolean(errors.fundId)}>
+            {errors.fundId}
+          </HelperText>
+
+          {isTransfer ? (
+            <>
+              <SelectField
+                label="To fund"
+                value={counterpartFund ? counterpartFund.name : 'No fund'}
+                onPress={() => setCounterpartDialogVisible(true)}
+                accessibilityLabel="Select destination fund"
+                accessibilityHint="Opens the destination fund picker"
+                error={Boolean(errors.counterpartFundId)}
+              />
+              <HelperText
+                type="error"
+                visible={Boolean(errors.counterpartFundId)}
+              >
+                {errors.counterpartFundId}
+              </HelperText>
+
+              <TextInput
+                label={
+                  counterpartFund?.currencyCode
+                    ? `Amount received (${counterpartFund.currencyCode})`
+                    : 'Amount received'
+                }
+                value={values.counterpartAmount}
+                onChangeText={handleChange('counterpartAmount')}
+                mode="outlined"
+                keyboardType="decimal-pad"
+                accessibilityLabel="Amount received in the destination fund"
+                error={Boolean(errors.counterpartAmount)}
+              />
+              <HelperText
+                type="error"
+                visible={Boolean(errors.counterpartAmount)}
+              >
+                {errors.counterpartAmount}
+              </HelperText>
+            </>
+          ) : (
+            <SelectField
+              label="Category"
+              value={selectedCategory ? selectedCategory.name : 'No category'}
+              onPress={() => setCategoryDialogVisible(true)}
+              accessibilityLabel="Select category"
+              accessibilityHint="Opens the category picker"
+            />
+          )}
 
           <TextInput
             label="Notes"
@@ -581,14 +730,36 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
         title="Choose currency"
         description={currencyDialogDescription}
       />
-      <CategoryPickerDialog
-        visible={categoryDialogVisible}
-        onDismiss={() => setCategoryDialogVisible(false)}
-        categories={categories}
-        directionFilter={values.type}
-        selectedId={values.categoryId ?? null}
-        usageCounts={categoryUsageCounts[values.type]}
-        onSelect={handleCategorySelect}
+      {isTransfer ? null : (
+        <CategoryPickerDialog
+          visible={categoryDialogVisible}
+          onDismiss={() => setCategoryDialogVisible(false)}
+          categories={categories}
+          directionFilter={direction}
+          selectedId={values.categoryId ?? null}
+          usageCounts={categoryUsageCounts[direction]}
+          onSelect={handleCategorySelect}
+        />
+      )}
+      <FundPickerDialog
+        visible={fundDialogVisible}
+        onDismiss={() => setFundDialogVisible(false)}
+        funds={funds}
+        selectedId={values.fundId}
+        excludeId={isTransfer ? values.counterpartFundId : null}
+        usageCounts={fundUsageCounts}
+        title={isTransfer ? 'Transfer from' : 'Choose fund'}
+        onSelect={handleFundSelect}
+      />
+      <FundPickerDialog
+        visible={counterpartDialogVisible}
+        onDismiss={() => setCounterpartDialogVisible(false)}
+        funds={funds}
+        selectedId={values.counterpartFundId}
+        excludeId={values.fundId}
+        usageCounts={fundUsageCounts}
+        title="Transfer to"
+        onSelect={handleCounterpartSelect}
       />
     </KeyboardAvoidingView>
   );

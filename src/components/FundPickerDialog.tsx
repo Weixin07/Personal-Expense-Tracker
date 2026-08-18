@@ -1,41 +1,26 @@
 import React, { useMemo, useState } from 'react';
 import { FlatList, StyleSheet } from 'react-native';
 import { Button, Dialog, List, Portal, Searchbar } from 'react-native-paper';
-import { CATEGORY_TYPE_LABELS } from '../constants/categoryTypeLabels';
 import { EMPTY_CATEGORY_USAGE } from '../utils/suggestions';
 import type { CategoryUsage } from '../utils/suggestions';
-import type {
-  CategoryRecord,
-  CategoryType,
-  TransactionDirection,
-} from '../database';
+import type { FundRecord } from '../database';
 
-type CategoryOption = {
-  id: number | null;
-  name: string;
-  type: CategoryType | null;
-};
-
-export type CategoryPickerDialogProps = {
+export type FundPickerDialogProps = {
   visible: boolean;
-  categories: CategoryRecord[];
+  funds: FundRecord[];
   selectedId: number | null;
-  /**
-   * Restricts the list to categories usable for this direction — a matching
-   * type, or `both`. Omit to offer every category.
-   */
-  directionFilter?: TransactionDirection;
-  /**
-   * Orders the list by how much each category is used. Omit to order by name.
-   */
+  /** Omitted from the list, so a transfer cannot pick the fund it leaves. */
+  excludeId?: number | null;
+  /** Orders the list by how much each fund is used. Omit to order by name. */
   usageCounts?: ReadonlyMap<number, CategoryUsage>;
-  onSelect: (categoryId: number | null) => void;
+  title?: string;
+  onSelect: (fundId: number) => void;
   onDismiss: () => void;
 };
 
 const compareByUsage = (
-  a: CategoryRecord,
-  b: CategoryRecord,
+  a: FundRecord,
+  b: FundRecord,
   usageCounts: ReadonlyMap<number, CategoryUsage>,
 ): number => {
   const usageA = usageCounts.get(a.id) ?? EMPTY_CATEGORY_USAGE;
@@ -49,47 +34,31 @@ const compareByUsage = (
   return a.name.localeCompare(b.name);
 };
 
-const buildOptions = (
-  categories: CategoryRecord[],
-  directionFilter?: TransactionDirection,
-  usageCounts?: ReadonlyMap<number, CategoryUsage>,
-): CategoryOption[] => {
-  const eligible = directionFilter
-    ? categories.filter(
-        category =>
-          category.type === directionFilter || category.type === 'both',
-      )
-    : categories;
-  const sorted = [...eligible].sort((a, b) =>
-    usageCounts
-      ? compareByUsage(a, b, usageCounts)
-      : a.name.localeCompare(b.name),
-  );
-  return [
-    { id: null, name: 'No category', type: null },
-    ...sorted.map(category => ({
-      id: category.id,
-      name: category.name,
-      type: category.type,
-    })),
-  ];
-};
-
-const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
+/**
+ * Every transaction belongs to a fund, so unlike the category picker this offers
+ * no "none" option.
+ */
+const FundPickerDialog: React.FC<FundPickerDialogProps> = ({
   visible,
-  categories,
+  funds,
   selectedId,
-  directionFilter,
+  excludeId,
   usageCounts,
+  title = 'Choose fund',
   onSelect,
   onDismiss,
 }) => {
   const [query, setQuery] = useState('');
 
-  const options = useMemo(
-    () => buildOptions(categories, directionFilter, usageCounts),
-    [categories, directionFilter, usageCounts],
-  );
+  const options = useMemo(() => {
+    const eligible =
+      excludeId == null ? funds : funds.filter(fund => fund.id !== excludeId);
+    return [...eligible].sort((a, b) =>
+      usageCounts
+        ? compareByUsage(a, b, usageCounts)
+        : a.name.localeCompare(b.name),
+    );
+  }, [funds, excludeId, usageCounts]);
 
   const filteredOptions = useMemo(() => {
     if (!query) {
@@ -99,8 +68,8 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
     return options.filter(option => option.name.toLowerCase().includes(lower));
   }, [query, options]);
 
-  const handleSelect = (categoryId: number | null) => {
-    onSelect(categoryId);
+  const handleSelect = (fundId: number) => {
+    onSelect(fundId);
     setQuery('');
     onDismiss();
   };
@@ -113,25 +82,23 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
   return (
     <Portal>
       <Dialog visible={visible} onDismiss={handleDismiss}>
-        <Dialog.Title accessibilityRole="header">Choose category</Dialog.Title>
+        <Dialog.Title accessibilityRole="header">{title}</Dialog.Title>
         <Dialog.Content>
           <Searchbar
-            placeholder="Search category"
+            placeholder="Search fund"
             value={query}
             onChangeText={setQuery}
-            accessibilityLabel="Search category"
+            accessibilityLabel="Search fund"
             style={styles.searchbar}
           />
           <FlatList
             data={filteredOptions}
-            keyExtractor={item => (item.id === null ? 'none' : String(item.id))}
+            keyExtractor={item => String(item.id)}
             keyboardShouldPersistTaps="handled"
             renderItem={({ item }) => (
               <List.Item
                 title={item.name}
-                description={
-                  item.type ? CATEGORY_TYPE_LABELS[item.type] : undefined
-                }
+                description={item.currencyCode ?? undefined}
                 onPress={() => handleSelect(item.id)}
                 accessibilityRole="button"
                 accessibilityLabel={`Select ${item.name}`}
@@ -146,7 +113,7 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
         <Dialog.Actions>
           <Button
             onPress={handleDismiss}
-            accessibilityLabel="Cancel category selection"
+            accessibilityLabel="Cancel fund selection"
           >
             Cancel
           </Button>
@@ -161,4 +128,4 @@ const styles = StyleSheet.create({
   list: { maxHeight: 300 },
 });
 
-export default CategoryPickerDialog;
+export default FundPickerDialog;

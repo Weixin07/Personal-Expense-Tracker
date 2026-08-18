@@ -2,9 +2,9 @@ import type {
   CategoryRecord,
   CategoryType,
   CurrencyFxRateRecord,
+  FundRecord,
   NewTransactionRecord,
   TransactionRecord,
-  TransactionType,
 } from '../database';
 
 export type ImportTargetField =
@@ -19,7 +19,11 @@ export type ImportTargetField =
   | 'time'
   | 'categoryName'
   | 'notes'
-  | 'transactionType';
+  | 'transactionType'
+  | 'fundName'
+  | 'counterpartFundName'
+  | 'counterpartAmount'
+  | 'counterpartCurrency';
 
 export type FieldMapping = Partial<Record<ImportTargetField, number>>;
 
@@ -57,8 +61,7 @@ export type NumberFormat = 'auto' | 'us' | 'eu';
  */
 export type NegativeAmountMeaning = 'income' | 'expense';
 
-/** Direction a row moves money, read from an explicit transaction-type column. */
-export type TransactionDirection = TransactionType;
+export type { TransactionDirection, TransactionType } from '../database';
 
 /**
  * Where a prepared row's FX rate came from, in the order the resolver prefers:
@@ -185,6 +188,23 @@ export type CategoryTypeWidening = {
 export type CommitImportOptions = {
   skipDuplicates?: boolean;
   categoryAliases?: Record<string, string>;
+  /**
+   * Incoming fund names the user chose to create, lower-cased. A name absent
+   * from both this and `fundAliases` falls back to the default fund: a fund
+   * carries money, so the import never brings one into being unasked.
+   */
+  createFunds?: string[];
+  /** Lower-cased incoming fund name → existing fund name to file it under. */
+  fundAliases?: Record<string, string>;
+};
+
+/**
+ * An incoming fund name that does not match an existing fund. `rowCount` is how
+ * many rows carry it, so the weight of creating it is visible beforehand.
+ */
+export type NewFundName = {
+  sourceName: string;
+  rowCount: number;
 };
 
 export type ImportContext = {
@@ -218,6 +238,12 @@ export type ImportContext = {
   fxRateCache: readonly CurrencyFxRateRecord[];
   existingTransactions: readonly TransactionRecord[];
   existingCategories: readonly CategoryRecord[];
+  existingFunds: readonly FundRecord[];
+  /**
+   * Fund every row lands in unless it names another that the user chose to
+   * create or alias. Required: every transaction belongs to a fund.
+   */
+  defaultFundId: number;
 };
 
 export type DuplicateFlag = {
@@ -234,10 +260,20 @@ export type DuplicateFlag = {
   matchesLine?: number;
 };
 
+/**
+ * Fund and category are carried by name, not id: which fund a row lands in
+ * depends on choices made in review, so the ids can only be resolved by the
+ * commit.
+ */
 export type PreparedTransaction = {
   line: number;
-  record: Omit<NewTransactionRecord, 'categoryId'>;
+  record: Omit<
+    NewTransactionRecord,
+    'categoryId' | 'fundId' | 'counterpartFundId'
+  >;
   categoryName: string | null;
+  fundName: string | null;
+  counterpartFundName: string | null;
   fxRateSource: FxRateSource;
 };
 
@@ -268,6 +304,11 @@ export type ImportPreview = {
   duplicates: DuplicateFlag[];
   newCategoryNames: string[];
   /**
+   * Fund names the file carries that do not exist yet. Reported rather than
+   * created: the user opts in per name during review.
+   */
+  newFundNames: NewFundName[];
+  /**
    * Populated source columns no target field claims. Reported so a column cannot
    * be discarded without the user seeing it; empty columns are omitted, since
    * dropping them loses nothing.
@@ -288,6 +329,11 @@ export type ImportPreview = {
    */
   categoryTypeWidenings: CategoryTypeWidening[];
   totalRows: number;
+  /**
+   * Fund rows land in when they name none, carried forward from the context so
+   * the commit files them where the review step said it would.
+   */
+  defaultFundId: number;
   /**
    * Day/month order inferred from the date column, or null when the caller
    * chose an explicit format or the column offered no conclusive evidence.
@@ -311,6 +357,7 @@ export type SeededRate = {
 export type ImportSummary = {
   insertedExpenses: number;
   insertedIncome: number;
+  insertedTransfers: number;
   skippedInvalid: number;
   /**
    * Rows left behind because their pair still had no rate when the import ran.
@@ -325,6 +372,7 @@ export type ImportSummary = {
    */
   skippedDuplicates: number;
   createdCategories: number;
+  createdFunds: number;
   /**
    * Rates this import saved as the current rate for their pair, in the order
    * they were written. Reported so a rate taken from historical rows cannot

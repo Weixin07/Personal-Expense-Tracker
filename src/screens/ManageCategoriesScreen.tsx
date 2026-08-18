@@ -19,9 +19,9 @@ import {
   formatExpenseCount,
   formatIncomeCount,
 } from '../utils/transactionLabels';
-import type { CategoryType } from '../database';
+import type { CategoryType, TransactionDirection } from '../database';
 
-type DirectionUsage = { expense: number; income: number };
+type DirectionUsage = Record<TransactionDirection, number>;
 
 const TYPE_OPTIONS = [
   { value: 'expense', label: 'Expense' },
@@ -55,7 +55,9 @@ const ManageCategoriesScreen: React.FC = () => {
   const usageCount = useMemo(() => {
     const counts = new Map<number, DirectionUsage>();
     transactions.forEach(transaction => {
-      if (transaction.categoryId == null) {
+      // Transfers carry no category, and there is no direction to file one
+      // under: counting them here would write to a key this map has no slot for.
+      if (transaction.categoryId == null || transaction.type === 'transfer') {
         return;
       }
       const current = counts.get(transaction.categoryId) ?? {

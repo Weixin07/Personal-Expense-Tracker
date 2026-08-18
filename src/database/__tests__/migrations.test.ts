@@ -28,7 +28,7 @@ describe('migrations', () => {
   describe('latestMigrationVersion', () => {
     it('should return the latest migration version', () => {
       const version = latestMigrationVersion();
-      expect(version).toBe(9);
+      expect(version).toBe(10);
     });
   });
 
@@ -92,7 +92,7 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      expect(mockDb.transaction).toHaveBeenCalledTimes(9);
+      expect(mockDb.transaction).toHaveBeenCalledTimes(10);
     });
 
     it('should run only pending migrations', async () => {
@@ -122,7 +122,7 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      expect(mockDb.transaction).toHaveBeenCalledTimes(7);
+      expect(mockDb.transaction).toHaveBeenCalledTimes(8);
     });
 
     it('should not run any migrations if already at latest version', async () => {
@@ -141,8 +141,8 @@ describe('migrations', () => {
         rowsAffected: 0,
         rows: {
           length: 1,
-          raw: () => [{ version: 9 }],
-          item: (index: number) => (index === 0 ? { version: 9 } : null),
+          raw: () => [{ version: 10 }],
+          item: (index: number) => (index === 0 ? { version: 10 } : null),
         },
       };
 
@@ -233,7 +233,7 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      expect(mockDb.transaction).toHaveBeenCalledTimes(6);
+      expect(mockDb.transaction).toHaveBeenCalledTimes(7);
 
       const transactionCall = (mockDb.transaction as jest.Mock).mock.calls[0];
       const executor = transactionCall[0];
@@ -273,7 +273,7 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      expect(mockDb.transaction).toHaveBeenCalledTimes(9);
+      expect(mockDb.transaction).toHaveBeenCalledTimes(10);
     });
 
     it('should apply migrations in version order', async () => {
@@ -328,6 +328,7 @@ describe('migrations', () => {
         'rename-expenses-to-transactions',
         'transaction-and-category-type',
         'add-transaction-time',
+        'funds-and-transfers',
       ]);
     });
 
@@ -682,5 +683,137 @@ describe('migrations', () => {
       expect(addColumnIndex).toBeGreaterThanOrEqual(0);
       expect(createIndexIndex).toBeGreaterThan(addColumnIndex);
     });
+  });
+});
+
+describe('migration v10 rebuild', () => {
+  const statementsOf = (
+    version: number,
+  ): { db: jest.Mocked<SQLiteDatabase>; captured: string[] } => {
+    const captured: string[] = [];
+    const mockTx = {
+      executeSql: jest.fn((sql: string) => {
+        captured.push(sql);
+      }),
+    } as unknown as Transaction;
+
+    const db = {
+      executeSql: jest
+        .fn()
+        .mockResolvedValueOnce([
+          {
+            insertId: undefined,
+            rowsAffected: 0,
+            rows: { length: 0, raw: () => [], item: () => null },
+          } as unknown as ResultSet,
+        ])
+        .mockResolvedValueOnce([
+          {
+            insertId: undefined,
+            rowsAffected: 0,
+            rows: {
+              length: 1,
+              raw: () => [{ version: version - 1 }],
+              item: (index: number) =>
+                index === 0 ? { version: version - 1 } : null,
+            },
+          } as unknown as ResultSet,
+        ]),
+      transaction: jest.fn(
+        (
+          executor: (tx: Transaction) => void,
+          _onError?: unknown,
+          onSuccess?: () => void,
+        ) => {
+          executor(mockTx);
+          onSuccess?.();
+        },
+      ),
+    } as unknown as jest.Mocked<SQLiteDatabase>;
+
+    return { db, captured };
+  };
+
+  it('carries every column across and backfills the fund', async () => {
+    const { db, captured } = statementsOf(10);
+    await runMigrations(db);
+
+    const copy = captured.find(sql =>
+      sql.includes('INSERT INTO transactions_new'),
+    );
+    expect(copy).toBeDefined();
+    [
+      'id',
+      'type',
+      'description',
+      'payee',
+      'amount_native',
+      'currency_code',
+      'fx_rate_to_base',
+      'base_amount',
+      'base_currency_code',
+      'date',
+      'time',
+      'category_id',
+      'notes',
+      'created_at',
+      'updated_at',
+    ].forEach(column => {
+      expect(copy).toContain(column);
+    });
+    expect(copy).toContain("SELECT id FROM funds WHERE name = 'General'");
+    expect(copy).toContain('FROM transactions;');
+  });
+
+  it('recreates every index the rebuild drops', async () => {
+    const { db, captured } = statementsOf(10);
+    await runMigrations(db);
+
+    const created = captured.filter(sql => sql.includes('CREATE INDEX'));
+    expect(created.join(' ')).toContain('idx_transactions_date_time');
+    expect(created.join(' ')).toContain('idx_transactions_category_id');
+    expect(created.join(' ')).toContain('idx_transactions_fund_id');
+  });
+
+  it('drops the old table only after the copy', async () => {
+    const { db, captured } = statementsOf(10);
+    await runMigrations(db);
+
+    const copyAt = captured.findIndex(sql =>
+      sql.includes('INSERT INTO transactions_new'),
+    );
+    const dropAt = captured.findIndex(sql =>
+      sql.includes('DROP TABLE transactions;'),
+    );
+    const renameAt = captured.findIndex(sql => sql.includes('RENAME TO'));
+    expect(copyAt).toBeGreaterThanOrEqual(0);
+    expect(dropAt).toBeGreaterThan(copyAt);
+    expect(renameAt).toBeGreaterThan(dropAt);
+  });
+
+  it('creates the default fund before anything references it', async () => {
+    const { db, captured } = statementsOf(10);
+    await runMigrations(db);
+
+    const insertFundAt = captured.findIndex(sql =>
+      sql.includes('INSERT INTO funds'),
+    );
+    const copyAt = captured.findIndex(sql =>
+      sql.includes('INSERT INTO transactions_new'),
+    );
+    expect(insertFundAt).toBeGreaterThanOrEqual(0);
+    expect(copyAt).toBeGreaterThan(insertFundAt);
+  });
+
+  it('binds the transfer shape to the type', async () => {
+    const { db, captured } = statementsOf(10);
+    await runMigrations(db);
+
+    const create = captured.find(sql =>
+      sql.includes('CREATE TABLE transactions_new'),
+    );
+    expect(create).toContain("type IN ('expense','income','transfer')");
+    expect(create).toContain('counterpart_fund_id <> fund_id');
+    expect(create).toContain('ON DELETE RESTRICT');
   });
 });

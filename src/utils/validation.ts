@@ -168,6 +168,25 @@ export const validatePositiveAmount = (
   return valid();
 };
 
+/**
+ * An opening balance may be zero — a new fund starts empty — which is why this
+ * cannot defer to `validatePositiveAmount`. Negatives are rejected: a pot holds
+ * what was put into it.
+ */
+export const validateOpeningBalance = (
+  amount: number | null | undefined,
+): ValidationResult => {
+  if (amount == null || !Number.isFinite(amount)) {
+    return invalid('Opening balance must be a number.');
+  }
+
+  if (amount < 0) {
+    return invalid('Opening balance cannot be negative.');
+  }
+
+  return valid();
+};
+
 export const validatePositiveRate = (
   rate: number | null | undefined,
   fieldLabel = 'Rate',

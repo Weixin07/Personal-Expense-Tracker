@@ -2,6 +2,7 @@ import React from 'react';
 import {
   renderWithProviders,
   makeContextValue,
+  makeFund,
   screen,
   fireEvent,
   waitFor,
@@ -37,6 +38,10 @@ const makeTransaction = (
   date: '2025-01-10',
   time: null,
   categoryId: null,
+  fundId: 1,
+  counterpartFundId: null,
+  counterpartAmount: null,
+  counterpartCurrencyCode: null,
   notes: null,
   createdAt: '2025-01-10T00:00:00.000Z',
   updatedAt: '2025-01-10T00:00:00.000Z',
@@ -424,5 +429,134 @@ describe('HomeScreen', () => {
       expect(row).toBeOnTheScreen();
       expect(row.props.children).not.toMatch(/\d{2}:\d{2}/);
     });
+  });
+});
+
+describe('fund balances', () => {
+  const funds = [
+    makeFund({ id: 1, name: 'General' }),
+    makeFund({ id: 2, name: 'Travel' }),
+  ];
+
+  const fundBalances = [
+    { fundId: 1, byCurrency: [{ currencyCode: 'USD', balance: 250 }] },
+    { fundId: 2, byCurrency: [{ currencyCode: 'USD', balance: -40 }] },
+  ];
+
+  const render = (overrides: Parameters<typeof makeContextValue>[0] = {}) => {
+    mockedUseExpenseData.mockReturnValue(
+      makeContextValue({
+        state: { funds, ...(overrides.state ?? {}) },
+        selectors: { fundBalances, ...(overrides.selectors ?? {}) },
+      }),
+    );
+    return renderWithProviders(<HomeScreen />);
+  };
+
+  it('shows a balance for every fund', () => {
+    render();
+
+    expect(screen.getByText('Funds')).toBeOnTheScreen();
+    expect(screen.getByText('General')).toBeOnTheScreen();
+    expect(screen.getByText('Travel')).toBeOnTheScreen();
+  });
+
+  it('renders the same balance whatever date filter is applied', () => {
+    // A balance is the fund's whole history. A card that moved with the date
+    // range would be describing a period instead, and would look plausible.
+    const allTime = render({ state: { filters: {} } });
+    const unfiltered =
+      screen.getByLabelText(/General balance/).props.accessibilityLabel;
+    allTime.unmount();
+
+    render({
+      state: { filters: { startDate: '2025-01-01', endDate: '2025-01-31' } },
+    });
+    const filtered =
+      screen.getByLabelText(/General balance/).props.accessibilityLabel;
+
+    expect(filtered).toBe(unfiltered);
+  });
+
+  it('offers a fund filter chip', () => {
+    render({ state: { filters: { fundId: 2 } } });
+
+    expect(screen.getByLabelText('Filter by fund')).toBeOnTheScreen();
+  });
+
+  const renderWithValue = (
+    overrides: Parameters<typeof makeContextValue>[0] = {},
+  ) => {
+    const value = makeContextValue({
+      state: { funds, ...(overrides.state ?? {}) },
+      selectors: { fundBalances, ...(overrides.selectors ?? {}) },
+    });
+    mockedUseExpenseData.mockReturnValue(value);
+    renderWithProviders(<HomeScreen />);
+    return value;
+  };
+
+  it('filters by the fund chosen from the chip', () => {
+    const value = renderWithValue();
+
+    fireEvent.press(screen.getByLabelText('Filter by fund'));
+    fireEvent.press(screen.getByLabelText('Select Travel'));
+
+    expect(value.actions.setFilters).toHaveBeenCalledWith({ fundId: 2 });
+  });
+
+  it('clears the fund alongside the other filters on reset', () => {
+    const value = renderWithValue({
+      state: { filters: { fundId: 2 } },
+      selectors: { hasActiveFilters: true },
+    });
+
+    fireEvent.press(screen.getByLabelText('Reset filters'));
+
+    expect(value.actions.setFilters).toHaveBeenCalledWith(
+      expect.objectContaining({ fundId: undefined }),
+    );
+  });
+
+  it('drops the fund filter when the chip is closed', () => {
+    const value = renderWithValue({ state: { filters: { fundId: 2 } } });
+
+    fireEvent.press(screen.getByLabelText('Close'));
+
+    expect(value.actions.setFilters).toHaveBeenCalledWith({
+      fundId: undefined,
+    });
+  });
+
+  it('keeps a transfer that only arrives in the filtered fund', () => {
+    const arriving = makeTransaction({
+      id: 9,
+      type: 'transfer',
+      payee: '',
+      description: '',
+      fundId: 1,
+      counterpartFundId: 2,
+    });
+    renderWithValue({
+      state: { filters: { fundId: 2 } },
+      selectors: { filteredTransactions: [arriving] },
+    });
+
+    expect(screen.getByText('General → Travel')).toBeOnTheScreen();
+  });
+
+  it('names both funds on a transfer row instead of a payee', () => {
+    const transfer = makeTransaction({
+      id: 5,
+      type: 'transfer',
+      payee: '',
+      description: '',
+      fundId: 1,
+      counterpartFundId: 2,
+    });
+
+    render({ selectors: { filteredTransactions: [transfer] } });
+
+    expect(screen.getByText('General → Travel')).toBeOnTheScreen();
   });
 });

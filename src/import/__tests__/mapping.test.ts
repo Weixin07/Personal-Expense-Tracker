@@ -325,7 +325,7 @@ describe('resolveTransactionType', () => {
   it('returns null for empty or unknown values so the sign can decide', () => {
     expect(resolveTransactionType('')).toBeNull();
     expect(resolveTransactionType('   ')).toBeNull();
-    expect(resolveTransactionType('transfer')).toBeNull();
+    expect(resolveTransactionType('nonsense')).toBeNull();
   });
 });
 
@@ -415,5 +415,48 @@ describe('time column mapping', () => {
     expect(mapping.date).toBe(0);
     expect(mapping.time).toBeUndefined();
     expect(extractTimeFromDate('2024-03-02 10:11')).toBe('10:11');
+  });
+});
+
+describe('fund columns and transfer vocabulary', () => {
+  it('reads the words other tools use for a transfer', () => {
+    expect(resolveTransactionType('Transfer')).toBe('transfer');
+    expect(resolveTransactionType('xfer')).toBe('transfer');
+    expect(resolveTransactionType(' MOVE ')).toBe('transfer');
+  });
+
+  it('auto-maps the app’s own fund columns from a backup header', () => {
+    const mapping = autoDetectMapping([
+      'date',
+      'amount_native',
+      'currency_code',
+      'fund',
+      'counterpart_fund',
+      'counterpart_amount',
+    ]);
+
+    expect(mapping.fundName).toBe(3);
+    expect(mapping.counterpartFundName).toBe(4);
+    expect(mapping.counterpartAmount).toBe(5);
+  });
+
+  it('accepts the words other tools use for a fund column', () => {
+    ['Account', 'Account Name', 'Pot', 'Envelope', 'Wallet'].forEach(header => {
+      const mapping = autoDetectMapping(['date', 'amount', 'currency', header]);
+      expect(mapping.fundName).toBe(3);
+    });
+  });
+
+  it('maps a destination column separately from the source', () => {
+    const mapping = autoDetectMapping([
+      'date',
+      'amount',
+      'currency',
+      'From Account',
+      'To Account',
+    ]);
+
+    expect(mapping.fundName).toBe(3);
+    expect(mapping.counterpartFundName).toBe(4);
   });
 });

@@ -198,9 +198,11 @@ export const generateMockTransactions = (
 
     transactions.push({
       id: i + 1,
-      type: (i % Math.max(1, Math.round(1 / incomeRatio)) === 0
-        ? 'income'
-        : 'expense') as 'income' | 'expense',
+      type: (i % 20 === 0
+        ? 'transfer'
+        : i % Math.max(1, Math.round(1 / incomeRatio)) === 0
+          ? 'income'
+          : 'expense') as 'income' | 'expense' | 'transfer',
       description:
         descriptions[Math.floor(Math.random() * descriptions.length)],
       payee: payees[Math.floor(Math.random() * payees.length)],
@@ -219,6 +221,12 @@ export const generateMockTransactions = (
               date.getMinutes(),
             ).padStart(2, '0')}`,
       categoryId: Math.floor(Math.random() * categories.length) + 1,
+      // Spread across a handful of funds, with every twentieth row a transfer,
+      // so a balance pass has both sides of the arithmetic to do.
+      fundId: (i % 5) + 1,
+      counterpartFundId: i % 20 === 0 ? ((i + 1) % 5) + 1 : null,
+      counterpartAmount: i % 20 === 0 ? parseFloat(amount.toFixed(2)) : null,
+      counterpartCurrencyCode: i % 20 === 0 ? 'USD' : null,
       notes: Math.random() > 0.5 ? `Note for transaction ${i + 1}` : null,
       createdAt: date.toISOString(),
       updatedAt: date.toISOString(),

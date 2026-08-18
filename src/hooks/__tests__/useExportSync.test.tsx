@@ -51,6 +51,7 @@ const makeParams = (
   isInitialised: true,
   transactions: [],
   categories: [],
+  funds: [],
   initialQueueRecords: [],
   ensureExportDirectoryUri: jest.fn().mockResolvedValue('content://dir'),
   setDriveFolderId: jest.fn(),

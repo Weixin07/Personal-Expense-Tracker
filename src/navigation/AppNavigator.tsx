@@ -7,12 +7,14 @@ import HomeScreen from '../screens/HomeScreen';
 import ImportScreen from '../screens/ImportScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import ManageCategoriesScreen from '../screens/ManageCategoriesScreen';
+import ManageFundsScreen from '../screens/ManageFundsScreen';
 
 export type RootStackParamList = {
   Home: undefined;
   AddTransaction: { transactionId?: number } | undefined;
   Settings: undefined;
   ManageCategories: undefined;
+  ManageFunds: undefined;
   ExportQueue: undefined;
   Import: undefined;
 };
@@ -54,6 +56,11 @@ const AppNavigator: React.FC = () => {
         name="ManageCategories"
         component={ManageCategoriesScreen}
         options={{ title: 'Manage Categories' }}
+      />
+      <Stack.Screen
+        name="ManageFunds"
+        component={ManageFundsScreen}
+        options={{ title: 'Manage Funds' }}
       />
       <Stack.Screen
         name="ExportQueue"

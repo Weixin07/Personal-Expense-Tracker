@@ -36,6 +36,10 @@ jest.mock('../../database', () => ({
   createCategory: jest.fn(),
   updateCategory: jest.fn(),
   deleteCategory: jest.fn(),
+  listFunds: jest.fn(),
+  createFund: jest.fn(),
+  updateFund: jest.fn(),
+  deleteFund: jest.fn(),
   getAllSettings: jest.fn(),
   setSetting: jest.fn(),
   listExportQueue: jest.fn(),
@@ -81,6 +85,10 @@ const transaction: TransactionRecord = {
   date: '2025-01-10',
   time: null,
   categoryId: null,
+  fundId: 1,
+  counterpartFundId: null,
+  counterpartAmount: null,
+  counterpartCurrencyCode: null,
   notes: null,
   createdAt: '2025-01-10T00:00:00.000Z',
   updatedAt: '2025-01-10T00:00:00.000Z',
@@ -119,6 +127,7 @@ beforeEach(() => {
   );
   mockDb.listTransactions.mockResolvedValue([]);
   mockDb.listCategories.mockResolvedValue([]);
+  mockDb.listFunds.mockResolvedValue([]);
   mockDb.getAllSettings.mockResolvedValue([]);
   mockDb.listExportQueue.mockResolvedValue([]);
   mockDb.listCurrencyFxRates.mockResolvedValue([]);
@@ -177,6 +186,10 @@ describe('TransactionDataProvider effects', () => {
         date: '2025-01-10',
         time: null,
         categoryId: null,
+        fundId: 1,
+        counterpartFundId: null,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
         notes: null,
       });
     });
@@ -201,6 +214,10 @@ describe('TransactionDataProvider effects', () => {
           date: '2025-01-10',
           time: null,
           categoryId: null,
+          fundId: 1,
+          counterpartFundId: null,
+          counterpartAmount: null,
+          counterpartCurrencyCode: null,
           notes: null,
         }),
       ).rejects.toThrow('insert failed');
@@ -282,10 +299,90 @@ describe('TransactionDataProvider effects', () => {
 
     mockDb.deleteCategory.mockResolvedValue(undefined as never);
     mockDb.listCategories.mockResolvedValue([]);
+    mockDb.listFunds.mockResolvedValue([]);
     await act(async () => {
       await ctx.actions.deleteCategory(1);
     });
     expect(ctx.state.categories).toHaveLength(0);
+  });
+
+  it('updates a category and reloads the collection', async () => {
+    await renderProvider();
+    const renamed = { ...category, name: 'Groceries' };
+    mockDb.updateCategory.mockResolvedValue(renamed);
+    mockDb.listCategories.mockResolvedValue([renamed]);
+
+    await act(async () => {
+      await ctx.actions.updateCategory({
+        id: 1,
+        name: 'Groceries',
+        type: 'both',
+      });
+    });
+
+    expect(ctx.state.categories).toEqual([renamed]);
+    expect(ctx.state.isLoading).toBe(false);
+  });
+
+  it('creates, updates and deletes funds', async () => {
+    const pot = {
+      id: 3,
+      name: 'Travel',
+      currencyCode: null,
+      openingBalance: 0,
+      notes: null,
+      createdAt: '2025-01-01T00:00:00.000Z',
+      updatedAt: '2025-01-01T00:00:00.000Z',
+    };
+    await renderProvider();
+
+    mockDb.createFund.mockResolvedValue(pot);
+    mockDb.listFunds.mockResolvedValue([pot]);
+    await act(async () => {
+      await ctx.actions.createFund({
+        name: 'Travel',
+        currencyCode: null,
+        openingBalance: 0,
+        notes: null,
+      });
+    });
+    expect(ctx.state.funds).toEqual([pot]);
+
+    const renamed = { ...pot, name: 'Trips' };
+    mockDb.updateFund.mockResolvedValue(renamed);
+    mockDb.listFunds.mockResolvedValue([renamed]);
+    await act(async () => {
+      await ctx.actions.updateFund({
+        id: 3,
+        name: 'Trips',
+        currencyCode: null,
+        openingBalance: 0,
+        notes: null,
+      });
+    });
+    expect(ctx.state.funds).toEqual([renamed]);
+
+    mockDb.deleteFund.mockResolvedValue(undefined as never);
+    mockDb.listFunds.mockResolvedValue([]);
+    await act(async () => {
+      await ctx.actions.deleteFund(3);
+    });
+    expect(ctx.state.funds).toEqual([]);
+    expect(ctx.state.isLoading).toBe(false);
+  });
+
+  it('surfaces a refused fund deletion and clears the in-flight state', async () => {
+    await renderProvider();
+    mockDb.deleteFund.mockRejectedValueOnce(new Error('fund still in use'));
+
+    await act(async () => {
+      await expect(ctx.actions.deleteFund(1)).rejects.toThrow(
+        'fund still in use',
+      );
+    });
+
+    expect(ctx.state.error).toBeTruthy();
+    expect(ctx.state.isLoading).toBe(false);
   });
 
   it('persists settings changes', async () => {
@@ -809,5 +906,104 @@ describe('totals', () => {
 
     act(() => ctx.actions.setFilters({ type: undefined }));
     expect(ctx.selectors.filteredTransactions).toHaveLength(2);
+  });
+});
+
+describe('transfers and fund balances', () => {
+  const fund = (id: number, overrides = {}) => ({
+    id,
+    name: `Fund ${id}`,
+    currencyCode: null,
+    openingBalance: 0,
+    notes: null,
+    createdAt: '2025-01-01T00:00:00.000Z',
+    updatedAt: '2025-01-01T00:00:00.000Z',
+    ...overrides,
+  });
+
+  const transfer = {
+    ...transaction,
+    id: 50,
+    type: 'transfer' as const,
+    amountNative: 100,
+    baseAmount: 100,
+    fundId: 1,
+    counterpartFundId: 2,
+    counterpartAmount: 117,
+    counterpartCurrencyCode: 'EUR',
+  };
+
+  it('leaves transfers out of spent, received and net', async () => {
+    mockDb.listFunds.mockResolvedValue([fund(1), fund(2)]);
+    mockDb.listTransactions.mockResolvedValue([
+      { ...transaction, id: 1, type: 'expense', baseAmount: 10 },
+      transfer,
+    ]);
+
+    await renderProvider();
+
+    const group = ctx.selectors.totals.byBaseCurrency[0];
+    expect(group.expense.total).toBe(10);
+    expect(group.expense.count).toBe(1);
+    expect(group.income.total).toBe(0);
+    expect(group.net.total).toBe(-10);
+  });
+
+  it('moves one base amount out of the source fund and into the destination', async () => {
+    // With a base currency set, the funds' own currencies resolve to it, so the
+    // opening balances and the movement land in one group.
+    mockDb.getAllSettings.mockResolvedValue([
+      { key: 'base_currency', value: 'USD' },
+    ]);
+    mockDb.listFunds.mockResolvedValue([fund(1), fund(2)]);
+    mockDb.listTransactions.mockResolvedValue([transfer]);
+
+    await renderProvider();
+
+    const source = ctx.selectors.fundBalances.find(item => item.fundId === 1);
+    const destination = ctx.selectors.fundBalances.find(
+      item => item.fundId === 2,
+    );
+    // The counterpart amount of 117 is what the user saw arrive; the balance
+    // uses the single conserved base amount so a transfer cannot mint money.
+    expect(source?.byCurrency).toEqual([
+      { currencyCode: 'USD', balance: -100 },
+    ]);
+    expect(destination?.byCurrency).toEqual([
+      { currencyCode: 'USD', balance: 100 },
+    ]);
+  });
+
+  it('files an opening balance under the fund currency, falling back to base', async () => {
+    mockDb.getAllSettings.mockResolvedValue([
+      { key: 'base_currency', value: 'USD' },
+    ]);
+    mockDb.listFunds.mockResolvedValue([
+      fund(1, { currencyCode: 'EUR', openingBalance: 500 }),
+      fund(2, { currencyCode: null, openingBalance: 20 }),
+    ]);
+    mockDb.listTransactions.mockResolvedValue([]);
+
+    await renderProvider();
+
+    expect(
+      ctx.selectors.fundBalances.find(item => item.fundId === 1)?.byCurrency,
+    ).toEqual([{ currencyCode: 'EUR', balance: 500 }]);
+    expect(
+      ctx.selectors.fundBalances.find(item => item.fundId === 2)?.byCurrency,
+    ).toEqual([{ currencyCode: 'USD', balance: 20 }]);
+  });
+
+  it('counts a fund filter against both sides of a transfer', async () => {
+    mockDb.listFunds.mockResolvedValue([fund(1), fund(2)]);
+    mockDb.listTransactions.mockResolvedValue([transfer]);
+
+    await renderProvider();
+
+    await act(async () => {
+      ctx.actions.setFilters({ fundId: 2 });
+    });
+
+    expect(ctx.selectors.filteredTransactions).toHaveLength(1);
   });
 });

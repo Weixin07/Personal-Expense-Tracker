@@ -30,6 +30,10 @@ const makeTransaction = (
   date: IN_WINDOW,
   time: null,
   categoryId: null,
+  fundId: 1,
+  counterpartFundId: null,
+  counterpartAmount: null,
+  counterpartCurrencyCode: null,
   notes: null,
   createdAt: '2026-06-01T00:00:00.000Z',
   updatedAt: '2026-06-01T00:00:00.000Z',
@@ -336,5 +340,29 @@ describe('buildCategoryUsageCounts', () => {
     expect(counts.all.get(1)).toEqual({ inWindow: 3, older: 0 });
     expect(counts.expense.get(1)).toEqual({ inWindow: 2, older: 0 });
     expect(counts.income.get(1)).toEqual({ inWindow: 1, older: 0 });
+  });
+});
+
+describe('transfers are absent from suggestions', () => {
+  it('offers no payee spelling from a transfer', () => {
+    const index = buildSuggestionIndex(
+      [
+        makeTransaction({ id: 1, type: 'transfer', payee: 'Moved to Travel' }),
+        makeTransaction({ id: 2, type: 'expense', payee: 'Cafe' }),
+      ],
+      'payee',
+      { now: NOW },
+    );
+
+    expect(index.map(entry => entry.value)).toEqual(['Cafe']);
+  });
+
+  it('counts a transfer against neither direction of category usage', () => {
+    const counts = rankCategoryIdsByFrequency(
+      [makeTransaction({ id: 1, type: 'transfer', categoryId: 3 })],
+      { now: NOW },
+    );
+
+    expect(counts.get(3)).toBeUndefined();
   });
 });

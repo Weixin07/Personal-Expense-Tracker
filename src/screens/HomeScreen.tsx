@@ -21,6 +21,7 @@ import {
 } from 'react-native-paper';
 import CategoryPickerDialog from '../components/CategoryPickerDialog';
 import CurrencyPickerDialog from '../components/CurrencyPickerDialog';
+import FundPickerDialog from '../components/FundPickerDialog';
 import { findCurrencyName } from '../constants/currencyOptions';
 import { useTransactionData } from '../context/AppContext';
 import type { RootStackParamList } from '../navigation/AppNavigator';
@@ -48,6 +49,7 @@ import type { TransactionType } from '../database';
 const TYPE_FILTERS: { value: TransactionType; label: string }[] = [
   { value: 'income', label: 'Income' },
   { value: 'expense', label: 'Expense' },
+  { value: 'transfer', label: 'Transfer' },
 ];
 
 const ITEM_HEIGHT = 72;
@@ -65,6 +67,7 @@ const HomeScreen: React.FC = () => {
       settings,
       exportQueue,
       categories,
+      funds,
       filters,
       isInitialised,
       isLoading,
@@ -72,6 +75,7 @@ const HomeScreen: React.FC = () => {
     selectors: {
       filteredTransactions,
       totals,
+      fundBalances,
       hasActiveFilters,
       categoryUsageCounts,
     },
@@ -80,6 +84,7 @@ const HomeScreen: React.FC = () => {
 
   const [refreshing, setRefreshing] = useState(false);
   const [categoryDialogVisible, setCategoryDialogVisible] = useState(false);
+  const [fundDialogVisible, setFundDialogVisible] = useState(false);
   const [baseCurrencyDialogVisible, setBaseCurrencyDialogVisible] =
     useState(false);
   const defaultFiltersAppliedRef = useRef(false);
@@ -119,10 +124,19 @@ const HomeScreen: React.FC = () => {
     [filters],
   );
   const categoryFilterId = filters.categoryId ?? null;
+  const fundFilterId = filters.fundId ?? null;
   const typeFilter = filters.type ?? null;
   const incomeColor = theme.dark ? INCOME_COLOR_DARK : INCOME_COLOR_LIGHT;
   const negativeColor = theme.dark ? NEGATIVE_COLOR_DARK : NEGATIVE_COLOR_LIGHT;
   const mutedColor = theme.colors.onSurfaceVariant;
+
+  const fundsMap = useMemo(() => {
+    const map = new Map<number, string>();
+    funds.forEach(fund => {
+      map.set(fund.id, fund.name);
+    });
+    return map;
+  }, [funds]);
 
   const categoriesMap = useMemo(() => {
     const map = new Map<number, string>();
@@ -183,6 +197,18 @@ const HomeScreen: React.FC = () => {
     setFilters({ categoryId: undefined });
   }, [setFilters]);
 
+  const handleFundSelect = useCallback(
+    (fundId: number) => {
+      setFilters({ fundId });
+      setFundDialogVisible(false);
+    },
+    [setFilters],
+  );
+
+  const handleClearFund = useCallback(() => {
+    setFilters({ fundId: undefined });
+  }, [setFilters]);
+
   // Selecting the active direction clears it, so the pair behaves as one
   // three-state control without needing a separate clear affordance.
   const handleTypeSelect = useCallback(
@@ -199,6 +225,7 @@ const HomeScreen: React.FC = () => {
       endDate: range.endDate ?? undefined,
       categoryId: undefined,
       type: undefined,
+      fundId: undefined,
     });
   }, [setFilters]);
 
@@ -244,14 +271,27 @@ const HomeScreen: React.FC = () => {
         : null;
       const payee = item.payee.trim();
       const description = item.description.trim();
-      const title = payee || description || '(no payee)';
+      const isTransfer = item.type === 'transfer';
       const isIncome = item.type === 'income';
+      const fundName = fundsMap.get(item.fundId) ?? 'Unknown fund';
+      // A transfer names the two funds it moved between: it carries neither a
+      // payee nor a description to identify it by.
+      const title = isTransfer
+        ? `${fundName} → ${
+            item.counterpartFundId != null
+              ? (fundsMap.get(item.counterpartFundId) ?? 'Unknown fund')
+              : 'Unknown fund'
+          }`
+        : payee || description || '(no payee)';
       const descriptionParts = [
         formatDateTimeBritish(item.date, item.time),
-        categoryName ?? 'No category',
+        isTransfer ? 'Transfer' : (categoryName ?? 'No category'),
         formatDisplayMoney(item.amountNative, item.currencyCode),
       ];
-      if (payee && description) {
+      if (!isTransfer) {
+        descriptionParts.splice(1, 0, fundName);
+      }
+      if (!isTransfer && payee && description) {
         descriptionParts.unshift(description);
       }
       return (
@@ -270,20 +310,23 @@ const HomeScreen: React.FC = () => {
                 style={[
                   styles.listAmount,
                   isIncome ? { color: incomeColor } : null,
+                  isTransfer ? { color: mutedColor } : null,
                 ]}
               >
-                {formatDirectionalMoney(
-                  item.baseAmount,
-                  isIncome ? 'received' : 'spent',
-                  item.baseCurrencyCode,
-                )}
+                {isTransfer
+                  ? formatDisplayMoney(item.baseAmount, item.baseCurrencyCode)
+                  : formatDirectionalMoney(
+                      item.baseAmount,
+                      isIncome ? 'received' : 'spent',
+                      item.baseCurrencyCode,
+                    )}
               </Text>
             </View>
           )}
         />
       );
     },
-    [categoriesMap, incomeColor, navigation],
+    [categoriesMap, fundsMap, incomeColor, mutedColor, navigation],
   );
 
   const keyExtractor = useCallback(
@@ -299,6 +342,47 @@ const HomeScreen: React.FC = () => {
     }),
     [],
   );
+
+  const balancesCard = useMemo(() => {
+    if (!fundBalances.length) {
+      return null;
+    }
+
+    return (
+      <Surface style={styles.summaryCard} elevation={1}>
+        <Text variant="titleSmall">Funds</Text>
+        {fundBalances.map(balance => {
+          const name = fundsMap.get(balance.fundId) ?? 'Unknown fund';
+          const figures = balance.byCurrency.length
+            ? balance.byCurrency
+            : [{ currencyCode: null, balance: 0 }];
+          return (
+            <View
+              key={balance.fundId}
+              style={styles.summaryRow}
+              accessible
+              accessibilityLabel={`${name} balance ${figures
+                .map(figure =>
+                  formatSignedMoney(figure.balance, figure.currencyCode),
+                )
+                .join(', ')}`}
+            >
+              <Text variant="bodyMedium" style={styles.summaryLabel}>
+                {name}
+              </Text>
+              <Text variant="bodyMedium" style={styles.summaryAmount}>
+                {figures
+                  .map(figure =>
+                    formatSignedMoney(figure.balance, figure.currencyCode),
+                  )
+                  .join(' · ')}
+              </Text>
+            </View>
+          );
+        })}
+      </Surface>
+    );
+  }, [fundBalances, fundsMap]);
 
   const summaryCard = useMemo(() => {
     if (!summaryGroups.length) {
@@ -409,6 +493,7 @@ const HomeScreen: React.FC = () => {
             disabled={refreshing}
           />
         </View>
+        {balancesCard}
         {summaryCard}
         <Text variant="labelLarge" style={{ color: mutedColor }}>
           Pending exports: {pendingExports}
@@ -497,6 +582,16 @@ const HomeScreen: React.FC = () => {
                 ? `Category: ${selectedCategoryName ?? 'Unknown'}`
                 : 'Category'}
             </Chip>
+            <Chip
+              selected={fundFilterId !== null}
+              onPress={() => setFundDialogVisible(true)}
+              onClose={fundFilterId !== null ? handleClearFund : undefined}
+              accessibilityLabel="Filter by fund"
+            >
+              {fundFilterId !== null
+                ? `Fund: ${fundsMap.get(fundFilterId) ?? 'Unknown'}`
+                : 'Fund'}
+            </Chip>
             {hasActiveFilters ? (
               <Chip
                 onPress={handleResetFilters}
@@ -529,7 +624,11 @@ const HomeScreen: React.FC = () => {
     mutedColor,
     pendingExports,
     refreshing,
+    balancesCard,
     summaryCard,
+    fundFilterId,
+    fundsMap,
+    handleClearFund,
   ]);
 
   const listEmptyComponent = useMemo(
@@ -589,6 +688,14 @@ const HomeScreen: React.FC = () => {
         description={baseCurrencyDialogDescription}
         dismissable={Boolean(settings.baseCurrency)}
         showCancelButton={Boolean(settings.baseCurrency)}
+      />
+      <FundPickerDialog
+        visible={fundDialogVisible}
+        onDismiss={() => setFundDialogVisible(false)}
+        funds={funds}
+        selectedId={fundFilterId}
+        title="Filter by fund"
+        onSelect={handleFundSelect}
       />
       <CategoryPickerDialog
         visible={categoryDialogVisible}

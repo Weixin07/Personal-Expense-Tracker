@@ -26,6 +26,10 @@ const transactions: TransactionRecord[] = [
     date: '2024-01-01',
     time: null,
     categoryId: 1,
+    fundId: 1,
+    counterpartFundId: null,
+    counterpartAmount: null,
+    counterpartCurrencyCode: null,
     notes: 'line1\nline2',
     createdAt: '',
     updatedAt: '',
@@ -43,6 +47,10 @@ const transactions: TransactionRecord[] = [
     date: '2024-02-15',
     time: null,
     categoryId: 1,
+    fundId: 1,
+    counterpartFundId: null,
+    counterpartAmount: null,
+    counterpartCurrencyCode: null,
     notes: null,
     createdAt: '',
     updatedAt: '',
@@ -60,6 +68,10 @@ const transactions: TransactionRecord[] = [
     date: '2024-03-20',
     time: null,
     categoryId: 1,
+    fundId: 1,
+    counterpartFundId: null,
+    counterpartAmount: null,
+    counterpartCurrencyCode: null,
     notes: null,
     createdAt: '',
     updatedAt: '',
@@ -81,6 +93,8 @@ describe('export -> import round trip', () => {
       fxRateCache: [],
       existingTransactions: [],
       existingCategories: categories,
+      existingFunds: [],
+      defaultFundId: 1,
     };
     const preview = previewImport(content, mapping, 'iso', ctx);
 
@@ -139,6 +153,8 @@ describe('export -> import round trip', () => {
       fxRateCache: [],
       existingTransactions: [],
       existingCategories: categories,
+      existingFunds: [],
+      defaultFundId: 1,
     });
 
     expect(preview.valid.map(item => item.fxRateSource)).toEqual([
@@ -174,6 +190,8 @@ describe('export -> import round trip', () => {
       ],
       existingTransactions: [],
       existingCategories: categories,
+      existingFunds: [],
+      defaultFundId: 1,
     });
 
     expect(preview.fxReview).toEqual([]);
@@ -203,6 +221,8 @@ describe('export -> import round trip', () => {
       fxRateCache: [],
       existingTransactions: [],
       existingCategories: categories,
+      existingFunds: [],
+      defaultFundId: 1,
     });
 
     const summary = await commitImport(preview);
@@ -257,6 +277,8 @@ describe('third-party CSV with timed M/D dates and a type column', () => {
       fxRateCache: [],
       existingTransactions: [],
       existingCategories: [],
+      existingFunds: [],
+      defaultFundId: 1,
     };
     return { mapping, preview: previewImport(content, mapping, 'auto', ctx) };
   };
@@ -315,6 +337,8 @@ describe('third-party CSV whose currencies are all foreign to the base', () => {
       fxRateCache: [],
       existingTransactions: [],
       existingCategories: [],
+      existingFunds: [],
+      defaultFundId: 1,
     };
     return previewImport(content, mapping, 'auto', ctx);
   };
@@ -357,6 +381,8 @@ describe('third-party CSV whose currencies are all foreign to the base', () => {
         fxRateCache: [],
         existingTransactions: [],
         existingCategories: [],
+        existingFunds: [],
+        defaultFundId: 1,
       },
     );
 
@@ -459,6 +485,8 @@ describe('a backup exported before the type column existed', () => {
       fxRateCache: [],
       existingTransactions: [],
       existingCategories: categories,
+      existingFunds: [],
+      defaultFundId: 1,
     });
 
     expect(preview.invalid).toEqual([]);
@@ -486,6 +514,8 @@ describe('a backup exported before the type column existed', () => {
       fxRateCache: [],
       existingTransactions: [],
       existingCategories: categories,
+      existingFunds: [],
+      defaultFundId: 1,
     });
 
     expect(preview.signConventionBypassed).toBe(false);
@@ -504,6 +534,8 @@ describe('time round trip', () => {
     fxRateCache: [],
     existingTransactions: [],
     existingCategories: categories,
+    existingFunds: [],
+    defaultFundId: 1,
   };
 
   const timed: TransactionRecord[] = [
@@ -558,5 +590,117 @@ describe('time round trip', () => {
     expect(preview.unreadableTimes).toEqual([]);
     expect(preview.valid).toHaveLength(2);
     expect(preview.valid.every(item => item.record.time === null)).toBe(true);
+  });
+});
+
+describe('export -> import round trip for a transfer', () => {
+  const funds = [
+    {
+      id: 1,
+      name: 'General',
+      currencyCode: null,
+      openingBalance: 0,
+      notes: null,
+      createdAt: '',
+      updatedAt: '',
+    },
+    {
+      id: 2,
+      name: 'Travel',
+      currencyCode: 'EUR',
+      openingBalance: 0,
+      notes: null,
+      createdAt: '',
+      updatedAt: '',
+    },
+  ];
+
+  const transfer: TransactionRecord = {
+    type: 'transfer',
+    id: 9,
+    description: '',
+    payee: '',
+    amountNative: 100,
+    currencyCode: 'GBP',
+    fxRateToBase: 1,
+    baseAmount: 100,
+    baseCurrencyCode: 'GBP',
+    date: '2025-03-01',
+    time: '12:00',
+    categoryId: null,
+    fundId: 1,
+    counterpartFundId: 2,
+    counterpartAmount: 117,
+    counterpartCurrencyCode: 'EUR',
+    notes: null,
+    createdAt: '',
+    updatedAt: '',
+  };
+
+  const ctxWith = (): ImportContext => ({
+    baseCurrency: 'GBP',
+    defaultCurrency: null,
+    currencyChoices: {},
+    negativeMeans: 'income',
+    numberFormat: 'auto',
+    fxRateCache: [],
+    existingTransactions: [],
+    existingCategories: [],
+    existingFunds: funds,
+    defaultFundId: 1,
+  });
+
+  it('reconstructs the transfer with both funds and both amounts', () => {
+    const { content } = buildTransactionsCsv({
+      transactions: [transfer],
+      categories: [],
+      funds,
+    });
+    const parsed = parseCsv(content);
+    const mapping = autoDetectMapping(parsed.header);
+
+    const preview = previewImport(content, mapping, 'iso', ctxWith());
+
+    expect(preview.invalid).toEqual([]);
+    expect(preview.valid).toHaveLength(1);
+    const [row] = preview.valid;
+    expect(row.record.type).toBe('transfer');
+    expect(row.record.amountNative).toBe(100);
+    expect(row.record.counterpartAmount).toBe(117);
+    expect(row.fundName).toBe('General');
+    expect(row.counterpartFundName).toBe('Travel');
+    // The currency the received amount was recorded in is stored per row, so a
+    // restore must bring it back rather than re-reading the destination fund.
+    expect(row.record.counterpartCurrencyCode).toBe('EUR');
+  });
+
+  it('creates no fund on the way back in, because both already exist', () => {
+    const { content } = buildTransactionsCsv({
+      transactions: [transfer],
+      categories: [],
+      funds,
+    });
+    const mapping = autoDetectMapping(parseCsv(content).header);
+
+    const preview = previewImport(content, mapping, 'iso', ctxWith());
+
+    expect(preview.newFundNames).toEqual([]);
+  });
+
+  it('recognises the re-imported transfer as a duplicate of the stored one', () => {
+    const { content } = buildTransactionsCsv({
+      transactions: [transfer],
+      categories: [],
+      funds,
+    });
+    const mapping = autoDetectMapping(parseCsv(content).header);
+
+    const preview = previewImport(content, mapping, 'iso', {
+      ...ctxWith(),
+      existingTransactions: [transfer],
+    });
+
+    expect(preview.duplicates).toHaveLength(1);
+    expect(preview.duplicates[0].matchesTransactionId).toBe(9);
   });
 });

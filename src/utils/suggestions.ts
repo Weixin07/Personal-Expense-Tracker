@@ -1,5 +1,9 @@
 import { localIsoDateOffset } from './date';
-import type { TransactionRecord, TransactionType } from '../database';
+import type {
+  TransactionDirection,
+  TransactionRecord,
+  TransactionType,
+} from '../database';
 
 export type SuggestionField = 'description' | 'payee';
 
@@ -19,6 +23,17 @@ export type FrequencyOptions = {
   /** Limits counting to one direction. Omit to count every transaction. */
   type?: TransactionType;
   excludeTransactionId?: number;
+};
+
+/**
+ * Category usage is only ever counted per direction, so this cannot be scoped
+ * to a transfer — transfers carry no category to count.
+ */
+export type CategoryUsageOptions = Omit<
+  FrequencyOptions,
+  'excludeTransactionId' | 'type'
+> & {
+  type?: TransactionDirection;
 };
 
 /**
@@ -121,6 +136,11 @@ const isEligible = (
   excludeTransactionId: number | undefined,
 ): boolean => {
   if (excludeTransactionId != null && transaction.id === excludeTransactionId) {
+    return false;
+  }
+  // A transfer records no payee or description, so it has no spelling to offer
+  // and would only contribute empty groups.
+  if (transaction.type === 'transfer') {
     return false;
   }
   return !type || transaction.type === type;
@@ -227,7 +247,7 @@ export const filterSuggestions = (
  */
 export const rankCategoryIdsByFrequency = (
   transactions: readonly TransactionRecord[],
-  options: Omit<FrequencyOptions, 'excludeTransactionId'> = {},
+  options: CategoryUsageOptions = {},
 ): ReadonlyMap<number, CategoryUsage> => {
   const {
     now = new Date(),
@@ -238,7 +258,9 @@ export const rankCategoryIdsByFrequency = (
   const counts = new Map<number, CategoryUsage>();
 
   transactions.forEach(transaction => {
-    if (transaction.categoryId == null) {
+    // A transfer carries no category by design; skipping it here keeps that
+    // true of the counts even if one ever reached the table with a category.
+    if (transaction.categoryId == null || transaction.type === 'transfer') {
       return;
     }
     if (type && transaction.type !== type) {
@@ -261,12 +283,45 @@ export const rankCategoryIdsByFrequency = (
 };
 
 /**
+ * Usage per fund id, counting both sides of a transfer: money moved into a fund
+ * is use of that fund. Funds never used are absent rather than zeroed.
+ */
+export const rankFundIdsByFrequency = (
+  transactions: readonly TransactionRecord[],
+  options: Omit<CategoryUsageOptions, 'type'> = {},
+): ReadonlyMap<number, CategoryUsage> => {
+  const { now = new Date(), windowMonths = SUGGESTION_WINDOW_MONTHS } = options;
+  const cutoff = windowStartDate(now, windowMonths);
+  const counts = new Map<number, CategoryUsage>();
+
+  const count = (fundId: number, inWindow: boolean): void => {
+    const current = counts.get(fundId) ?? { inWindow: 0, older: 0 };
+    if (inWindow) {
+      current.inWindow += 1;
+    } else {
+      current.older += 1;
+    }
+    counts.set(fundId, current);
+  };
+
+  transactions.forEach(transaction => {
+    const inWindow = transaction.date >= cutoff;
+    count(transaction.fundId, inWindow);
+    if (transaction.counterpartFundId != null) {
+      count(transaction.counterpartFundId, inWindow);
+    }
+  });
+
+  return counts;
+};
+
+/**
  * Category usage in all three scopes a picker can be opened in: from a form
  * that knows its direction, or from a filter that does not.
  */
 export const buildCategoryUsageCounts = (
   transactions: readonly TransactionRecord[],
-  options: Omit<FrequencyOptions, 'excludeTransactionId' | 'type'> = {},
+  options: Omit<CategoryUsageOptions, 'type'> = {},
 ): CategoryUsageCounts => ({
   all: rankCategoryIdsByFrequency(transactions, options),
   expense: rankCategoryIdsByFrequency(transactions, {

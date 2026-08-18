@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import {
   renderWithProviders,
   makeContextValue,
+  makeFund,
   screen,
   fireEvent,
   waitFor,
@@ -234,6 +235,10 @@ describe('ImportScreen', () => {
       date: '2024-01-01',
       time: null,
       categoryId: null,
+      fundId: 1,
+      counterpartFundId: null,
+      counterpartAmount: null,
+      counterpartCurrencyCode: null,
       notes: null,
       createdAt: '',
       updatedAt: '',
@@ -1148,13 +1153,13 @@ describe('ImportScreen', () => {
 
     it('names a populated column that no field claims', async () => {
       await reachPreview(
-        'Date,Account,Category,Amount,Currency\r\n' +
+        'Date,Reference,Category,Amount,Currency\r\n' +
           '2024-01-01,CUB - online payment,Food,50,USD\r\n',
       );
 
       expect(screen.getByText(/are not mapped/)).toBeOnTheScreen();
       expect(
-        screen.getByText(/Account — e\.g\. CUB - online payment/),
+        screen.getByText(/Reference — e\.g\. CUB - online payment/),
       ).toBeOnTheScreen();
     });
 
@@ -1228,6 +1233,8 @@ describe('ImportScreen', () => {
       expect(importTransactions.mock.calls[0][2]).toEqual({
         skipDuplicates: true,
         categoryAliases: { transportation: 'Transport' },
+        createFunds: [],
+        fundAliases: {},
       });
     });
 
@@ -1270,7 +1277,128 @@ describe('ImportScreen', () => {
       expect(importTransactions.mock.calls[0][2]).toEqual({
         skipDuplicates: true,
         categoryAliases: {},
+        createFunds: [],
+        fundAliases: {},
       });
+    });
+  });
+});
+
+describe('ImportScreen fund decisions', () => {
+  const importTransactions = jest.fn().mockResolvedValue(makeImportSummary());
+
+  const funds = [
+    makeFund({ id: 1, name: 'General' }),
+    makeFund({ id: 2, name: 'Rainy day' }),
+  ];
+
+  const reach = async (csv: string) => {
+    mockedUseExpenseData.mockReturnValue(
+      makeContextValue({ state: { funds }, actions: { importTransactions } }),
+    );
+    mockedPickCsvFile.mockResolvedValue({ ok: true, uri: 'content://x.csv' });
+    mockedReadFileAsString.mockResolvedValue(csv);
+    renderWithProviders(<ImportScreen />);
+    fireEvent.press(screen.getByLabelText('Import from a CSV file'));
+    await waitFor(() =>
+      expect(screen.getByText('Map columns')).toBeOnTheScreen(),
+    );
+    fireEvent.press(screen.getByLabelText('Preview import'));
+    await waitFor(() =>
+      expect(screen.getByText('Review import')).toBeOnTheScreen(),
+    );
+  };
+
+  const CSV =
+    'Date,Description,Amount,Currency,Fund\r\n' +
+    '2024-01-01,Hotel,50,USD,Travel\r\n';
+
+  beforeEach(() => {
+    importTransactions.mockClear();
+  });
+
+  it('files unnamed rows under an overridden default fund', async () => {
+    mockedUseExpenseData.mockReturnValue(
+      makeContextValue({ state: { funds }, actions: { importTransactions } }),
+    );
+    mockedPickCsvFile.mockResolvedValue({ ok: true, uri: 'content://x.csv' });
+    mockedReadFileAsString.mockResolvedValue(CSV);
+    renderWithProviders(<ImportScreen />);
+    fireEvent.press(screen.getByLabelText('Import from a CSV file'));
+    await waitFor(() =>
+      expect(screen.getByText('Map columns')).toBeOnTheScreen(),
+    );
+
+    fireEvent.press(screen.getByLabelText('Select default fund'));
+    fireEvent.press(screen.getByLabelText('Select Rainy day'));
+    fireEvent.press(screen.getByLabelText('Preview import'));
+    await waitFor(() =>
+      expect(screen.getByText('Review import')).toBeOnTheScreen(),
+    );
+
+    expect(screen.getByText(/land in Rainy day/)).toBeOnTheScreen();
+  });
+
+  it('reports the transfers inserted and the funds created', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert');
+    importTransactions.mockResolvedValueOnce(
+      makeImportSummary({ insertedTransfers: 1, createdFunds: 1 }),
+    );
+    await reach(CSV);
+
+    fireEvent.press(screen.getByLabelText('Confirm import'));
+    await waitFor(() => expect(importTransactions).toHaveBeenCalled());
+
+    const message = alertSpy.mock.calls.at(-1)?.[1] ?? '';
+    expect(message).toContain('1 transfer');
+    expect(message).toContain('1 fund created');
+  });
+
+  it('lists a fund the file introduces without creating it', async () => {
+    await reach(CSV);
+
+    expect(screen.getByText('New funds in this file')).toBeOnTheScreen();
+    expect(screen.getByText(/"Travel" \(1 row\)/)).toBeOnTheScreen();
+  });
+
+  it('sends nothing for a name left undecided', async () => {
+    await reach(CSV);
+
+    fireEvent.press(screen.getByLabelText('Confirm import'));
+    await waitFor(() => expect(importTransactions).toHaveBeenCalled());
+
+    expect(importTransactions.mock.calls[0][2]).toMatchObject({
+      createFunds: [],
+      fundAliases: {},
+    });
+  });
+
+  it('opts a name in for creation', async () => {
+    await reach(CSV);
+
+    fireEvent.press(screen.getByLabelText('Create fund Travel'));
+    fireEvent.press(screen.getByLabelText('Confirm import'));
+    await waitFor(() => expect(importTransactions).toHaveBeenCalled());
+
+    expect(importTransactions.mock.calls[0][2]).toMatchObject({
+      createFunds: ['travel'],
+      fundAliases: {},
+    });
+  });
+
+  it('files a name under an existing fund instead', async () => {
+    await reach(CSV);
+
+    fireEvent.press(
+      screen.getByLabelText('Choose an existing fund for Travel'),
+    );
+    fireEvent.press(screen.getByLabelText('Select Rainy day'));
+    fireEvent.press(screen.getByLabelText('Confirm import'));
+    await waitFor(() => expect(importTransactions).toHaveBeenCalled());
+
+    expect(importTransactions.mock.calls[0][2]).toMatchObject({
+      createFunds: [],
+      fundAliases: { travel: 'Rainy day' },
     });
   });
 });

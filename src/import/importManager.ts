@@ -5,11 +5,14 @@ import {
   getCategoryByName,
   createCategory,
   updateCategory,
+  createFund,
+  getFundByName,
   upsertCurrencyFxRate,
 } from '../database';
 import type {
   CategoryType,
   CurrencyFxRateRecord,
+  TransactionDirection,
   TransactionType,
   NewTransactionRecord,
 } from '../database';
@@ -84,6 +87,12 @@ const timesMatch = (a: string | null, b: string | null): boolean =>
  *
  * Time is deliberately absent: it is compared separately, because a wildcard
  * match cannot be expressed in a concatenated key.
+ *
+ * The fund is absent for everything but a transfer. Re-filing a transaction
+ * into another fund must not stop a re-imported backup recognising it. A
+ * transfer is the exception: it carries neither payee nor description, so
+ * without its two funds two distinct moves of the same amount on one day would
+ * share a key.
  */
 const duplicateKey = (
   type: TransactionType,
@@ -92,8 +101,21 @@ const duplicateKey = (
   currencyCode: string,
   payee: string,
   description: string,
+  fundKey: string,
 ): string =>
-  `${type}|${date}|${amountNative.toFixed(2)}|${currencyCode}|${foldIdentityText(payee)}|${foldIdentityText(description)}`;
+  `${type}|${date}|${amountNative.toFixed(2)}|${currencyCode}|${foldIdentityText(payee)}|${foldIdentityText(description)}|${fundKey}`;
+
+/**
+ * Fund component of a duplicate key, under the rule stated on `duplicateKey`.
+ */
+const transferFundKey = (
+  type: TransactionType,
+  fundName: string | null,
+  counterpartFundName: string | null,
+): string =>
+  type === 'transfer'
+    ? `${foldIdentityText(fundName ?? '')}>${foldIdentityText(counterpartFundName ?? '')}`
+    : '';
 
 const findCachedRate = (
   cache: readonly CurrencyFxRateRecord[],
@@ -240,7 +262,7 @@ const deriveRateFromBaseAmount = (
  */
 export const categoryNeedsWidening = (
   type: CategoryType,
-  directions: ReadonlySet<TransactionType>,
+  directions: ReadonlySet<TransactionDirection>,
 ): boolean =>
   type !== 'both' && [...directions].some(direction => direction !== type);
 
@@ -318,6 +340,11 @@ export const previewImport = (
     ? ctx.baseCurrency.trim().toUpperCase()
     : null;
 
+  const fundNameById = new Map<number, string>();
+  ctx.existingFunds.forEach(fund => {
+    fundNameById.set(fund.id, fund.name);
+  });
+
   const existingKeys = new Map<string, { id: number; time: string | null }[]>();
   ctx.existingTransactions.forEach(transaction => {
     const key = duplicateKey(
@@ -327,6 +354,13 @@ export const previewImport = (
       transaction.currencyCode,
       transaction.payee,
       transaction.description,
+      transferFundKey(
+        transaction.type,
+        fundNameById.get(transaction.fundId) ?? null,
+        transaction.counterpartFundId != null
+          ? (fundNameById.get(transaction.counterpartFundId) ?? null)
+          : null,
+      ),
     );
     const entry = { id: transaction.id, time: transaction.time };
     const bucket = existingKeys.get(key);
@@ -339,6 +373,10 @@ export const previewImport = (
 
   const existingCategoryNames = new Set(
     ctx.existingCategories.map(category => category.name.toLowerCase()),
+  );
+
+  const existingFundNames = new Set(
+    ctx.existingFunds.map(fund => fund.name.toLowerCase()),
   );
 
   const { header, rows } = parseCsv(text, { delimiter: ctx.delimiter });
@@ -398,7 +436,9 @@ export const previewImport = (
   const seenKeys = new Map<string, { line: number; time: string | null }[]>();
   const newCategoryNames = new Set<string>();
   const newCategoryRowCounts = new Map<string, number>();
-  const categoryDirections = new Map<string, Set<TransactionType>>();
+  const newFundNames = new Map<string, string>();
+  const newFundRowCounts = new Map<string, number>();
+  const categoryDirections = new Map<string, Set<TransactionDirection>>();
   const validCurrencies = new Set<string>();
 
   rows.forEach(row => {
@@ -424,6 +464,8 @@ export const previewImport = (
     const declaredType = resolveTransactionType(raw.transactionType ?? '');
     let transactionType: TransactionType;
     if (declaredType) {
+      // Authoritative, transfers included: the sign ladder below classifies a
+      // row as money in or out, which a transfer is neither of.
       transactionType = declaredType;
     } else if (!fileHasAnyNegativeAmount) {
       transactionType = 'expense';
@@ -622,9 +664,84 @@ export const previewImport = (
     const description = (raw.description ?? '').trim();
     let payee = (raw.payee ?? '').trim();
     const categoryRaw = (raw.categoryName ?? '').trim();
-    const categoryName = categoryRaw.length ? categoryRaw : null;
-    if (!description && !payee) {
+    // A transfer is identified by its two funds, so it never carries a category.
+    const categoryName =
+      transactionType === 'transfer' || !categoryRaw.length
+        ? null
+        : categoryRaw;
+    if (!description && !payee && transactionType !== 'transfer') {
       payee = UNKNOWN_PAYEE;
+    }
+
+    const fundRaw = (raw.fundName ?? '').trim();
+    const fundName = fundRaw.length ? fundRaw : null;
+    const counterpartRaw = (raw.counterpartFundName ?? '').trim();
+    const counterpartFundName =
+      transactionType === 'transfer' && counterpartRaw.length
+        ? counterpartRaw
+        : null;
+
+    if (transactionType === 'transfer' && !counterpartFundName) {
+      invalid.push({
+        line,
+        reason: 'A transfer needs a destination fund.',
+      });
+      return;
+    }
+    if (
+      counterpartFundName &&
+      foldIdentityText(counterpartFundName) === foldIdentityText(fundRaw)
+    ) {
+      invalid.push({
+        line,
+        reason: 'A transfer cannot have the same fund on both sides.',
+      });
+      return;
+    }
+
+    let counterpartAmount: number | null = null;
+    let counterpartCurrencyCode: string | null = null;
+    if (transactionType === 'transfer') {
+      const rawCounterpartAmount = (raw.counterpartAmount ?? '').trim();
+      // Absent means the destination received the same magnitude that left,
+      // which is what a same-currency transfer records.
+      counterpartAmount = rawCounterpartAmount
+        ? normalizeAmount(rawCounterpartAmount, ctx.numberFormat)
+        : magnitude;
+      if (
+        counterpartAmount == null ||
+        !validatePositiveAmount(Math.abs(counterpartAmount), 'Amount received')
+          .valid
+      ) {
+        invalid.push({
+          line,
+          reason: 'Amount received is not a positive number.',
+        });
+        return;
+      }
+      counterpartAmount = Math.abs(counterpartAmount);
+
+      // What the received amount was denominated in when the transfer happened.
+      // Read from the row rather than the destination fund, which can be
+      // re-denominated after the fact.
+      const rawCounterpartCurrency = (raw.counterpartCurrency ?? '').trim();
+      if (rawCounterpartCurrency) {
+        const resolved = resolveCurrency(
+          rawCounterpartCurrency,
+          null,
+          ctx.currencyChoices,
+        );
+        const code =
+          resolved.status === 'ok'
+            ? resolved.code
+            : rawCounterpartCurrency.toUpperCase();
+        const check = validateCurrencyCode(code);
+        if (!check.valid) {
+          invalid.push({ line, reason: `Received currency: ${check.message}` });
+          return;
+        }
+        counterpartCurrencyCode = code;
+      }
     }
 
     const notes = (raw.notes ?? '').trim();
@@ -638,6 +755,7 @@ export const previewImport = (
       currencyCode,
       payee,
       description,
+      transferFundKey(transactionType, fundName, counterpartFundName),
     );
     const existingMatch = existingKeys
       .get(key)
@@ -666,10 +784,10 @@ export const previewImport = (
 
     validCurrencies.add(currencyCode);
 
-    if (categoryName) {
+    if (categoryName && transactionType !== 'transfer') {
       const categoryKey = categoryName.toLowerCase();
       const directions =
-        categoryDirections.get(categoryKey) ?? new Set<TransactionType>();
+        categoryDirections.get(categoryKey) ?? new Set<TransactionDirection>();
       directions.add(transactionType);
       categoryDirections.set(categoryKey, directions);
 
@@ -681,6 +799,20 @@ export const previewImport = (
         );
       }
     }
+
+    [fundName, counterpartFundName].forEach(name => {
+      if (!name) {
+        return;
+      }
+      const fundKey = name.toLowerCase();
+      if (existingFundNames.has(fundKey)) {
+        return;
+      }
+      newFundRowCounts.set(fundKey, (newFundRowCounts.get(fundKey) ?? 0) + 1);
+      if (!newFundNames.has(fundKey)) {
+        newFundNames.set(fundKey, name);
+      }
+    });
 
     valid.push({
       line,
@@ -695,9 +827,13 @@ export const previewImport = (
         baseCurrencyCode: baseCurrencyCode ?? null,
         date: normalizedDate,
         time,
+        counterpartAmount,
+        counterpartCurrencyCode,
         notes: notes.length ? notes : null,
       },
       categoryName,
+      fundName,
+      counterpartFundName,
       fxRateSource,
     });
   });
@@ -733,11 +869,16 @@ export const previewImport = (
     currencyReview: [...currencyReview.values()],
     duplicates,
     newCategoryNames: [...newCategoryNames],
+    newFundNames: [...newFundNames.entries()].map(([key, sourceName]) => ({
+      sourceName,
+      rowCount: newFundRowCounts.get(key) ?? 0,
+    })),
     unmappedColumns,
     mixedCurrencyWithoutBase: !baseCurrency && validCurrencies.size > 1,
     categorySuggestions,
     categoryTypeWidenings,
     totalRows: rows.length,
+    defaultFundId: ctx.defaultFundId,
     inferredDateOrder,
     signConventionBypassed: !fileHasAnyNegativeAmount,
   };
@@ -809,13 +950,13 @@ export const commitImport = async (
       const resolveName = (name: string): string =>
         aliases[name.toLowerCase()] ?? name;
 
-      const directions = new Map<string, Set<TransactionType>>();
+      const directions = new Map<string, Set<TransactionDirection>>();
       items.forEach(item => {
-        if (!item.categoryName) {
+        if (!item.categoryName || item.record.type === 'transfer') {
           return;
         }
         const key = resolveName(item.categoryName).toLowerCase();
-        const used = directions.get(key) ?? new Set<TransactionType>();
+        const used = directions.get(key) ?? new Set<TransactionDirection>();
         used.add(item.record.type);
         directions.set(key, used);
       });
@@ -828,6 +969,47 @@ export const commitImport = async (
             .map(resolveName),
         ),
       ];
+
+      const fundAliases = options.fundAliases ?? {};
+      const allowedNewFunds = new Set(
+        (options.createFunds ?? []).map(name => name.toLowerCase()),
+      );
+      const defaultFundId = preview.defaultFundId;
+      let createdFunds = 0;
+
+      // Resolves an incoming fund name to an id, creating one only when the
+      // review step said to. Anything else falls back to the default fund
+      // rather than bringing a money-bearing record into existence unasked.
+      const fundIdCache = new Map<string, number>();
+      const resolveFundId = async (name: string | null): Promise<number> => {
+        if (!name) {
+          return defaultFundId;
+        }
+        const key = name.toLowerCase();
+        const cached = fundIdCache.get(key);
+        if (cached !== undefined) {
+          return cached;
+        }
+        const aliased = fundAliases[key] ?? name;
+        const existing = await getFundByName(db, aliased);
+        if (existing) {
+          fundIdCache.set(key, existing.id);
+          return existing.id;
+        }
+        if (!allowedNewFunds.has(key)) {
+          fundIdCache.set(key, defaultFundId);
+          return defaultFundId;
+        }
+        const created = await createFund(db, {
+          name,
+          currencyCode: null,
+          openingBalance: 0,
+          notes: null,
+        });
+        createdFunds += 1;
+        fundIdCache.set(key, created.id);
+        return created.id;
+      };
 
       const nameToId = new Map<string, number>();
       let createdCategories = 0;
@@ -851,6 +1033,20 @@ export const commitImport = async (
         }
       }
 
+      const fundIds = new Map<
+        number,
+        { fundId: number; counterpart: number | null }
+      >();
+      for (const item of items) {
+        fundIds.set(item.line, {
+          fundId: await resolveFundId(item.fundName),
+          counterpart:
+            item.record.type === 'transfer'
+              ? await resolveFundId(item.counterpartFundName)
+              : null,
+        });
+      }
+
       const prepared = items.map(item => {
         let { fxRateToBase, baseAmount } = item.record;
         const overridable =
@@ -871,6 +1067,7 @@ export const commitImport = async (
         const categoryName = item.categoryName
           ? resolveName(item.categoryName)
           : null;
+        const resolvedFunds = fundIds.get(item.line);
         const record: NewTransactionRecord = {
           ...item.record,
           fxRateToBase,
@@ -878,6 +1075,8 @@ export const commitImport = async (
           categoryId: categoryName
             ? (nameToId.get(categoryName.toLowerCase()) ?? null)
             : null,
+          fundId: resolvedFunds?.fundId ?? defaultFundId,
+          counterpartFundId: resolvedFunds?.counterpart ?? null,
         };
         return { record, fxRateSource: item.fxRateSource };
       });
@@ -886,6 +1085,9 @@ export const commitImport = async (
       await createTransactionsBulk(db, records);
       const insertedIncome = records.filter(
         record => record.type === 'income',
+      ).length;
+      const insertedTransfers = records.filter(
+        record => record.type === 'transfer',
       ).length;
 
       const seededRates = ratesToSeed(prepared);
@@ -899,12 +1101,14 @@ export const commitImport = async (
       }
 
       return {
-        insertedExpenses: records.length - insertedIncome,
+        insertedExpenses: records.length - insertedIncome - insertedTransfers,
         insertedIncome,
+        insertedTransfers,
         skippedInvalid: preview.invalid.length,
         skippedNeedsFxRate: preview.needsFxRate.length,
         skippedDuplicates: preview.valid.length - items.length,
         createdCategories,
+        createdFunds,
         seededRates,
       };
     }),

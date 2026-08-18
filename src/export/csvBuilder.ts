@@ -1,9 +1,14 @@
-import type { CategoryRecord, TransactionRecord } from '../database';
+import type {
+  CategoryRecord,
+  FundRecord,
+  TransactionRecord,
+} from '../database';
 import { TRANSACTION_CSV_COLUMNS } from './csvColumns';
 
 type BuildCsvInput = {
   transactions: readonly TransactionRecord[];
   categories?: readonly CategoryRecord[];
+  funds?: readonly FundRecord[];
   generatedAt?: Date;
 };
 
@@ -49,11 +54,17 @@ const formatBaseAmount = (amount: number): string => amount.toFixed(2);
 export const buildTransactionsCsv = ({
   transactions,
   categories = [],
+  funds = [],
   generatedAt = new Date(),
 }: BuildCsvInput): BuildCsvOutput => {
   const categoryMap = new Map<number, string>();
   categories.forEach(category => {
     categoryMap.set(category.id, category.name);
+  });
+
+  const fundMap = new Map<number, string>();
+  funds.forEach(fund => {
+    fundMap.set(fund.id, fund.name);
   });
 
   const filename = `transactions_backup_${formatTimestamp(generatedAt)}.csv`;
@@ -80,6 +91,14 @@ export const buildTransactionsCsv = ({
       transaction.payee,
       transaction.type,
       transaction.time ?? '',
+      fundMap.get(transaction.fundId) ?? '',
+      transaction.counterpartFundId
+        ? (fundMap.get(transaction.counterpartFundId) ?? '')
+        : '',
+      transaction.counterpartAmount != null
+        ? formatAmountNative(transaction.counterpartAmount)
+        : '',
+      transaction.counterpartCurrencyCode ?? '',
     ].map(escapeCell);
 
     lines.push(row.join(','));

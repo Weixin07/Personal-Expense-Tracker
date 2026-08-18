@@ -1,6 +1,7 @@
 import SQLite, { type SQLiteDatabase } from 'react-native-sqlite-storage';
 import { latestMigrationVersion, runMigrations } from './migrations';
 import { seedInitialData } from './seeding';
+import { captureMigrationSnapshot } from './snapshot';
 
 SQLite.enablePromise(true);
 
@@ -26,6 +27,7 @@ export const openDatabase = async (): Promise<SQLiteDatabase> => {
   });
 
   await applyPragmas(db);
+  await captureMigrationSnapshot(db, DATABASE_NAME, latestMigrationVersion());
   await runMigrations(db);
   await seedInitialData(db);
 

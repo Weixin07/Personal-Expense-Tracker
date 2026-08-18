@@ -205,6 +205,14 @@ const SettingsScreen: React.FC = () => {
           accessibilityLabel="Manage categories"
         />
         <List.Item
+          title="Funds"
+          description="Create, rename, or delete the pots you set money aside in"
+          right={() => <List.Icon icon="chevron-right" />}
+          onPress={() => navigation.navigate('ManageFunds')}
+          accessibilityRole="button"
+          accessibilityLabel="Manage funds"
+        />
+        <List.Item
           title="Export queue"
           description="Review pending exports and retry uploads"
           right={() => <List.Icon icon="chevron-right" />}

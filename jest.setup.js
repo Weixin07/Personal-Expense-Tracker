@@ -1,5 +1,3 @@
-// Jest setup file for React Native testing
-
 // Pin the zone so logic reading the local calendar is deterministic across
 // machines. A UTC-ahead zone is deliberate: local and UTC disagree on the
 // calendar day during local early morning, which is where date-window faults
@@ -113,6 +111,7 @@ jest.mock('react-native-fs', () => ({
   unlink: jest.fn(() => Promise.resolve()),
   exists: jest.fn(() => Promise.resolve(true)),
   mkdir: jest.fn(() => Promise.resolve()),
+  copyFile: jest.fn(() => Promise.resolve()),
 }));
 
 // Mock @react-native-google-signin/google-signin

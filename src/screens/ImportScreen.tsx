@@ -14,9 +14,13 @@ import {
   TextInput,
 } from 'react-native-paper';
 import { useTransactionData } from '../context/AppContext';
+import FundPickerDialog from '../components/FundPickerDialog';
+import SelectField from '../components/SelectField';
+import { findDefaultFund } from '../utils/funds';
 import {
   formatExpenseCount,
   formatIncomeCount,
+  formatTransferCount,
 } from '../utils/transactionLabels';
 import { formatDateBritish } from '../utils/date';
 import { formatFxRate } from '../utils/formatting';
@@ -65,6 +69,10 @@ const TARGET_FIELDS: { field: ImportTargetField; label: string }[] = [
   { field: 'payee', label: 'Payee' },
   { field: 'categoryName', label: 'Category' },
   { field: 'transactionType', label: 'Type' },
+  { field: 'fundName', label: 'Fund' },
+  { field: 'counterpartFundName', label: 'Transfer to fund' },
+  { field: 'counterpartAmount', label: 'Amount received' },
+  { field: 'counterpartCurrency', label: 'Received currency' },
   { field: 'notes', label: 'Notes' },
 ];
 
@@ -126,21 +134,29 @@ const sameRates = (
 };
 
 /**
- * Names the base currency a Base amount column is read as, so a column holding
- * some other currency is visible as a mismatch at the moment it is chosen.
+ * Names the currency an amount column is read as, so a column holding some other
+ * currency is visible as a mismatch at the moment it is chosen. A base amount is
+ * read against the base currency; a received amount against the currency of the
+ * fund it lands in, which is not the same thing.
  */
 const targetFieldLabel = (
   field: ImportTargetField,
   label: string,
   baseCurrency: string | null,
-): string =>
-  field === 'baseAmount' && baseCurrency
-    ? `${label} (in ${baseCurrency})`
-    : label;
+  counterpartCurrency: string | null,
+): string => {
+  if (field === 'baseAmount' && baseCurrency) {
+    return `${label} (in ${baseCurrency})`;
+  }
+  if (field === 'counterpartAmount' && counterpartCurrency) {
+    return `${label} (in ${counterpartCurrency})`;
+  }
+  return label;
+};
 
 const ImportScreen: React.FC = () => {
   const {
-    state: { settings, transactions, categories, fxRateCache },
+    state: { settings, transactions, categories, funds, fxRateCache },
     actions: { importTransactions },
   } = useTransactionData();
 
@@ -183,10 +199,35 @@ const ImportScreen: React.FC = () => {
     Record<string, string>
   >({});
   const [declinedSuggestions, setDeclinedSuggestions] = useState<string[]>([]);
+  // Per-name choice for fund names the file introduces: 'create' brings the fund
+  // into existence, an id files those rows under an existing fund, and an absent
+  // entry leaves them with the default fund.
+  const [fundDecisions, setFundDecisions] = useState<
+    Record<string, 'create' | number>
+  >({});
+  const [defaultFundOverride, setDefaultFundOverride] = useState<number | null>(
+    null,
+  );
+  // Which incoming fund name the picker is currently choosing a target for.
+  const [fundTargetForName, setFundTargetForName] = useState<string | null>(
+    null,
+  );
+  const [defaultFundDialogVisible, setDefaultFundDialogVisible] =
+    useState(false);
   const [driveFiles, setDriveFiles] = useState<DriveBackupFile[]>([]);
   const [openMenuField, setOpenMenuField] = useState<ImportTargetField | null>(
     null,
   );
+
+  // Every row must land in a fund, so the chosen default stands in whenever the
+  // file names none.
+  const defaultFund = useMemo(() => {
+    const override =
+      defaultFundOverride != null
+        ? (funds.find(fund => fund.id === defaultFundOverride) ?? null)
+        : null;
+    return override ?? findDefaultFund(funds);
+  }, [defaultFundOverride, funds]);
 
   const currencyColumnMapped = mapping.currencyCode !== undefined;
   const defaultCurrency = defaultCurrencyEdit ?? settings.baseCurrency ?? '';
@@ -358,6 +399,8 @@ const ImportScreen: React.FC = () => {
           fxRateCache,
           existingTransactions: transactions,
           existingCategories: categories,
+          existingFunds: funds,
+          defaultFundId: defaultFund?.id ?? 0,
         });
         // Seed only pairs the user has not answered yet: re-previewing must not
         // discard rates that are being applied.
@@ -387,7 +430,9 @@ const ImportScreen: React.FC = () => {
       categories,
       csvText,
       dateFormat,
+      defaultFund,
       delimiter,
+      funds,
       transactions,
       fxRateCache,
       mapping,
@@ -571,6 +616,8 @@ const ImportScreen: React.FC = () => {
     setSkipDuplicates(true);
     setCategoryAliases({});
     setDeclinedSuggestions([]);
+    setFundDecisions({});
+    setDefaultFundOverride(null);
   }, []);
 
   const runImport = useCallback(async () => {
@@ -579,16 +626,37 @@ const ImportScreen: React.FC = () => {
     }
     setBusy(true);
     try {
+      const createFunds = Object.entries(fundDecisions)
+        .filter(([, decision]) => decision === 'create')
+        .map(([key]) => key);
+      const fundAliases: Record<string, string> = {};
+      Object.entries(fundDecisions).forEach(([key, decision]) => {
+        if (decision === 'create') {
+          return;
+        }
+        const target = funds.find(fund => fund.id === decision);
+        if (target) {
+          fundAliases[key] = target.name;
+        }
+      });
       const summary = await importTransactions(preview, appliedRates, {
         skipDuplicates,
         categoryAliases,
+        createFunds,
+        fundAliases,
       });
       Alert.alert(
         'Import complete',
         `${formatExpenseCount(summary.insertedExpenses)}` +
           ` and ${formatIncomeCount(summary.insertedIncome)} imported` +
+          (summary.insertedTransfers
+            ? `, ${formatTransferCount(summary.insertedTransfers)}`
+            : '') +
           (summary.createdCategories
             ? `, ${summary.createdCategories} categor${summary.createdCategories === 1 ? 'y' : 'ies'} created`
+            : '') +
+          (summary.createdFunds
+            ? `, ${summary.createdFunds} fund${summary.createdFunds === 1 ? '' : 's'} created`
             : '') +
           (summary.skippedInvalid
             ? `. ${summary.skippedInvalid} row${summary.skippedInvalid === 1 ? '' : 's'} skipped.`
@@ -622,6 +690,8 @@ const ImportScreen: React.FC = () => {
   }, [
     appliedRates,
     categoryAliases,
+    fundDecisions,
+    funds,
     importTransactions,
     preview,
     resetToStart,
@@ -731,6 +801,7 @@ const ImportScreen: React.FC = () => {
                 field,
                 fieldLabel,
                 settings.baseCurrency,
+                defaultFund?.currencyCode ?? settings.baseCurrency,
               );
               const mapped = mapping[field];
               const anchorLabel =
@@ -790,6 +861,17 @@ const ImportScreen: React.FC = () => {
                 default currency above.
               </Text>
             ) : null}
+
+            <SelectField
+              label="Default fund"
+              value={defaultFund?.name ?? 'No fund'}
+              onPress={() => setDefaultFundDialogVisible(true)}
+              accessibilityLabel="Select default fund"
+              accessibilityHint="Opens the fund picker"
+            />
+            <Text variant="bodySmall" style={styles.muted}>
+              Rows that name no fund of their own are filed here.
+            </Text>
 
             <Divider />
 
@@ -924,6 +1006,57 @@ const ImportScreen: React.FC = () => {
                     </View>
                   </View>
                 ))}
+              </View>
+            ) : null}
+
+            {preview.newFundNames.length > 0 ? (
+              <View style={styles.banner}>
+                <Text variant="bodyMedium">New funds in this file</Text>
+                <Text variant="bodySmall" style={styles.muted}>
+                  A fund holds money, so none is created unless you say so. Rows
+                  naming a fund you skip land in{' '}
+                  {defaultFund?.name ?? 'your default fund'}.
+                </Text>
+                {preview.newFundNames.map(item => {
+                  const key = item.sourceName.toLowerCase();
+                  const decision = fundDecisions[key];
+                  return (
+                    <View key={item.sourceName} style={styles.section}>
+                      <Text variant="bodySmall" style={styles.muted}>
+                        &quot;{item.sourceName}&quot; ({item.rowCount} row
+                        {item.rowCount === 1 ? '' : 's'})
+                        {decision === 'create'
+                          ? ' — will be created'
+                          : typeof decision === 'number'
+                            ? ` — filed under ${funds.find(fund => fund.id === decision)?.name ?? ''}`
+                            : ` — will use ${defaultFund?.name ?? 'the default fund'}`}
+                      </Text>
+                      <View style={styles.choiceRow}>
+                        <Button
+                          mode={
+                            decision === 'create' ? 'contained' : 'outlined'
+                          }
+                          onPress={() =>
+                            setFundDecisions(current => ({
+                              ...current,
+                              [key]: 'create',
+                            }))
+                          }
+                          accessibilityLabel={`Create fund ${item.sourceName}`}
+                        >
+                          Create it
+                        </Button>
+                        <Button
+                          mode="outlined"
+                          onPress={() => setFundTargetForName(key)}
+                          accessibilityLabel={`Choose an existing fund for ${item.sourceName}`}
+                        >
+                          Use existing
+                        </Button>
+                      </View>
+                    </View>
+                  );
+                })}
               </View>
             ) : null}
 
@@ -1213,6 +1346,36 @@ const ImportScreen: React.FC = () => {
           </View>
         ) : null}
       </ScrollView>
+      <FundPickerDialog
+        visible={defaultFundDialogVisible}
+        onDismiss={() => setDefaultFundDialogVisible(false)}
+        funds={funds}
+        selectedId={defaultFund?.id ?? null}
+        title="Default fund"
+        onSelect={fundId => setDefaultFundOverride(fundId)}
+      />
+      <FundPickerDialog
+        visible={fundTargetForName !== null}
+        onDismiss={() => setFundTargetForName(null)}
+        funds={funds}
+        selectedId={
+          fundTargetForName !== null &&
+          typeof fundDecisions[fundTargetForName] === 'number'
+            ? (fundDecisions[fundTargetForName] as number)
+            : null
+        }
+        title="File these rows under"
+        onSelect={fundId => {
+          if (fundTargetForName === null) {
+            return;
+          }
+          setFundDecisions(current => ({
+            ...current,
+            [fundTargetForName]: fundId,
+          }));
+          setFundTargetForName(null);
+        }}
+      />
     </Surface>
   );
 };

@@ -26,6 +26,10 @@ const makeNewExpense = (
   date: '2025-01-15',
   time: null,
   categoryId: null,
+  fundId: 1,
+  counterpartFundId: null,
+  counterpartAmount: null,
+  counterpartCurrencyCode: null,
   notes: null,
   ...overrides,
 });
@@ -53,6 +57,10 @@ describe('transactionsRepository', () => {
         date: '2025-01-15',
         time: null,
         categoryId: 1,
+        fundId: 1,
+        counterpartFundId: null,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
         notes: 'Test notes',
       };
 
@@ -77,6 +85,10 @@ describe('transactionsRepository', () => {
         base_currency_code: 'USD',
         date: '2025-01-15',
         category_id: 1,
+        fund_id: 1,
+        counterpart_fund_id: null,
+        counterpart_amount: null,
+        counterpart_currency_code: null,
         notes: 'Test notes',
         created_at: '2025-01-15T10:00:00.000Z',
         updated_at: '2025-01-15T10:00:00.000Z',
@@ -113,6 +125,10 @@ describe('transactionsRepository', () => {
           '2025-01-15',
           null,
           1,
+          1,
+          null,
+          null,
+          null,
           'Test notes',
         ],
       );
@@ -129,6 +145,10 @@ describe('transactionsRepository', () => {
         date: '2025-01-15',
         time: null,
         categoryId: 1,
+        fundId: 1,
+        counterpartFundId: null,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
         notes: 'Test notes',
         createdAt: '2025-01-15T10:00:00.000Z',
         updatedAt: '2025-01-15T10:00:00.000Z',
@@ -148,6 +168,10 @@ describe('transactionsRepository', () => {
         date: '2025-01-15',
         time: null,
         categoryId: null,
+        fundId: 1,
+        counterpartFundId: null,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
         notes: null,
       };
 
@@ -172,6 +196,10 @@ describe('transactionsRepository', () => {
         base_currency_code: null,
         date: '2025-01-15',
         category_id: null,
+        fund_id: 1,
+        counterpart_fund_id: null,
+        counterpart_amount: null,
+        counterpart_currency_code: null,
         notes: null,
         created_at: '2025-01-15T10:00:00.000Z',
         updated_at: '2025-01-15T10:00:00.000Z',
@@ -207,6 +235,10 @@ describe('transactionsRepository', () => {
           '2025-01-15',
           null,
           null,
+          1,
+          null,
+          null,
+          null,
           null,
         ],
       );
@@ -228,6 +260,10 @@ describe('transactionsRepository', () => {
         date: '2025-01-15',
         time: null,
         categoryId: null,
+        fundId: 1,
+        counterpartFundId: null,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
         notes: null,
       };
 
@@ -261,6 +297,10 @@ describe('transactionsRepository', () => {
         date: '2025-01-15',
         time: null,
         categoryId: null,
+        fundId: 1,
+        counterpartFundId: null,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
         notes: null,
       };
 
@@ -309,6 +349,10 @@ describe('transactionsRepository', () => {
         date: '2025-01-16',
         time: null,
         categoryId: 2,
+        fundId: 1,
+        counterpartFundId: null,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
         notes: 'Updated notes',
       };
 
@@ -333,6 +377,10 @@ describe('transactionsRepository', () => {
         base_currency_code: 'USD',
         date: '2025-01-16',
         category_id: 2,
+        fund_id: 1,
+        counterpart_fund_id: null,
+        counterpart_amount: null,
+        counterpart_currency_code: null,
         notes: 'Updated notes',
         created_at: '2025-01-15T10:00:00.000Z',
         updated_at: '2025-01-16T10:00:00.000Z',
@@ -368,6 +416,10 @@ describe('transactionsRepository', () => {
           '2025-01-16',
           null,
           2,
+          1,
+          null,
+          null,
+          null,
           'Updated notes',
           42,
         ],
@@ -385,6 +437,10 @@ describe('transactionsRepository', () => {
         date: '2025-01-16',
         time: null,
         categoryId: 2,
+        fundId: 1,
+        counterpartFundId: null,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
         notes: 'Updated notes',
         createdAt: '2025-01-15T10:00:00.000Z',
         updatedAt: '2025-01-16T10:00:00.000Z',
@@ -405,6 +461,10 @@ describe('transactionsRepository', () => {
         date: '2025-01-16',
         time: null,
         categoryId: null,
+        fundId: 1,
+        counterpartFundId: null,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
         notes: null,
       };
 
@@ -439,6 +499,10 @@ describe('transactionsRepository', () => {
         date: '2025-01-16',
         time: null,
         categoryId: null,
+        fundId: 1,
+        counterpartFundId: null,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
         notes: null,
       };
 
@@ -462,6 +526,10 @@ describe('transactionsRepository', () => {
         base_amount: 220.825,
         date: '2025-01-16',
         category_id: null,
+        fund_id: 1,
+        counterpart_fund_id: null,
+        counterpart_amount: null,
+        counterpart_currency_code: null,
         notes: null,
         created_at: '2025-01-15T10:00:00.000Z',
         updated_at: '2025-01-16T10:00:00.000Z',
@@ -542,6 +610,10 @@ describe('transactionsRepository', () => {
         base_currency_code: 'USD',
         date: '2025-01-15',
         category_id: 1,
+        fund_id: 1,
+        counterpart_fund_id: null,
+        counterpart_amount: null,
+        counterpart_currency_code: null,
         notes: 'Test notes',
         created_at: '2025-01-15T10:00:00.000Z',
         updated_at: '2025-01-15T10:00:00.000Z',
@@ -578,6 +650,10 @@ describe('transactionsRepository', () => {
         date: '2025-01-15',
         time: null,
         categoryId: 1,
+        fundId: 1,
+        counterpartFundId: null,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
         notes: 'Test notes',
         createdAt: '2025-01-15T10:00:00.000Z',
         updatedAt: '2025-01-15T10:00:00.000Z',
@@ -615,6 +691,10 @@ describe('transactionsRepository', () => {
           base_amount: 100.0,
           date: '2025-01-15',
           category_id: 1,
+          fund_id: 1,
+          counterpart_fund_id: null,
+          counterpart_amount: null,
+          counterpart_currency_code: null,
           notes: null,
           created_at: '2025-01-15T10:00:00.000Z',
           updated_at: '2025-01-15T10:00:00.000Z',
@@ -628,6 +708,10 @@ describe('transactionsRepository', () => {
           base_amount: 220.0,
           date: '2025-01-14',
           category_id: 2,
+          fund_id: 1,
+          counterpart_fund_id: null,
+          counterpart_amount: null,
+          counterpart_currency_code: null,
           notes: 'Test',
           created_at: '2025-01-14T10:00:00.000Z',
           updated_at: '2025-01-14T10:00:00.000Z',
@@ -685,6 +769,10 @@ describe('transactionsRepository', () => {
         base_currency_code: 'USD',
         date: '2025-01-15',
         category_id: null,
+        fund_id: 1,
+        counterpart_fund_id: null,
+        counterpart_amount: null,
+        counterpart_currency_code: null,
         notes: null,
         created_at: '',
         updated_at: '',
@@ -720,6 +808,10 @@ describe('transactionsRepository', () => {
         base_amount: 100.0,
         date: '2025-01-15',
         category_id: 1,
+        fund_id: 1,
+        counterpart_fund_id: null,
+        counterpart_amount: null,
+        counterpart_currency_code: null,
         notes: null,
         created_at: '2025-01-15T10:00:00.000Z',
         updated_at: '2025-01-15T10:00:00.000Z',
@@ -758,6 +850,10 @@ describe('transactionsRepository', () => {
         base_amount: 100.0,
         date: '2025-01-15',
         category_id: 1,
+        fund_id: 1,
+        counterpart_fund_id: null,
+        counterpart_amount: null,
+        counterpart_currency_code: null,
         notes: null,
         created_at: '2025-01-15T10:00:00.000Z',
         updated_at: '2025-01-15T10:00:00.000Z',
@@ -799,6 +895,10 @@ describe('transactionsRepository', () => {
           base_amount: 220.0,
           date: '2025-01-14',
           category_id: 2,
+          fund_id: 1,
+          counterpart_fund_id: null,
+          counterpart_amount: null,
+          counterpart_currency_code: null,
           notes: 'Test',
           created_at: '2025-01-14T10:00:00.000Z',
           updated_at: '2025-01-14T10:00:00.000Z',
@@ -837,6 +937,10 @@ describe('transactionsRepository', () => {
         base_amount: 100.0,
         date: '2025-01-15',
         category_id: 1,
+        fund_id: 1,
+        counterpart_fund_id: null,
+        counterpart_amount: null,
+        counterpart_currency_code: null,
         notes: null,
         created_at: '2025-01-15T10:00:00.000Z',
         updated_at: '2025-01-15T10:00:00.000Z',
@@ -903,27 +1007,53 @@ describe('transactionsRepository', () => {
       const params = (call[1] ?? []) as Array<string | number | null>;
       expect(sql).toContain('INSERT INTO transactions');
       expect(
-        sql.match(/\(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/g),
+        sql.match(
+          /\(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/g,
+        ),
       ).toHaveLength(2);
-      expect(params).toHaveLength(24);
+      expect(params).toHaveLength(32);
       expect(params[0]).toBe('expense');
       expect(params[1]).toBe('A');
       expect(params[9]).toBeNull();
       expect(params[10]).toBe(5);
     });
 
-    it('splits large batches across multiple statements', async () => {
+    it('never exceeds the host-parameter cap, whatever the column count', async () => {
+      const SQLITE_HOST_PARAM_CAP = 999;
       mockDb.executeSql.mockResolvedValue([okResult]);
 
-      const payloads = Array.from({ length: 95 }, (_, index) =>
+      const payloads = Array.from({ length: 200 }, (_, index) =>
         makeNewExpense({ description: `E${index}` }),
       );
 
       const count = await createTransactionsBulk(mockDb, payloads);
 
-      expect(count).toBe(95);
-      // 90 per statement -> two statements
-      expect(mockDb.executeSql).toHaveBeenCalledTimes(2);
+      expect(count).toBe(200);
+
+      const statements = mockDb.executeSql.mock.calls.map(call => {
+        const sql = call[0] as string;
+        const params = (call[1] ?? []) as unknown[];
+        return {
+          rows: (sql.match(/\(\?(?:,\s\?)*\)/g) ?? []).length,
+          params: params.length,
+        };
+      });
+
+      const columnsPerRow = statements[0].params / statements[0].rows;
+      const maxRowsPerStatement = Math.floor(
+        SQLITE_HOST_PARAM_CAP / columnsPerRow,
+      );
+
+      statements.forEach(statement => {
+        expect(statement.params).toBe(statement.rows * columnsPerRow);
+        expect(statement.params).toBeLessThanOrEqual(SQLITE_HOST_PARAM_CAP);
+      });
+
+      statements.slice(0, -1).forEach(statement => {
+        expect(statement.rows).toBe(maxRowsPerStatement);
+      });
+
+      expect(statements.reduce((total, s) => total + s.rows, 0)).toBe(200);
     });
   });
 });

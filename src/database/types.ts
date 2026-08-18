@@ -1,5 +1,16 @@
-/** Direction a transaction moves money. */
-export type TransactionType = 'expense' | 'income';
+/**
+ * Direction a transaction moves money. Narrower than `TransactionType`: a value
+ * of this type can never be a transfer, so code that is only meaningful per
+ * direction cannot be reached with one.
+ */
+export type TransactionDirection = 'expense' | 'income';
+
+/**
+ * What a transaction is: money entering or leaving the ledger, or money moving
+ * between two funds. A transfer is neither spending nor income and is excluded
+ * from every summary figure.
+ */
+export type TransactionType = TransactionDirection | 'transfer';
 
 /**
  * Directions a category may be used for. `both` is the default, and is what a
@@ -25,6 +36,30 @@ export type TransactionRecord = {
    */
   time: string | null;
   categoryId: number | null;
+  /** Fund this transaction belongs to. For a transfer, the source. */
+  fundId: number;
+  /**
+   * Destination fund of a transfer, and null for every other type. The database
+   * enforces that this and `counterpartAmount` are present together and only on
+   * a transfer.
+   */
+  counterpartFundId: number | null;
+  /**
+   * Positive magnitude that arrived in the destination fund, in
+   * `counterpartCurrencyCode`. The rate a cross-currency transfer used is
+   * implied by this against `amountNative` rather than stored, so the two
+   * cannot disagree.
+   *
+   * Balance arithmetic does not use it: a transfer conserves value, so
+   * `baseAmount` leaves the source and the same figure arrives at the
+   * destination. Two independently rounded legs would create or destroy money.
+   */
+  counterpartAmount: number | null;
+  /**
+   * Currency the counterpart amount was recorded in. Stored per row rather than
+   * read from the destination fund, which can be re-denominated later.
+   */
+  counterpartCurrencyCode: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
@@ -43,11 +78,33 @@ export type UpdateTransactionRecord = Omit<
 export type TransactionQueryFilters = {
   type?: TransactionType;
   categoryId?: number;
+  /** Matches either side of a transfer, so money moved into a fund counts. */
+  fundId?: number;
   startDate?: string;
   endDate?: string;
   limit?: number;
   offset?: number;
 };
+
+/**
+ * A named pot money is held in and drawn down from. `openingBalance` is the
+ * starting figure the running balance builds on, denominated in
+ * `currencyCode`.
+ */
+export type FundRecord = {
+  id: number;
+  name: string;
+  /** Null means the fund follows whatever base currency is configured. */
+  currencyCode: string | null;
+  openingBalance: number;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewFundRecord = Omit<FundRecord, 'id' | 'createdAt' | 'updatedAt'>;
+
+export type UpdateFundRecord = Omit<FundRecord, 'createdAt' | 'updatedAt'>;
 
 export type CategoryRecord = {
   id: number;

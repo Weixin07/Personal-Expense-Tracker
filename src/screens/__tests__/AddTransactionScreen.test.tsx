@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import {
   renderWithProviders,
   makeContextValue,
+  makeFund,
   createNavigationMock,
   screen,
   fireEvent,
@@ -35,6 +36,10 @@ const makeTransaction = (
   date: '2025-01-10',
   time: null,
   categoryId: null,
+  fundId: 1,
+  counterpartFundId: null,
+  counterpartAmount: null,
+  counterpartCurrencyCode: null,
   notes: null,
   createdAt: '2025-01-10T00:00:00.000Z',
   updatedAt: '2025-01-10T00:00:00.000Z',
@@ -749,5 +754,192 @@ describe('AddTransactionScreen', () => {
       focusAndType('Transaction payee', 'payee');
       expect(suggestionLabels()).toHaveLength(6);
     });
+  });
+});
+
+describe('funds and transfers', () => {
+  const funds = [
+    makeFund({ id: 1, name: 'General' }),
+    makeFund({ id: 2, name: 'Travel', currencyCode: 'EUR' }),
+  ];
+
+  it('preselects the fallback fund on a new transaction', () => {
+    renderScreen(undefined, { state: { funds } });
+
+    expect(screen.getByDisplayValue('General')).toBeOnTheScreen();
+  });
+
+  it('keeps the fund a stored transaction was filed under', () => {
+    const transaction = makeTransaction({ id: 1, fundId: 2 });
+    renderScreen(
+      { transactionId: 1 },
+      { state: { funds, transactions: [transaction] } },
+    );
+
+    expect(screen.getByDisplayValue('Travel')).toBeOnTheScreen();
+  });
+
+  it('hides the category and reveals the transfer fields', () => {
+    renderScreen(undefined, { state: { funds } });
+
+    expect(screen.getByLabelText('Select category')).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByText('Transfer'));
+
+    expect(screen.queryByLabelText('Select category')).toBeNull();
+    expect(screen.getByLabelText('Select destination fund')).toBeOnTheScreen();
+    expect(
+      screen.getByLabelText('Amount received in the destination fund'),
+    ).toBeOnTheScreen();
+  });
+
+  it('names the destination currency on the received amount', () => {
+    renderScreen(undefined, { state: { funds } });
+
+    fireEvent.press(screen.getByText('Transfer'));
+    fireEvent.press(screen.getByLabelText('Select destination fund'));
+    fireEvent.press(screen.getByLabelText('Select Travel'));
+
+    expect(
+      screen.getByLabelText('Amount received in the destination fund'),
+    ).toBeOnTheScreen();
+    expect(screen.getByDisplayValue('Travel')).toBeOnTheScreen();
+  });
+
+  it('saves a transfer carrying no description, payee or category', async () => {
+    const createTransaction = jest.fn().mockResolvedValue(undefined);
+    renderScreen(undefined, {
+      state: { funds },
+      actions: { createTransaction },
+    });
+
+    fireEvent.press(screen.getByText('Transfer'));
+    fireEvent.changeText(
+      screen.getByLabelText('Amount in native currency'),
+      '100',
+    );
+    fireEvent.press(screen.getByLabelText('Select destination fund'));
+    fireEvent.press(screen.getByLabelText('Select Travel'));
+    fireEvent.press(screen.getByLabelText('Create transaction'));
+
+    await waitFor(() => expect(createTransaction).toHaveBeenCalledTimes(1));
+    expect(createTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'transfer',
+        fundId: 1,
+        counterpartFundId: 2,
+        categoryId: null,
+        description: '',
+        payee: '',
+      }),
+    );
+  });
+
+  it('adopts the chosen fund currency and its rate on a new transaction', async () => {
+    renderScreen(undefined, {
+      state: {
+        funds,
+        fxRateCache: [
+          {
+            baseCurrencyCode: 'USD',
+            currencyCode: 'EUR',
+            fxRateToBase: 1.1,
+            updatedAt: '',
+          },
+        ],
+      },
+    });
+
+    fireEvent.press(screen.getByLabelText('Select fund'));
+    fireEvent.press(screen.getByLabelText('Select Travel'));
+
+    await waitFor(() =>
+      expect(screen.getByDisplayValue('EUR')).toBeOnTheScreen(),
+    );
+    expect(screen.getByDisplayValue('Travel')).toBeOnTheScreen();
+    expect(screen.getByLabelText('FX rate to base currency').props.value).toBe(
+      '1.100000',
+    );
+  });
+
+  it('leaves a currency the user chose alone when the fund changes', async () => {
+    renderScreen(undefined, { state: { funds } });
+
+    openPickerField('USD US Dollar');
+    fireEvent.changeText(screen.getByLabelText('Search currency'), 'GBP');
+    fireEvent.press(screen.getByText('GBP'));
+    await waitFor(() =>
+      expect(screen.getByDisplayValue('GBP')).toBeOnTheScreen(),
+    );
+
+    fireEvent.press(screen.getByLabelText('Select fund'));
+    fireEvent.press(screen.getByLabelText('Select Travel'));
+
+    expect(screen.getByDisplayValue('GBP')).toBeOnTheScreen();
+  });
+
+  it('never restates the currency of a stored transaction', () => {
+    const stored = makeTransaction({ id: 1, fundId: 1, currencyCode: 'USD' });
+    renderScreen(
+      { transactionId: 1 },
+      { state: { funds, transactions: [stored] } },
+    );
+
+    fireEvent.press(screen.getByLabelText('Select fund'));
+    fireEvent.press(screen.getByLabelText('Select Travel'));
+
+    expect(screen.getByDisplayValue('USD')).toBeOnTheScreen();
+  });
+
+  it('clears the counterpart fields when transfer mode is left', async () => {
+    const createTransaction = jest.fn().mockResolvedValue(undefined);
+    renderScreen(undefined, {
+      state: { funds },
+      actions: { createTransaction },
+    });
+
+    fireEvent.press(screen.getByText('Transfer'));
+    fireEvent.press(screen.getByLabelText('Select destination fund'));
+    fireEvent.press(screen.getByLabelText('Select Travel'));
+    fireEvent.changeText(
+      screen.getByLabelText('Amount received in the destination fund'),
+      '120',
+    );
+
+    fireEvent.press(screen.getByText('Expense'));
+    fireEvent.press(screen.getByText('Transfer'));
+
+    expect(screen.getByDisplayValue('No fund')).toBeOnTheScreen();
+    expect(screen.queryByDisplayValue('120')).toBeNull();
+  });
+
+  it('never offers the source fund as its own destination', () => {
+    renderScreen(undefined, { state: { funds } });
+
+    fireEvent.press(screen.getByText('Transfer'));
+    fireEvent.press(screen.getByLabelText('Select destination fund'));
+
+    expect(screen.queryByLabelText('Select General')).toBeNull();
+    expect(screen.getByLabelText('Select Travel')).toBeOnTheScreen();
+  });
+
+  it('refuses a transfer with no destination fund', async () => {
+    const createTransaction = jest.fn().mockResolvedValue(undefined);
+    renderScreen(undefined, {
+      state: { funds },
+      actions: { createTransaction },
+    });
+
+    fireEvent.press(screen.getByText('Transfer'));
+    fireEvent.changeText(
+      screen.getByLabelText('Amount in native currency'),
+      '100',
+    );
+    fireEvent.press(screen.getByLabelText('Create transaction'));
+
+    await waitFor(() =>
+      expect(screen.getByText('Choose a destination fund.')).toBeOnTheScreen(),
+    );
+    expect(createTransaction).not.toHaveBeenCalled();
   });
 });

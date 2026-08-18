@@ -286,7 +286,9 @@
       "PowerShell(node scripts/comment-policy.mjs; \"comment-policy: $LASTEXITCODE\"; npx eslint . --max-warnings=0; \"lint: $LASTEXITCODE\"; npx tsc --noEmit; \"tsc: $LASTEXITCODE\")",
       "Bash(echo \"=== EXIT: $? ===\")",
       "Bash(echo \"=== VALIDATE EXIT: $? ===\")",
-      "Bash(echo \"=== GATE EXIT: $? ===\")"
+      "Bash(echo \"=== GATE EXIT: $? ===\")",
+      "Bash(cp /tmp/dbg.test.ts src/__tests__/dbg/dbg.test.ts)",
+      "Bash(sed -i \"s|'../src/|'../../|g\" src/__tests__/dbg/dbg.test.ts)"
     ],
     "deny": [],
     "ask": []

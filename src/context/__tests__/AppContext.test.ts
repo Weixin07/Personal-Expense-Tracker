@@ -20,6 +20,10 @@ const makeTransaction = (
   date: '2025-01-10',
   time: null,
   categoryId: null,
+  fundId: 1,
+  counterpartFundId: null,
+  counterpartAmount: null,
+  counterpartCurrencyCode: null,
   notes: null,
   createdAt: '2025-01-10T00:00:00.000Z',
   updatedAt: '2025-01-10T00:00:00.000Z',
@@ -59,6 +63,7 @@ describe('transactionDataReducer', () => {
           driveFolderId: 'folder-1',
           exportDirectoryUri: 'content://dir',
         },
+        funds: [],
         fxRateCache: [],
       };
       const next = transactionDataReducer(

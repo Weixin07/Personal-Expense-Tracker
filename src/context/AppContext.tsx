@@ -25,6 +25,10 @@ import {
   createCategory as dbCreateCategory,
   updateCategory as dbUpdateCategory,
   deleteCategory as dbDeleteCategory,
+  listFunds as dbListFunds,
+  createFund as dbCreateFund,
+  updateFund as dbUpdateFund,
+  deleteFund as dbDeleteFund,
   getAllSettings as dbGetAllSettings,
   setSetting as dbSetSetting,
   listExportQueue as dbListExportQueue,
@@ -34,16 +38,20 @@ import {
 import type {
   TransactionRecord,
   CategoryRecord,
+  FundRecord,
   NewTransactionRecord,
   UpdateTransactionRecord,
   NewCategoryRecord,
   UpdateCategoryRecord,
+  NewFundRecord,
+  UpdateFundRecord,
   AppSettingRecord,
   ExportQueueRecord,
   CurrencyFxRateRecord,
   TransactionType,
 } from '../database';
 import { bankersRound } from '../utils/math';
+import { fundCurrency } from '../utils/funds';
 import { buildCategoryUsageCounts } from '../utils/suggestions';
 import type { CategoryUsageCounts } from '../utils/suggestions';
 import { toError, toErrorMessage } from '../utils/errors';
@@ -64,6 +72,11 @@ export type TransactionFilters = {
    */
   type?: TransactionType;
   categoryId?: number | null;
+  /**
+   * Matches either side of a transfer, so money moved into the fund is part of
+   * what the filter shows.
+   */
+  fundId?: number;
   startDate?: string;
   endDate?: string;
 };
@@ -79,6 +92,7 @@ export type TransactionDataSettings = {
 type CoreState = {
   transactions: TransactionRecord[];
   categories: CategoryRecord[];
+  funds: FundRecord[];
   settings: TransactionDataSettings;
   fxRateCache: CurrencyFxRateRecord[];
   filters: TransactionFilters;
@@ -120,9 +134,29 @@ export type TransactionTotals = {
   mixedBase: boolean;
 };
 
+export type FundBalanceFigure = {
+  /** Currency this figure is denominated in, and the only scope it sums over. */
+  currencyCode: string | null;
+  balance: number;
+};
+
+/**
+ * A fund's standing, spanning its whole history rather than the filtered view:
+ * a balance that moved with the date filter would describe a period, not a pot.
+ *
+ * Figures are grouped by currency because amounts captured against different
+ * base currencies cannot be added. The opening balance joins the group named by
+ * the fund's own currency, which for a fund without one is the base currency.
+ */
+export type FundBalance = {
+  fundId: number;
+  byCurrency: FundBalanceFigure[];
+};
+
 export type TransactionDataSelectors = {
   filteredTransactions: TransactionRecord[];
   totals: TransactionTotals;
+  fundBalances: FundBalance[];
   hasActiveFilters: boolean;
   /**
    * Counted over the whole history rather than the filtered view: a picker
@@ -144,6 +178,10 @@ export type TransactionDataActions = {
   createCategory: (payload: NewCategoryRecord) => Promise<CategoryRecord>;
   updateCategory: (payload: UpdateCategoryRecord) => Promise<CategoryRecord>;
   deleteCategory: (id: number) => Promise<void>;
+  createFund: (payload: NewFundRecord) => Promise<FundRecord>;
+  updateFund: (payload: UpdateFundRecord) => Promise<FundRecord>;
+  /** Rejected by the database while any transaction still references the fund. */
+  deleteFund: (id: number) => Promise<void>;
   setBaseCurrency: (currencyCode: string | null) => Promise<void>;
   setBiometricGateEnabled: (enabled: boolean) => Promise<void>;
   setDriveFolderId: (folderId: string | null) => Promise<void>;
@@ -183,6 +221,7 @@ export type TransactionDataAction =
       payload: {
         transactions: TransactionRecord[];
         categories: CategoryRecord[];
+        funds: FundRecord[];
         settings: TransactionDataSettings;
         fxRateCache: CurrencyFxRateRecord[];
       };
@@ -202,6 +241,7 @@ export type TransactionDataAction =
   | { type: 'transaction/update'; payload: TransactionRecord }
   | { type: 'transaction/delete'; payload: number }
   | { type: 'categories/set-all'; payload: CategoryRecord[] }
+  | { type: 'funds/set-all'; payload: FundRecord[] }
   | { type: 'fx-cache/upsert'; payload: CurrencyFxRateRecord }
   | { type: 'settings/set-base-currency'; payload: string | null }
   | { type: 'settings/set-biometric'; payload: boolean }
@@ -220,6 +260,7 @@ const BIOMETRIC_CRED_VERSION = 2;
 export const initialState: CoreState = {
   transactions: [],
   categories: [],
+  funds: [],
   settings: {
     baseCurrency: null,
     biometricGateEnabled: false,
@@ -286,6 +327,12 @@ const normalizeFilters = (
     delete next.categoryId;
   }
   if (
+    Object.prototype.hasOwnProperty.call(update, 'fundId') &&
+    update.fundId === undefined
+  ) {
+    delete next.fundId;
+  }
+  if (
     Object.prototype.hasOwnProperty.call(update, 'startDate') &&
     update.startDate === undefined
   ) {
@@ -317,6 +364,7 @@ export const transactionDataReducer = (
         ...state,
         transactions: action.payload.transactions,
         categories: action.payload.categories,
+        funds: action.payload.funds,
         settings: action.payload.settings,
         fxRateCache: action.payload.fxRateCache,
         isInitialised: true,
@@ -395,6 +443,11 @@ export const transactionDataReducer = (
         ...state,
         categories: action.payload,
       };
+    case 'funds/set-all':
+      return {
+        ...state,
+        funds: action.payload,
+      };
     case 'fx-cache/upsert': {
       const next = state.fxRateCache.filter(
         rate =>
@@ -466,10 +519,18 @@ const applyFilters = (
     filters,
     'categoryId',
   );
-  const { type, categoryId, startDate, endDate } = filters;
+  const { type, categoryId, fundId, startDate, endDate } = filters;
 
   return transactions.filter(transaction => {
     if (type !== undefined && transaction.type !== type) {
+      return false;
+    }
+
+    if (
+      fundId !== undefined &&
+      transaction.fundId !== fundId &&
+      transaction.counterpartFundId !== fundId
+    ) {
       return false;
     }
 
@@ -517,6 +578,11 @@ const calculateTotals = (
   const perBaseCurrency = new Map<string | null, DirectionAccumulator>();
 
   transactions.forEach(transaction => {
+    // A transfer moves money between the user's own funds. Counting it either
+    // way would report spending or income that never happened.
+    if (transaction.type === 'transfer') {
+      return;
+    }
     const baseKey = transaction.baseCurrencyCode ?? null;
     const accumulator = perBaseCurrency.get(baseKey) ?? {
       expenseRaw: 0,
@@ -552,11 +618,73 @@ const calculateTotals = (
   };
 };
 
+/**
+ * Running balance per fund: opening balance, plus income, less spending, plus
+ * or minus what transfers moved. A transfer contributes its single `baseAmount`
+ * to both sides, under the rule on `TransactionRecord.counterpartAmount`.
+ */
+const calculateFundBalances = (
+  funds: readonly FundRecord[],
+  transactions: readonly TransactionRecord[],
+  baseCurrency: string | null,
+): FundBalance[] => {
+  const perFund = new Map<number, Map<string | null, number>>();
+
+  const contribute = (
+    fundId: number,
+    currencyCode: string | null,
+    amount: number,
+  ): void => {
+    const byCurrency = perFund.get(fundId) ?? new Map<string | null, number>();
+    byCurrency.set(currencyCode, (byCurrency.get(currencyCode) ?? 0) + amount);
+    perFund.set(fundId, byCurrency);
+  };
+
+  funds.forEach(fund => {
+    contribute(fund.id, fundCurrency(fund, baseCurrency), fund.openingBalance);
+  });
+
+  transactions.forEach(transaction => {
+    const currencyCode = transaction.baseCurrencyCode ?? null;
+    if (transaction.type === 'transfer') {
+      contribute(transaction.fundId, currencyCode, -transaction.baseAmount);
+      if (transaction.counterpartFundId != null) {
+        contribute(
+          transaction.counterpartFundId,
+          currencyCode,
+          transaction.baseAmount,
+        );
+      }
+      return;
+    }
+    contribute(
+      transaction.fundId,
+      currencyCode,
+      transaction.type === 'income'
+        ? transaction.baseAmount
+        : -transaction.baseAmount,
+    );
+  });
+
+  return funds.map(fund => ({
+    fundId: fund.id,
+    byCurrency: Array.from(perFund.get(fund.id)?.entries() ?? []).map(
+      ([currencyCode, balance]) => ({
+        currencyCode,
+        balance: bankersRound(balance, 2),
+      }),
+    ),
+  }));
+};
+
 const hasActiveFilters = (filters: TransactionFilters): boolean => {
   if (filters.type !== undefined) {
     return true;
   }
   if (Object.prototype.hasOwnProperty.call(filters, 'categoryId')) {
+    return true;
+  }
+  if (filters.fundId !== undefined) {
     return true;
   }
   if (filters.startDate || filters.endDate) {
@@ -580,12 +708,14 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
         const [
           transactions,
           categories,
+          funds,
           settings,
           exportQueueRecords,
           fxRateCache,
         ] = await Promise.all([
           dbListTransactions(db),
           dbListCategories(db),
+          dbListFunds(db),
           dbGetAllSettings(db),
           dbListExportQueue(db),
           dbListCurrencyFxRates(db),
@@ -593,6 +723,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
         return {
           transactions,
           categories,
+          funds,
           settings,
           exportQueueRecords,
           fxRateCache,
@@ -604,6 +735,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
         payload: {
           transactions: snapshot.transactions,
           categories: snapshot.categories,
+          funds: snapshot.funds,
           settings: parseSettings(snapshot.settings),
           fxRateCache: snapshot.fxRateCache,
         },
@@ -833,6 +965,67 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     [],
   );
 
+  const createFund = useCallback<TransactionDataActions['createFund']>(
+    async payload => {
+      dispatch({ type: 'operation/start' });
+      try {
+        const { fund, funds } = await withDatabase(async db => {
+          const created = await dbCreateFund(db, payload);
+          const all = await dbListFunds(db);
+          return { fund: created, funds: all };
+        });
+        dispatch({ type: 'funds/set-all', payload: funds });
+        return fund;
+      } catch (error) {
+        dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
+        throw toError(error);
+      } finally {
+        dispatch({ type: 'operation/end' });
+      }
+    },
+    [],
+  );
+
+  const updateFund = useCallback<TransactionDataActions['updateFund']>(
+    async payload => {
+      dispatch({ type: 'operation/start' });
+      try {
+        const { fund, funds } = await withDatabase(async db => {
+          const updated = await dbUpdateFund(db, payload);
+          const all = await dbListFunds(db);
+          return { fund: updated, funds: all };
+        });
+        dispatch({ type: 'funds/set-all', payload: funds });
+        return fund;
+      } catch (error) {
+        dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
+        throw toError(error);
+      } finally {
+        dispatch({ type: 'operation/end' });
+      }
+    },
+    [],
+  );
+
+  const deleteFund = useCallback<TransactionDataActions['deleteFund']>(
+    async id => {
+      dispatch({ type: 'operation/start' });
+      try {
+        const funds = await withDatabase(async db => {
+          await dbDeleteFund(db, id);
+          return dbListFunds(db);
+        });
+        dispatch({ type: 'funds/set-all', payload: funds });
+      } catch (error) {
+        dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
+        throw toError(error);
+      } finally {
+        dispatch({ type: 'operation/end' });
+      }
+    },
+    [],
+  );
+
   const setBaseCurrency = useCallback<
     TransactionDataActions['setBaseCurrency']
   >(async currencyCode => {
@@ -987,6 +1180,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     isInitialised: state.isInitialised,
     transactions: state.transactions,
     categories: state.categories,
+    funds: state.funds,
     initialQueueRecords: loadedQueueRecords,
     ensureExportDirectoryUri,
     setDriveFolderId: setDriveFolderIdState,
@@ -1047,14 +1241,33 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     [state.transactions],
   );
 
+  // Independent of `filters` and `filteredTransactions`, under the rule on
+  // `FundBalance`.
+  const fundBalances = useMemo(
+    () =>
+      calculateFundBalances(
+        state.funds,
+        state.transactions,
+        state.settings.baseCurrency,
+      ),
+    [state.funds, state.transactions, state.settings.baseCurrency],
+  );
+
   const selectors = useMemo<TransactionDataSelectors>(
     () => ({
       filteredTransactions,
       totals,
+      fundBalances,
       hasActiveFilters: hasActiveFilters(state.filters),
       categoryUsageCounts,
     }),
-    [filteredTransactions, totals, state.filters, categoryUsageCounts],
+    [
+      filteredTransactions,
+      totals,
+      fundBalances,
+      state.filters,
+      categoryUsageCounts,
+    ],
   );
 
   const actions = useMemo<TransactionDataActions>(
@@ -1066,6 +1279,9 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       createCategory,
       updateCategory,
       deleteCategory,
+      createFund,
+      updateFund,
+      deleteFund,
       setBaseCurrency,
       setBiometricGateEnabled,
       setDriveFolderId,
@@ -1089,6 +1305,9 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       createCategory,
       updateCategory,
       deleteCategory,
+      createFund,
+      updateFund,
+      deleteFund,
       setBaseCurrency,
       setBiometricGateEnabled,
       setDriveFolderId,

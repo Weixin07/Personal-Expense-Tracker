@@ -331,6 +331,8 @@ Two migrations in the current schema make that consequential:
 | **8**   | `type` columns added to `transactions` and `categories`                                  | Inserts omit `type`, so the column default silently records new **income** as an expense. Breaks quietly, which is worse.                                                                                                                    |
 | **9**   | nullable `time` column; `idx_transactions_date` replaced by `idx_transactions_date_time` | Nothing harmful. Inserts omit `time`, the column is nullable with no default, and the row simply carries no time. The index swap is invisible to an older build, whose date-only queries are still served by the composite's leading column. |
 
+| **10** | `funds` table; every transaction gains a required `fund_id`; `type` widened to admit `transfer` | Reads still work — the v9 columns are all present. **Writes fail**: an older insert omits `fund_id`, which is `NOT NULL` with no default. Breaks loudly on the first save, and the fix is to reinstall the newer build or clear app data. |
+
 Practical rules:
 
 - Do not distribute a build containing a new migration to anyone you may need to roll
@@ -350,6 +352,28 @@ propagates out of `openDatabase`, the app shows its normal load-error state, and
 the committed version is recorded — so the next launch retries the outstanding one.
 
 ---
+
+## Pre-release manual checks
+
+Two properties of the funds feature cannot be established by the test suite and
+must be confirmed on a device before a release that carries schema v10.
+
+**1. The pre-migration snapshot is written where it is expected.**
+`src/database/snapshot.ts` reconstructs the database path as a sibling of
+`RNFS.DocumentDirectoryPath`, because neither `react-native-fs` nor
+`react-native-sqlite-storage` exposes it. Install a build carrying an older
+schema, add a transaction, then install the v10 build and launch it. Expect a
+copy of `expense_tracker.db` under the app's `pre-migration/` directory, and
+expect it to disappear on the next clean launch.
+
+**2. Migration v10 preserves rows on the device's own SQLite.**
+`migrations.roundtrip.test.ts` runs the migration against Node's bundled SQLite,
+which is far newer than the system SQLite on the minimum supported device (3.22
+on API 28). It proves the migration's logic, not its compatibility with that
+older engine — `ALTER TABLE ... RENAME TO` in particular changed semantics in
+3.25. Install a v9 build, record several transactions including one in a
+non-base currency, upgrade to v10, and confirm every transaction is still listed
+and assigned to the **General** fund.
 
 ## Distribution options
 

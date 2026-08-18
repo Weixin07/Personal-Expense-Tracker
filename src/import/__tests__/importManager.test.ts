@@ -33,6 +33,8 @@ const baseCtx: ImportContext = {
   fxRateCache: [],
   existingTransactions: [],
   existingCategories: [],
+  existingFunds: [],
+  defaultFundId: 1,
 };
 
 describe('normalizeAmount', () => {
@@ -368,6 +370,10 @@ describe('previewImport', () => {
           date: '2024-01-01',
           time: null,
           categoryId: null,
+          fundId: 1,
+          counterpartFundId: null,
+          counterpartAmount: null,
+          counterpartCurrencyCode: null,
           notes: null,
           createdAt: '',
           updatedAt: '',
@@ -450,7 +456,7 @@ describe('previewImport', () => {
 
     it('falls back to the sign for values outside the vocabulary', () => {
       const text =
-        `${TYPE_HEADER}A,-5,USD,1,2024-01-01,Food,Cafe,USD,Transfer\r\n` +
+        `${TYPE_HEADER}A,-5,USD,1,2024-01-01,Food,Cafe,USD,Wibble\r\n` +
         `B,10,USD,1,2024-01-02,Food,Cafe,USD,\r\n`;
       const result = previewImport(text, TYPE_MAPPING, 'iso', baseCtx);
       expect(result.valid).toHaveLength(2);
@@ -516,6 +522,10 @@ describe('previewImport', () => {
             date: '2024-01-01',
             time: null,
             categoryId: null,
+            fundId: 1,
+            counterpartFundId: null,
+            counterpartAmount: null,
+            counterpartCurrencyCode: null,
             notes: null,
             createdAt: '',
             updatedAt: '',
@@ -898,6 +908,8 @@ describe('previewImport category review', () => {
     const result = previewImport(text, MAPPING, 'iso', {
       ...baseCtx,
       existingCategories: [category(1, 'Transport', 'both')],
+      existingFunds: [],
+      defaultFundId: 1,
     });
 
     expect(result.categorySuggestions).toEqual([
@@ -915,6 +927,8 @@ describe('previewImport category review', () => {
     const result = previewImport(text, MAPPING, 'iso', {
       ...baseCtx,
       existingCategories: [category(1, 'Transport', 'both')],
+      existingFunds: [],
+      defaultFundId: 1,
     });
 
     expect(result.categorySuggestions).toHaveLength(0);
@@ -926,6 +940,8 @@ describe('previewImport category review', () => {
     const result = previewImport(text, MAPPING, 'iso', {
       ...baseCtx,
       existingCategories: [category(1, 'Refund', 'income')],
+      existingFunds: [],
+      defaultFundId: 1,
     });
 
     expect(result.categoryTypeWidenings).toEqual([
@@ -938,6 +954,8 @@ describe('previewImport category review', () => {
     const result = previewImport(text, MAPPING, 'iso', {
       ...baseCtx,
       existingCategories: [category(1, 'Salary', 'income')],
+      existingFunds: [],
+      defaultFundId: 1,
     });
 
     expect(result.categoryTypeWidenings).toHaveLength(0);
@@ -950,6 +968,8 @@ describe('previewImport category review', () => {
     const result = previewImport(text, MAPPING, 'iso', {
       ...baseCtx,
       existingCategories: [category(1, 'Gifts', 'both')],
+      existingFunds: [],
+      defaultFundId: 1,
     });
 
     expect(result.categoryTypeWidenings).toHaveLength(0);
@@ -986,9 +1006,13 @@ describe('commitImport', () => {
             baseCurrencyCode: 'USD',
             date: '2024-01-01',
             time: null,
+            counterpartAmount: null,
+            counterpartCurrencyCode: null,
             notes: null,
           },
           categoryName: 'Food',
+          fundName: null,
+          counterpartFundName: null,
           fxRateSource: 'cached',
         },
       ],
@@ -1029,6 +1053,8 @@ describe('commitImport', () => {
       skippedNeedsFxRate: 0,
       skippedDuplicates: 0,
       createdCategories: 1,
+      createdFunds: 0,
+      insertedTransfers: 0,
       seededRates: [
         { baseCurrencyCode: 'USD', currencyCode: 'EUR', fxRateToBase: 1.1 },
       ],
@@ -1169,10 +1195,14 @@ describe('commitImport', () => {
         baseCurrencyCode: 'USD',
         date: '2024-01-01',
         time: null,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
         notes: null,
         ...overrides,
       },
       categoryName,
+      fundName: null,
+      counterpartFundName: null,
       fxRateSource,
     });
 
@@ -1530,6 +1560,10 @@ describe('previewImport duplicate detection with times', () => {
     date: '2025-01-10',
     time,
     categoryId: null,
+    fundId: 1,
+    counterpartFundId: null,
+    counterpartAmount: null,
+    counterpartCurrencyCode: null,
     notes: null,
     createdAt: '',
     updatedAt: '',
@@ -1602,5 +1636,221 @@ describe('previewImport duplicate detection with times', () => {
     expect(preview.duplicates).toEqual([
       { line: 3, matchesTransactionId: null, matchesLine: 2 },
     ]);
+  });
+});
+
+describe('fund rules on import', () => {
+  const FUND_MAPPING: FieldMapping = { ...APP_MAPPING, fundName: 8 };
+  const FUND_HEADER = `${HEADER.trimEnd()},fund\r\n`;
+
+  const withFunds = (
+    overrides: Partial<ImportContext> = {},
+  ): ImportContext => ({
+    ...baseCtx,
+    existingFunds: [
+      {
+        id: 1,
+        name: 'General',
+        currencyCode: null,
+        openingBalance: 0,
+        notes: null,
+        createdAt: '',
+        updatedAt: '',
+      },
+    ],
+    defaultFundId: 1,
+    ...overrides,
+  });
+
+  it('reports an unfamiliar fund name rather than creating one', () => {
+    const text = `${FUND_HEADER}A,10,USD,1,2024-01-01,Food,Cafe,USD,Travel\r\n`;
+
+    const result = previewImport(text, FUND_MAPPING, 'iso', withFunds());
+
+    expect(result.newFundNames).toEqual([
+      { sourceName: 'Travel', rowCount: 1 },
+    ]);
+    expect(result.valid[0].fundName).toBe('Travel');
+  });
+
+  it('files rows under the default fund when their name was not opted in', async () => {
+    const text = `${FUND_HEADER}A,10,USD,1,2024-01-01,Food,Cafe,USD,Travel\r\n`;
+    const preview = previewImport(text, FUND_MAPPING, 'iso', withFunds());
+    (database.getFundByName as jest.Mock).mockResolvedValue(null);
+
+    const summary = await commitImport(preview, {}, {});
+
+    expect(database.createFund).not.toHaveBeenCalled();
+    expect(summary.createdFunds).toBe(0);
+    const [, records] = (database.createTransactionsBulk as jest.Mock).mock
+      .calls[0];
+    expect(records[0].fundId).toBe(1);
+  });
+
+  it('creates only the fund names the review step opted in', async () => {
+    const text =
+      `${FUND_HEADER}A,10,USD,1,2024-01-01,Food,Cafe,USD,Travel\r\n` +
+      `B,20,USD,1,2024-01-02,Food,Cafe,USD,Rainy\r\n`;
+    const preview = previewImport(text, FUND_MAPPING, 'iso', withFunds());
+    (database.getFundByName as jest.Mock).mockResolvedValue(null);
+    (database.createFund as jest.Mock).mockResolvedValue({
+      id: 7,
+      name: 'Travel',
+    });
+
+    const summary = await commitImport(
+      preview,
+      {},
+      { createFunds: ['travel'] },
+    );
+
+    expect(database.createFund).toHaveBeenCalledTimes(1);
+    expect(summary.createdFunds).toBe(1);
+  });
+
+  it('files a row under the existing fund its name is aliased to', async () => {
+    const text = `${FUND_HEADER}A,10,USD,1,2024-01-01,Food,Cafe,USD,Travelling\r\n`;
+    const preview = previewImport(text, FUND_MAPPING, 'iso', withFunds());
+    jest.clearAllMocks();
+    const db = {};
+    (database.withDatabase as jest.Mock).mockImplementation(cb => cb(db));
+    (database.withTransaction as jest.Mock).mockImplementation((_db, work) =>
+      work(db),
+    );
+    (database.createTransactionsBulk as jest.Mock).mockResolvedValue(0);
+    (database.createCategory as jest.Mock).mockResolvedValue({ id: 9 });
+    (database.getFundByName as jest.Mock).mockImplementation(
+      async (_db: unknown, name: string) =>
+        name === 'Travel' ? { id: 5, name: 'Travel' } : null,
+    );
+
+    const summary = await commitImport(
+      preview,
+      {},
+      { fundAliases: { travelling: 'Travel' } },
+    );
+
+    expect(database.createFund).not.toHaveBeenCalled();
+    expect(summary.createdFunds).toBe(0);
+    const [, records] = (database.createTransactionsBulk as jest.Mock).mock
+      .calls[0];
+    expect(records[0].fundId).toBe(5);
+  });
+
+  it('does not read a declared transfer through the sign convention', () => {
+    const TYPE_AND_FUND: FieldMapping = {
+      ...APP_MAPPING,
+      transactionType: 8,
+      counterpartFundName: 9,
+    };
+    const header = `${HEADER.trimEnd()},type,to_fund\r\n`;
+    const text =
+      `${header}A,-5,USD,1,2024-01-01,Food,Cafe,USD,Transfer,Travel\r\n` +
+      `B,-9,USD,1,2024-01-02,Food,Cafe,USD,,\r\n`;
+
+    const result = previewImport(text, TYPE_AND_FUND, 'iso', withFunds());
+
+    // negativeMeans is 'income', so the unsigned ladder would have called the
+    // first row income; the declared type must win instead.
+    expect(result.valid[0].record.type).toBe('transfer');
+    expect(result.valid[1].record.type).toBe('income');
+  });
+
+  it('still flags two ordinary rows that differ only by fund', () => {
+    const text =
+      `${FUND_HEADER}A,10,USD,1,2024-01-01,Food,Cafe,USD,General\r\n` +
+      `A,10,USD,1,2024-01-01,Food,Cafe,USD,Travel\r\n`;
+
+    const result = previewImport(text, FUND_MAPPING, 'iso', withFunds());
+
+    // Re-filing a transaction between funds must not stop a re-imported backup
+    // recognising it, so the fund is deliberately not part of the identity.
+    expect(result.duplicates).toHaveLength(1);
+    expect(result.duplicates[0].matchesLine).toBe(2);
+  });
+
+  const TRANSFER_SHAPE: FieldMapping = {
+    ...APP_MAPPING,
+    transactionType: 8,
+    fundName: 9,
+    counterpartFundName: 10,
+    counterpartAmount: 11,
+    counterpartCurrency: 12,
+  };
+  const SHAPE_HEADER = `${HEADER.trimEnd()},type,fund,to_fund,received,received_currency\r\n`;
+  const wellFormedTransfer =
+    ',50,USD,1,2024-01-02,,,USD,Transfer,General,Travel,60,EUR\r\n';
+
+  it('rejects a transfer that names no destination fund', () => {
+    const text =
+      `${SHAPE_HEADER},50,USD,1,2024-01-01,,,USD,Transfer,General,,,\r\n` +
+      wellFormedTransfer;
+
+    const result = previewImport(text, TRANSFER_SHAPE, 'iso', withFunds());
+
+    expect(result.invalid).toEqual([
+      { line: 2, reason: 'A transfer needs a destination fund.' },
+    ]);
+    expect(result.valid).toHaveLength(1);
+  });
+
+  it('rejects a transfer naming the same fund on both sides', () => {
+    const text =
+      `${SHAPE_HEADER},50,USD,1,2024-01-01,,,USD,Transfer,General,general,,\r\n` +
+      wellFormedTransfer;
+
+    const result = previewImport(text, TRANSFER_SHAPE, 'iso', withFunds());
+
+    expect(result.invalid).toEqual([
+      {
+        line: 2,
+        reason: 'A transfer cannot have the same fund on both sides.',
+      },
+    ]);
+    expect(result.valid).toHaveLength(1);
+  });
+
+  it('rejects a received amount that is not a positive number', () => {
+    const text =
+      `${SHAPE_HEADER},50,USD,1,2024-01-01,,,USD,Transfer,General,Travel,0,USD\r\n` +
+      wellFormedTransfer;
+
+    const result = previewImport(text, TRANSFER_SHAPE, 'iso', withFunds());
+
+    expect(result.invalid).toEqual([
+      { line: 2, reason: 'Amount received is not a positive number.' },
+    ]);
+    expect(result.valid).toHaveLength(1);
+  });
+
+  it('rejects a received currency that is not a valid code', () => {
+    const text =
+      `${SHAPE_HEADER},50,USD,1,2024-01-01,,,USD,Transfer,General,Travel,60,EU\r\n` +
+      wellFormedTransfer;
+
+    const result = previewImport(text, TRANSFER_SHAPE, 'iso', withFunds());
+
+    expect(result.invalid).toHaveLength(1);
+    expect(result.invalid[0].line).toBe(2);
+    expect(result.invalid[0].reason).toMatch(/^Received currency: /);
+    expect(result.valid).toHaveLength(1);
+  });
+
+  it('keeps two transfers between different fund pairs apart', () => {
+    const TRANSFER_MAPPING: FieldMapping = {
+      ...APP_MAPPING,
+      transactionType: 8,
+      fundName: 9,
+      counterpartFundName: 10,
+    };
+    const header = `${HEADER.trimEnd()},type,fund,to_fund\r\n`;
+    const text =
+      `${header},50,USD,1,2024-01-01,,,USD,Transfer,General,Travel\r\n` +
+      `,50,USD,1,2024-01-01,,,USD,Transfer,General,Rainy\r\n`;
+
+    const result = previewImport(text, TRANSFER_MAPPING, 'iso', withFunds());
+
+    expect(result.valid).toHaveLength(2);
+    expect(result.duplicates).toEqual([]);
   });
 });

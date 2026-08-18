@@ -8,9 +8,12 @@ import {
 } from '../utils/validation';
 import { formatMoneyAmount, formatFxRate } from '../utils/formatting';
 import { localIsoDate, localTimeOfDay } from '../utils/date';
+import { findDefaultFund } from '../utils/funds';
 import type {
   CategoryRecord,
   CurrencyFxRateRecord,
+  FundRecord,
+  TransactionDirection,
   TransactionRecord,
   TransactionType,
   NewTransactionRecord,
@@ -23,7 +26,7 @@ import type {
  */
 export const categoriesForDirection = (
   categories: readonly CategoryRecord[],
-  type: TransactionType,
+  type: TransactionDirection,
 ): CategoryRecord[] =>
   categories.filter(
     category => category.type === type || category.type === 'both',
@@ -41,6 +44,15 @@ export type TransactionFormValues = {
   date: string;
   time: string;
   categoryId: number | null;
+  fundId: number | null;
+  counterpartFundId: number | null;
+  counterpartAmount: string;
+  /**
+   * Currency the destination fund holds, resolved when it is chosen. Carried on
+   * the form so the stored row records what the amount was denominated in at the
+   * time, rather than trusting a fund that can be re-denominated later.
+   */
+  counterpartCurrencyCode: string | null;
   notes: string;
 };
 
@@ -51,7 +63,10 @@ export type TransactionFormErrors = Partial<
     | 'fxRateToBase'
     | 'baseAmount'
     | 'date'
-    | 'time',
+    | 'time'
+    | 'fundId'
+    | 'counterpartFundId'
+    | 'counterpartAmount',
     string
   >
 > & { form?: string };
@@ -72,6 +87,10 @@ export type ValidTransactionPayload = {
   date: string;
   time: string | null;
   categoryId: number | null;
+  fundId: number;
+  counterpartFundId: number | null;
+  counterpartAmount: number | null;
+  counterpartCurrencyCode: string | null;
   notes: string | null;
 };
 
@@ -122,11 +141,45 @@ export const resolveFxRateForCurrency = (
   return cached ? formatFxRate(cached.fxRateToBase) : '';
 };
 
+/**
+ * Currency and rate to adopt when a fund is chosen, or null to leave the form
+ * as it stands. Null covers both the fund that carries no currency of its own —
+ * it follows the base currency, so there is nothing to adopt — and the form
+ * whose currency the user has already chosen.
+ *
+ * Rate and currency move together. A currency adopted without its rate would
+ * leave the previous currency's rate in place, and the base amount computes
+ * from that rate. An uncached pair resolves to no rate at all, in which case
+ * `currentRate` is retained rather than blanked.
+ */
+export const resolveFundCurrencySeed = (
+  fund: FundRecord | null,
+  currencyTouched: boolean,
+  currentRate: string,
+  baseCurrency: string | null,
+  cachedRates: readonly CurrencyFxRateRecord[] = [],
+): Pick<TransactionFormValues, 'currencyCode' | 'fxRateToBase'> | null => {
+  if (currencyTouched || !fund?.currencyCode) {
+    return null;
+  }
+
+  const resolvedRate = resolveFxRateForCurrency(
+    fund.currencyCode,
+    baseCurrency,
+    cachedRates,
+  );
+  return {
+    currencyCode: fund.currencyCode,
+    fxRateToBase: resolvedRate !== '' ? resolvedRate : currentRate,
+  };
+};
+
 export const getDefaultTransactionFormValues = (
   baseCurrency: string | null,
   categories: CategoryRecord[],
   existing?: TransactionRecord,
   cachedRates: readonly CurrencyFxRateRecord[] = [],
+  funds: readonly FundRecord[] = [],
 ): TransactionFormValues => {
   if (existing) {
     // The stored category is kept even when its type no longer matches the
@@ -144,6 +197,13 @@ export const getDefaultTransactionFormValues = (
       date: existing.date,
       time: existing.time ?? '',
       categoryId: existing.categoryId ?? null,
+      fundId: existing.fundId,
+      counterpartFundId: existing.counterpartFundId,
+      counterpartAmount:
+        existing.counterpartAmount != null
+          ? formatMoneyAmount(existing.counterpartAmount)
+          : '',
+      counterpartCurrencyCode: existing.counterpartCurrencyCode,
       notes: existing.notes ?? '',
     };
   }
@@ -169,6 +229,10 @@ export const getDefaultTransactionFormValues = (
     date: isoDate,
     time: localTimeOfDay(now),
     categoryId: selectable.length ? selectable[0].id : null,
+    fundId: findDefaultFund(funds)?.id ?? null,
+    counterpartFundId: null,
+    counterpartAmount: '',
+    counterpartCurrencyCode: null,
     notes: '',
   };
 };
@@ -240,7 +304,42 @@ export const validateTransactionForm = (
     errors.time = timeCheck.message;
   }
 
-  if (!errors.form && !description && !payee && values.categoryId == null) {
+  const isTransfer = values.type === 'transfer';
+
+  if (values.fundId == null) {
+    errors.fundId = 'Choose a fund.';
+  }
+
+  let counterpartAmount: number | null = null;
+  if (isTransfer) {
+    if (values.counterpartFundId == null) {
+      errors.counterpartFundId = 'Choose a destination fund.';
+    } else if (values.counterpartFundId === values.fundId) {
+      errors.counterpartFundId = 'A transfer needs two different funds.';
+    }
+
+    // Blank means the destination received what left, which is what a
+    // same-currency transfer records.
+    const raw = values.counterpartAmount.trim();
+    counterpartAmount = raw ? Number(raw) : Number(values.amountNative);
+    const receivedCheck = validatePositiveAmount(
+      counterpartAmount,
+      'Amount received',
+    );
+    if (!receivedCheck.valid) {
+      errors.counterpartAmount = receivedCheck.message;
+    }
+  }
+
+  // A transfer is identified by the two funds it moves money between, so it
+  // needs none of these to be recognisable, and carries no category at all.
+  if (
+    !errors.form &&
+    !isTransfer &&
+    !description &&
+    !payee &&
+    values.categoryId == null
+  ) {
     errors.form = 'Add a description, payee, or category.';
   }
 
@@ -263,7 +362,13 @@ export const validateTransactionForm = (
         : null,
       date: values.date,
       time: values.time.trim() || null,
-      categoryId: values.categoryId ?? null,
+      categoryId: isTransfer ? null : (values.categoryId ?? null),
+      fundId: values.fundId as number,
+      counterpartFundId: isTransfer ? values.counterpartFundId : null,
+      counterpartAmount: isTransfer ? counterpartAmount : null,
+      counterpartCurrencyCode: isTransfer
+        ? (values.counterpartCurrencyCode ?? null)
+        : null,
       notes: ensureNotes(values.notes),
     },
   };
@@ -283,6 +388,10 @@ export const buildCreatePayload = (
   date: value.date,
   time: value.time,
   categoryId: value.categoryId,
+  fundId: value.fundId,
+  counterpartFundId: value.counterpartFundId,
+  counterpartAmount: value.counterpartAmount,
+  counterpartCurrencyCode: value.counterpartCurrencyCode,
   notes: value.notes,
 });
 
@@ -302,5 +411,9 @@ export const buildUpdatePayload = (
   date: value.date,
   time: value.time,
   categoryId: value.categoryId,
+  fundId: value.fundId,
+  counterpartFundId: value.counterpartFundId,
+  counterpartAmount: value.counterpartAmount,
+  counterpartCurrencyCode: value.counterpartCurrencyCode,
   notes: value.notes,
 });

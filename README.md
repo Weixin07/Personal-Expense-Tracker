@@ -52,6 +52,8 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 - **Date Filtering**: Quick filters (Last 7/30 days, This month, All time) plus custom date ranges
 - **Income and Expenses**: Record money in as well as out. Home summarises the filtered period as Spent, Received and Net, signed and grouped per base currency, with a transaction count for each direction
 - **Suggested Fills**: Tapping the description or payee field offers values from your own history, ranked by how much you use them in the last 12 months rather than alphabetically, and typing narrows the list. The category picker is ordered the same way
+- **Funds (Budget Pots)**: Set money aside in named pots — a travel budget, household savings — each with its own currency and opening balance. Every transaction belongs to one, and Home shows what is left in each over your whole history rather than the filtered period
+- **Transfers Between Funds**: Move money between pots without it counting as spending or income. A cross-currency transfer records both what left and what arrived, so the rate it used is preserved rather than recomputed
 - **Rich Metadata**: Add notes, select categories, and track precise amounts with proper rounding
 
 ### 📊 Data & Analytics
@@ -129,7 +131,7 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 ```sql
 CREATE TABLE transactions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  type TEXT NOT NULL DEFAULT 'expense' CHECK (type IN ('expense','income')),
+  type TEXT NOT NULL DEFAULT 'expense' CHECK (type IN ('expense','income','transfer')),
   description TEXT NOT NULL,
   amount_native REAL NOT NULL CHECK (amount_native > 0),
   currency_code TEXT NOT NULL CHECK (LENGTH(currency_code) = 3),
@@ -139,12 +141,24 @@ CREATE TABLE transactions (
   date TEXT NOT NULL CHECK (LENGTH(date) = 10),  -- ISO YYYY-MM-DD
   time TEXT NULL CHECK (time IS NULL OR LENGTH(time) = 5),  -- HH:MM, NULL = not recorded
   category_id INTEGER NULL,
+  fund_id INTEGER NOT NULL,  -- the pot this belongs to; for a transfer, the source
+  counterpart_fund_id INTEGER NULL,  -- destination of a transfer, else NULL
+  counterpart_amount REAL NULL,  -- what arrived, in counterpart_currency_code
+  counterpart_currency_code TEXT NULL,
   notes TEXT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
+  FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+  FOREIGN KEY (fund_id) REFERENCES funds(id) ON DELETE RESTRICT,
+  FOREIGN KEY (counterpart_fund_id) REFERENCES funds(id) ON DELETE RESTRICT
 );
 ```
+
+A `transfer` moves money between two funds and is neither spending nor income:
+it is excluded from every summary figure. It conserves value, so the single
+`base_amount` leaves the source fund and the same figure arrives at the
+destination — `counterpart_amount` records what the user observed arriving and
+is never used for balance arithmetic.
 
 Each transaction records the base currency its `fx_rate_to_base`/`base_amount`
 were captured against. Changing the `base_currency` setting applies to **new
@@ -169,6 +183,28 @@ CREATE TABLE categories (
 A category is offered for a transaction when its `type` matches the direction
 or is `both`. Categories that predate typing migrate to `both`, so nothing a
 user was already filing under stops being available.
+
+**`funds`** (Budget pots)
+
+```sql
+CREATE TABLE funds (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (LENGTH(name) > 0),
+  currency_code TEXT NULL CHECK (currency_code IS NULL OR LENGTH(currency_code) = 3),
+  opening_balance REAL NOT NULL DEFAULT 0,
+  notes TEXT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+```
+
+A fund is a pot money is set aside in — a travel budget, household savings. Every
+transaction belongs to exactly one; a "General" fund is seeded and every existing
+transaction is assigned to it on upgrade. A `NULL` `currency_code` means the fund
+follows the configured base currency. Balances span the whole history regardless
+of the date filter, and are reported per currency, since amounts captured against
+different base currencies cannot be summed. Deleting a fund still referenced by
+any transaction is refused by the database.
 
 **`app_settings`** (Key-value configuration)
 
@@ -215,6 +251,10 @@ CREATE TABLE currency_fx_rates (
 
 Caches the most recently entered rate for each `(base, currency)` pair so the
 Add Expense form can prefill it instead of requiring re-entry.
+
+The `counterpart_fund_id` index is partial (`WHERE counterpart_fund_id IS NOT
+NULL`): the column is NULL on every non-transfer row, so a full index would
+carry an entry per row to serve a small minority of them.
 
 ### Architecture Patterns
 
@@ -660,6 +700,7 @@ PET/
 │   ├── components/             # Reusable UI components
 │   │   ├── CategoryPickerDialog.tsx
 │   │   ├── CurrencyPickerDialog.tsx
+│   │   ├── FundPickerDialog.tsx
 │   │   └── SuggestionList.tsx  # Frequency-ranked fills under a text field
 │   ├── constants/              # Static data
 │   │   ├── currencies.json     # ISO-4217 currency list
@@ -669,11 +710,13 @@ PET/
 │   │   └── AppContext.tsx      # Global app state (expenses, categories, settings)
 │   ├── database/               # SQLite layer
 │   │   ├── database.ts         # Database initialization, connection
-│   │   ├── migrations.ts       # Schema migrations (v1-v9)
+│   │   ├── migrations.ts       # Schema migrations (v1-v10)
+│   │   ├── snapshot.ts         # Pre-migration database copy (WAL-checkpointed)
 │   │   ├── seeding.ts          # Default data seeding
 │   │   ├── repositories/       # Data access layer
 │   │   │   ├── transactionsRepository.ts
 │   │   │   ├── categoriesRepository.ts
+│   │   │   ├── fundsRepository.ts
 │   │   │   ├── settingsRepository.ts
 │   │   │   └── exportQueueRepository.ts
 │   │   └── __tests__/          # Database tests
@@ -698,6 +741,7 @@ PET/
 │   │   ├── AddTransactionScreen.tsx # Create/edit transaction form
 │   │   ├── SettingsScreen.tsx  # App settings
 │   │   ├── ManageCategoriesScreen.tsx # Category CRUD
+│   │   ├── ManageFundsScreen.tsx # Fund CRUD and balances
 │   │   ├── ExportQueueScreen.tsx # Backup queue management
 │   │   ├── homeUtils.ts        # Home screen helper functions
 │   │   ├── transactionFormUtils.ts # Form validation and payload building
@@ -947,6 +991,22 @@ pnpm install
   adb shell pm clear com.expensetracker
   ```
 - Reinstall app: `pnpm android`
+
+**Error:** Writes fail after installing an older build over a newer database
+
+**Solution:**
+
+- Schema migrations are forward-only; there are no down-migrations. An older APK
+  can still read a newer database, but its inserts omit columns the newer schema
+  requires (`transactions.fund_id`), so every write fails.
+- Reinstall the newer build, or clear app data to start fresh:
+  ```bash
+  adb shell pm clear com.expensetracker
+  ```
+- A copy of the database taken immediately before the last migration is kept in
+  the app's `pre-migration/` directory until the next clean launch.
+
+---
 
 **Error:** `UNIQUE constraint failed: categories.name`
 

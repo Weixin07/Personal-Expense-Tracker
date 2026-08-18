@@ -4,7 +4,7 @@ import type {
   FieldMapping,
   ImportTargetField,
   ParsedRow,
-  TransactionDirection,
+  TransactionType,
 } from './types';
 
 /**
@@ -26,6 +26,10 @@ const COLUMN_TO_FIELD: Record<string, ImportTargetField> = {
   category: 'categoryName',
   notes: 'notes',
   type: 'transactionType',
+  fund: 'fundName',
+  counterpart_fund: 'counterpartFundName',
+  counterpart_amount: 'counterpartAmount',
+  counterpart_currency: 'counterpartCurrency',
 };
 
 /**
@@ -108,10 +112,34 @@ const SYNONYM_TO_FIELD: Record<string, ImportTargetField> = {
   'transaction type': 'transactionType',
   direction: 'transactionType',
   'credit debit indicator': 'transactionType',
+
+  // Terms this app does not write, but other tools do for the same concept.
+  'fund name': 'fundName',
+  account: 'fundName',
+  'account name': 'fundName',
+  pot: 'fundName',
+  envelope: 'fundName',
+  wallet: 'fundName',
+  'from account': 'fundName',
+  'from fund': 'fundName',
+  'to account': 'counterpartFundName',
+  'to fund': 'counterpartFundName',
+  'destination account': 'counterpartFundName',
+  'transfer account': 'counterpartFundName',
+  'amount received': 'counterpartAmount',
+  'counterpart amount': 'counterpartAmount',
+  'received currency': 'counterpartCurrency',
+  'counterpart currency': 'counterpartCurrency',
 };
 
-/** Values an explicit transaction-type column uses for each direction. */
-const TRANSACTION_TYPE_VALUES: Record<string, TransactionDirection> = {
+/** Values an explicit transaction-type column uses for each type. */
+const TRANSACTION_TYPE_VALUES: Record<string, TransactionType> = {
+  transfer: 'transfer',
+  transfers: 'transfer',
+  xfer: 'transfer',
+  move: 'transfer',
+  movement: 'transfer',
+
   income: 'income',
   incomes: 'income',
   credit: 'income',
@@ -131,13 +159,11 @@ const TRANSACTION_TYPE_VALUES: Record<string, TransactionDirection> = {
 };
 
 /**
- * Read a raw transaction-type cell as a direction. Returns null when the value
- * is empty or outside the known vocabulary, so the caller can fall back to the
- * sign convention rather than reject the row.
+ * Read a raw transaction-type cell. Returns null when the value is empty or
+ * outside the known vocabulary, so the caller can fall back to the sign
+ * convention rather than reject the row.
  */
-export const resolveTransactionType = (
-  raw: string,
-): TransactionDirection | null =>
+export const resolveTransactionType = (raw: string): TransactionType | null =>
   TRANSACTION_TYPE_VALUES[raw.trim().toLowerCase()] ?? null;
 
 export const REQUIRED_TARGET_FIELDS: readonly ImportTargetField[] = [

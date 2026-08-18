@@ -49,6 +49,12 @@ describe('SettingsScreen', () => {
     expect(mockNavigate).toHaveBeenCalledWith('ManageCategories');
   });
 
+  it('navigates to fund management', () => {
+    renderWithProviders(<SettingsScreen />);
+    fireEvent.press(screen.getByLabelText('Manage funds'));
+    expect(mockNavigate).toHaveBeenCalledWith('ManageFunds');
+  });
+
   it('navigates to the export queue', () => {
     renderWithProviders(<SettingsScreen />);
     fireEvent.press(screen.getByLabelText('Open export queue'));

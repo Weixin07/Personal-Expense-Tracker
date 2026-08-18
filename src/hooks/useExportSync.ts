@@ -13,6 +13,7 @@ import type {
   ExportQueueRecord,
   TransactionRecord,
   CategoryRecord,
+  FundRecord,
 } from '../database';
 import { writeExportFile, uploadPendingExports } from '../export';
 import type { UploadPendingExportsResult } from '../export';
@@ -36,6 +37,7 @@ export type UseExportSyncParams = {
   isInitialised: boolean;
   transactions: TransactionRecord[];
   categories: CategoryRecord[];
+  funds: FundRecord[];
   initialQueueRecords: readonly ExportQueueRecord[];
   ensureExportDirectoryUri: () => Promise<string>;
   setDriveFolderId: (folderId: string | null) => void;
@@ -120,6 +122,7 @@ export const useExportSync = ({
   isInitialised,
   transactions,
   categories,
+  funds,
   initialQueueRecords,
   ensureExportDirectoryUri,
   setDriveFolderId,
@@ -207,6 +210,7 @@ export const useExportSync = ({
         directoryUri,
         transactions,
         categories,
+        funds,
       });
       const storedFilePath = filePath ?? fileUri;
       if (!storedFilePath || !fileUri) {
@@ -235,6 +239,7 @@ export const useExportSync = ({
   }, [
     beginOperation,
     categories,
+    funds,
     endOperation,
     ensureExportDirectoryUri,
     transactions,
@@ -257,6 +262,7 @@ export const useExportSync = ({
           directoryUri,
           transactions,
           categories,
+          funds,
         });
         const nextFilePath = regenerated.filePath ?? regenerated.fileUri;
         if (!regenerated.fileUri || !nextFilePath) {
@@ -293,6 +299,7 @@ export const useExportSync = ({
     [
       beginOperation,
       categories,
+      funds,
       endOperation,
       ensureExportDirectoryUri,
       transactions,

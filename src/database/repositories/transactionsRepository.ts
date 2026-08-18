@@ -20,6 +20,10 @@ const TRANSACTION_COLUMNS = `
   date,
   time,
   category_id,
+  fund_id,
+  counterpart_fund_id,
+  counterpart_amount,
+  counterpart_currency_code,
   notes,
   created_at,
   updated_at
@@ -38,6 +42,10 @@ type RawTransactionRow = {
   date: string;
   time: string | null;
   category_id: number | null;
+  fund_id: number;
+  counterpart_fund_id: number | null;
+  counterpart_amount: number | null;
+  counterpart_currency_code: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -56,6 +64,10 @@ const toTransactionRecord = (row: RawTransactionRow): TransactionRecord => ({
   date: row.date,
   time: row.time ?? null,
   categoryId: row.category_id,
+  fundId: row.fund_id,
+  counterpartFundId: row.counterpart_fund_id ?? null,
+  counterpartAmount: row.counterpart_amount ?? null,
+  counterpartCurrencyCode: row.counterpart_currency_code ?? null,
   notes: row.notes,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
@@ -87,22 +99,13 @@ export const createTransaction = async (
       date,
       time,
       category_id,
+      fund_id,
+      counterpart_fund_id,
+      counterpart_amount,
+      counterpart_currency_code,
       notes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      payload.type,
-      payload.description,
-      payload.payee,
-      payload.amountNative,
-      payload.currencyCode,
-      payload.fxRateToBase,
-      payload.baseAmount,
-      payload.baseCurrencyCode ?? null,
-      payload.date,
-      payload.time ?? null,
-      payload.categoryId ?? null,
-      payload.notes ?? null,
-    ],
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    toBulkInsertParams(payload),
   );
 
   const insertResult = resultSet[0];
@@ -118,7 +121,7 @@ export const createTransaction = async (
   return transaction;
 };
 
-const BULK_INSERT_COLUMN_COUNT = 12;
+const BULK_INSERT_COLUMN_COUNT = 16;
 // SQLite caps host parameters per statement (SQLITE_MAX_VARIABLE_NUMBER, 999 on
 // older builds). Rows per INSERT are derived from the column count so the cap
 // cannot be breached by adding a column.
@@ -141,6 +144,10 @@ const toBulkInsertParams = (
   payload.date,
   payload.time ?? null,
   payload.categoryId ?? null,
+  payload.fundId,
+  payload.counterpartFundId ?? null,
+  payload.counterpartAmount ?? null,
+  payload.counterpartCurrencyCode ?? null,
   payload.notes ?? null,
 ];
 
@@ -172,6 +179,10 @@ export const createTransactionsBulk = async (
         date,
         time,
         category_id,
+        fund_id,
+        counterpart_fund_id,
+        counterpart_amount,
+        counterpart_currency_code,
         notes
       ) VALUES ${placeholders}`,
       params,
@@ -199,24 +210,14 @@ export const updateTransaction = async (
       date = ?,
       time = ?,
       category_id = ?,
+      fund_id = ?,
+      counterpart_fund_id = ?,
+      counterpart_amount = ?,
+      counterpart_currency_code = ?,
       notes = ?,
       updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     WHERE id = ?`,
-    [
-      fields.type,
-      fields.description,
-      fields.payee,
-      fields.amountNative,
-      fields.currencyCode,
-      fields.fxRateToBase,
-      fields.baseAmount,
-      fields.baseCurrencyCode ?? null,
-      fields.date,
-      fields.time ?? null,
-      fields.categoryId ?? null,
-      fields.notes ?? null,
-      id,
-    ],
+    [...toBulkInsertParams(fields), id],
   );
 
   if (resultSet[0].rowsAffected === 0) {
@@ -273,6 +274,11 @@ export const listTransactions = async (
   if (typeof filters.categoryId === 'number') {
     conditions.push('category_id = ?');
     params.push(filters.categoryId);
+  }
+  if (typeof filters.fundId === 'number') {
+    // Both sides, so a transfer into this fund counts as belonging to it.
+    conditions.push('(fund_id = ? OR counterpart_fund_id = ?)');
+    params.push(filters.fundId, filters.fundId);
   }
   if (filters.startDate) {
     conditions.push('date >= ?');

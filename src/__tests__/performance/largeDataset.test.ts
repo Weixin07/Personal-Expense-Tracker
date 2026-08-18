@@ -145,6 +145,44 @@ describe('Performance: Large Dataset (10k expenses)', () => {
       );
     });
 
+    it('should compute fund balances for 10k transactions in under 100ms', async () => {
+      // Mirrors the shape of AppContext's balance pass, which is unexported:
+      // one sweep, with a transfer contributing its single base amount to both
+      // funds under opposite signs. It measures the cost of that operation, not
+      // of the production function.
+      const { result, metrics } = await measurePerformance(() => {
+        const balances = new Map<number, number>();
+        const add = (fundId: number, amount: number) => {
+          balances.set(fundId, (balances.get(fundId) ?? 0) + amount);
+        };
+        mockTransactions.forEach(transaction => {
+          if (transaction.type === 'transfer') {
+            add(transaction.fundId, -transaction.baseAmount);
+            if (transaction.counterpartFundId != null) {
+              add(transaction.counterpartFundId, transaction.baseAmount);
+            }
+            return;
+          }
+          add(
+            transaction.fundId,
+            transaction.type === 'income'
+              ? transaction.baseAmount
+              : -transaction.baseAmount,
+          );
+        });
+        return balances;
+      });
+
+      console.log(`Balance Time: ${formatDuration(metrics.duration)}`);
+
+      expect(result.size).toBeGreaterThan(0);
+      assertPerformance(
+        metrics,
+        { maxDuration: 100 },
+        'Computing fund balances for 10k transactions',
+      );
+    });
+
     it('should group 10k expenses by month in under 100ms', async () => {
       const { result, metrics } = await measurePerformance(() => {
         const grouped = new Map<string, number>();

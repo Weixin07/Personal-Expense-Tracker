@@ -12,6 +12,10 @@ export const TRANSACTION_CSV_COLUMNS = [
   'payee',
   'type',
   'time',
+  'fund',
+  'counterpart_fund',
+  'counterpart_amount',
+  'counterpart_currency',
 ] as const;
 
 export type TransactionCsvColumn = (typeof TRANSACTION_CSV_COLUMNS)[number];

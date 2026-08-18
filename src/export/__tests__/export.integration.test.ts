@@ -34,6 +34,10 @@ describe('CSV Export Integration Tests', () => {
       date: '2025-01-15',
       time: null,
       categoryId: 1,
+      fundId: 1,
+      counterpartFundId: null,
+      counterpartAmount: null,
+      counterpartCurrencyCode: null,
       notes: 'Tesco shopping',
       createdAt: '2025-01-15T10:00:00.000Z',
       updatedAt: '2025-01-15T10:00:00.000Z',
@@ -51,6 +55,10 @@ describe('CSV Export Integration Tests', () => {
       date: '2025-01-20',
       time: null,
       categoryId: 2,
+      fundId: 1,
+      counterpartFundId: null,
+      counterpartAmount: null,
+      counterpartCurrencyCode: null,
       notes: null,
       createdAt: '2025-01-20T08:30:00.000Z',
       updatedAt: '2025-01-20T08:30:00.000Z',
@@ -68,6 +76,10 @@ describe('CSV Export Integration Tests', () => {
       date: '2025-01-22',
       time: null,
       categoryId: null,
+      fundId: 1,
+      counterpartFundId: null,
+      counterpartAmount: null,
+      counterpartCurrencyCode: null,
       notes: 'Line 1\nLine 2',
       createdAt: '2025-01-22T14:00:00.000Z',
       updatedAt: '2025-01-22T14:00:00.000Z',
@@ -86,7 +98,7 @@ describe('CSV Export Integration Tests', () => {
 
       const lines = csv.split('\r\n');
       expect(lines[0]).toBe(
-        '\uFEFFid,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee,type,time',
+        '\uFEFFid,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee,type,time,fund,counterpart_fund,counterpart_amount,counterpart_currency',
       );
     });
 
@@ -165,6 +177,10 @@ describe('CSV Export Integration Tests', () => {
           date: '2025-01-01',
           time: null,
           categoryId: (i % 5) + 1,
+          fundId: 1,
+          counterpartFundId: null,
+          counterpartAmount: null,
+          counterpartCurrencyCode: null,
           notes: null,
           createdAt: '2025-01-01T00:00:00.000Z',
           updatedAt: '2025-01-01T00:00:00.000Z',
@@ -214,6 +230,10 @@ describe('CSV Export Integration Tests', () => {
         date: '2025-01-01',
         time: null,
         categoryId: null,
+        fundId: 1,
+        counterpartFundId: null,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
         notes: null,
         createdAt: '2025-01-01T00:00:00.000Z',
         updatedAt: '2025-01-01T00:00:00.000Z',
@@ -241,7 +261,7 @@ describe('CSV Export Integration Tests', () => {
 
       const header = lines[0].replace('\uFEFF', '');
       expect(header).toBe(
-        'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee,type,time',
+        'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee,type,time,fund,counterpart_fund,counterpart_amount,counterpart_currency',
       );
 
       const firstDataRow = lines[1].split(',');

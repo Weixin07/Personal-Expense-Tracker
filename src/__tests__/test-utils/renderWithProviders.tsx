@@ -8,6 +8,7 @@ import type {
   TransactionDataState,
 } from '../../context/AppContext';
 import { makeImportSummary } from './importFixtures';
+import type { FundRecord } from '../../database';
 import { EMPTY_CATEGORY_USAGE_COUNTS } from '../../utils/suggestions';
 
 // react-native maps requestAnimationFrame to setTimeout; Paper's transition
@@ -33,6 +34,17 @@ export const renderWithProviders = (
   options?: Omit<RenderOptions, 'wrapper'>,
 ) => render(ui, { wrapper: AllProviders, ...options });
 
+export const makeFund = (overrides: Partial<FundRecord> = {}): FundRecord => ({
+  id: 1,
+  name: 'General',
+  currencyCode: null,
+  openingBalance: 0,
+  notes: null,
+  createdAt: '2025-01-01T00:00:00.000Z',
+  updatedAt: '2025-01-01T00:00:00.000Z',
+  ...overrides,
+});
+
 export type StateOverrides = Partial<Omit<TransactionDataState, 'settings'>> & {
   settings?: Partial<TransactionDataState['settings']>;
 };
@@ -44,6 +56,9 @@ export const makeContextState = (
   return {
     transactions: [],
     categories: [],
+    // Seeding and the schema together guarantee a fund always exists, so a
+    // fixture with none would exercise a state the app cannot reach.
+    funds: [makeFund()],
     exportQueue: [],
     fxRateCache: [],
     filters: {},
@@ -71,6 +86,7 @@ export const makeContextSelectors = (
     byBaseCurrency: [],
     mixedBase: false,
   },
+  fundBalances: [],
   hasActiveFilters: false,
   categoryUsageCounts: EMPTY_CATEGORY_USAGE_COUNTS,
   ...overrides,
@@ -86,6 +102,9 @@ export const makeContextActions = (
   createCategory: jest.fn().mockResolvedValue(undefined),
   updateCategory: jest.fn().mockResolvedValue(undefined),
   deleteCategory: jest.fn().mockResolvedValue(undefined),
+  createFund: jest.fn().mockResolvedValue(undefined),
+  updateFund: jest.fn().mockResolvedValue(undefined),
+  deleteFund: jest.fn().mockResolvedValue(undefined),
   setBaseCurrency: jest.fn().mockResolvedValue(undefined),
   setBiometricGateEnabled: jest.fn().mockResolvedValue(undefined),
   setDriveFolderId: jest.fn().mockResolvedValue(undefined),

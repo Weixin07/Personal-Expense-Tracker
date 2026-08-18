@@ -1,4 +1,5 @@
 import {
+  validateOpeningBalance,
   normalizeCurrency,
   validateBaseAmountPrecision,
   validateCurrencyCode,
@@ -200,5 +201,28 @@ describe('validateTimeOfDay', () => {
     expect(validateTimeOfDay('1430').valid).toBe(false);
     expect(validateTimeOfDay('2:30pm').valid).toBe(false);
     expect(validateTimeOfDay('lunch').valid).toBe(false);
+  });
+});
+
+describe('validateOpeningBalance', () => {
+  it('accepts zero, which is what a new fund starts at', () => {
+    expect(validateOpeningBalance(0).valid).toBe(true);
+  });
+
+  it('accepts a positive balance', () => {
+    expect(validateOpeningBalance(250.5).valid).toBe(true);
+  });
+
+  it('rejects a negative balance', () => {
+    const result = validateOpeningBalance(-1);
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.message).toContain('cannot be negative');
+    }
+  });
+
+  it('rejects a value that is not a number', () => {
+    expect(validateOpeningBalance(Number.NaN).valid).toBe(false);
+    expect(validateOpeningBalance(null).valid).toBe(false);
   });
 });

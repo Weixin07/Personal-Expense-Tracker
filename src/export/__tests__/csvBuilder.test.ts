@@ -16,6 +16,10 @@ describe('buildTransactionsCsv', () => {
     date: '2025-01-10',
     time: null,
     categoryId: 2,
+    fundId: 1,
+    counterpartFundId: null,
+    counterpartAmount: null,
+    counterpartCurrencyCode: null,
     notes: 'Morning brew',
     createdAt: '',
     updatedAt: '',
@@ -43,7 +47,7 @@ describe('buildTransactionsCsv', () => {
 
     // Quoted fields carry embedded CRLF, so a line split cannot separate records here.
     expect(content).toContain(
-      'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee,type,time',
+      'id,description,amount_native,currency_code,fx_rate_to_base,base_amount,date,category,notes,base_currency_code,payee,type,time,fund,counterpart_fund,counterpart_amount,counterpart_currency',
     );
     expect(content).toContain('"Breakfast, ""delicious""\nandalusian"');
     expect(content).toContain('3.50,USD,1.000000,3.50,2025-01-10,Essentials');
@@ -64,7 +68,7 @@ describe('buildTransactionsCsv', () => {
 
     const rows = content.slice(1).split('\r\n');
     expect(rows[1]).toBe(
-      '5,Coffee,3.50,USD,1.000000,3.50,2025-01-10,,Morning brew,USD,Corner Cafe,expense,',
+      '5,Coffee,3.50,USD,1.000000,3.50,2025-01-10,,Morning brew,USD,Corner Cafe,expense,,,,,',
     );
   });
 
@@ -122,6 +126,10 @@ describe('buildTransactionsCsv', () => {
       date: `2025-01-${String((index % 28) + 1).padStart(2, '0')}`,
       time: null,
       categoryId: index % 2 === 0 ? 2 : null,
+      fundId: 1,
+      counterpartFundId: null,
+      counterpartAmount: null,
+      counterpartCurrencyCode: null,
       notes: index % 3 === 0 ? `Note ${index}` : null,
     }));
 
@@ -135,5 +143,98 @@ describe('buildTransactionsCsv', () => {
     const lines = content.split('\r\n');
     expect(lines.length).toBe(largeSet.length + 2); // header + rows + trailing blank
     expect(lines[largeSet.length + 1]).toBe('');
+  });
+});
+
+describe('fund and transfer columns', () => {
+  const funds = [
+    {
+      id: 1,
+      name: 'General',
+      currencyCode: null,
+      openingBalance: 0,
+      notes: null,
+      createdAt: '',
+      updatedAt: '',
+    },
+    {
+      id: 2,
+      name: 'Travel',
+      currencyCode: 'EUR',
+      openingBalance: 0,
+      notes: null,
+      createdAt: '',
+      updatedAt: '',
+    },
+  ];
+
+  const base: TransactionRecord = {
+    type: 'expense',
+    id: 1,
+    description: 'Coffee',
+    payee: 'Cafe',
+    amountNative: 3.5,
+    currencyCode: 'USD',
+    fxRateToBase: 1,
+    baseAmount: 3.5,
+    baseCurrencyCode: 'USD',
+    date: '2025-01-10',
+    time: null,
+    categoryId: null,
+    fundId: 1,
+    counterpartFundId: null,
+    counterpartAmount: null,
+    counterpartCurrencyCode: null,
+    notes: null,
+    createdAt: '',
+    updatedAt: '',
+  };
+
+  const cellsOf = (transaction: TransactionRecord): string[] => {
+    const { content } = buildTransactionsCsv({
+      transactions: [transaction],
+      categories: [],
+      funds,
+    });
+    return content.split('\r\n')[1].split(',');
+  };
+
+  it('names the fund a plain transaction belongs to', () => {
+    const cells = cellsOf(base);
+
+    expect(cells[13]).toBe('General');
+  });
+
+  it('leaves the three counterpart cells empty on a non-transfer', () => {
+    const cells = cellsOf(base);
+
+    expect(cells.slice(14, 17)).toEqual(['', '', '']);
+  });
+
+  it('writes both funds, the received amount and its currency for a transfer', () => {
+    const cells = cellsOf({
+      ...base,
+      type: 'transfer',
+      description: '',
+      payee: '',
+      amountNative: 100,
+      currencyCode: 'GBP',
+      baseCurrencyCode: 'GBP',
+      baseAmount: 100,
+      counterpartFundId: 2,
+      counterpartAmount: 117,
+      counterpartCurrencyCode: 'EUR',
+    });
+
+    expect(cells.slice(13, 17)).toEqual(['General', 'Travel', '117.00', 'EUR']);
+  });
+
+  it('leaves the fund cell empty when no fund list was supplied', () => {
+    const { content } = buildTransactionsCsv({
+      transactions: [base],
+      categories: [],
+    });
+
+    expect(content.split('\r\n')[1].split(',')[13]).toBe('');
   });
 });
