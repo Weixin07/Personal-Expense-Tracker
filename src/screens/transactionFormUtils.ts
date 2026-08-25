@@ -8,7 +8,8 @@ import {
 } from '../utils/validation';
 import { formatMoneyAmount, formatFxRate } from '../utils/formatting';
 import { localIsoDate, localTimeOfDay } from '../utils/date';
-import { findDefaultFund } from '../utils/funds';
+import { findDefaultFund, resolveTransferCurrency } from '../utils/funds';
+import { convertToCurrency, isSuspectTransferRate } from '../utils/fxRates';
 import type {
   CategoryRecord,
   CurrencyFxRateRecord,
@@ -71,8 +72,23 @@ export type TransactionFormErrors = Partial<
   >
 > & { form?: string };
 
+/**
+ * Something worth querying about an otherwise valid entry. Carried alongside the
+ * payload rather than reported by a separate check, so a caller cannot save
+ * without having been handed it.
+ */
+export type TransactionFormWarning = {
+  field: 'counterpartAmount';
+  code: 'suspect-transfer-rate';
+  message: string;
+};
+
 export type TransactionFormValidationResult =
-  | { ok: true; value: ValidTransactionPayload }
+  | {
+      ok: true;
+      value: ValidTransactionPayload;
+      warnings: TransactionFormWarning[];
+    }
   | { ok: false; errors: TransactionFormErrors };
 
 export type ValidTransactionPayload = {
@@ -242,8 +258,65 @@ const ensureNotes = (value: string): string | null => {
   return trimmed.length ? trimmed : null;
 };
 
+/**
+ * Currency the destination holds for the purpose of this entry: what the form
+ * captured when the fund was chosen, else the fund's own currency, else the base
+ * currency a fund without one follows, and last the currency the transfer left
+ * in — the fallback that keeps this total, under `resolveTransferCurrency`.
+ */
+export const resolveCounterpartCurrency = (
+  counterpartFundId: number | null,
+  counterpartCurrencyCode: string | null,
+  funds: readonly FundRecord[],
+  baseCurrency: string | null,
+  sourceCurrencyCode: string,
+): string =>
+  resolveTransferCurrency(
+    counterpartCurrencyCode,
+    funds.find(item => item.id === counterpartFundId) ?? null,
+    baseCurrency,
+    sourceCurrencyCode,
+  );
+
+/**
+ * Amount to prefill as what arrived, or null to leave the field as it stands —
+ * which is what an uncached currency pair resolves to, since a figure that
+ * cannot be derived must be asked for rather than guessed.
+ */
+export const resolveCounterpartAmountSeed = (
+  amountNative: string,
+  fxRateToBase: string,
+  counterpartCurrency: string | null,
+  baseCurrency: string | null,
+  cachedRates: readonly CurrencyFxRateRecord[] = [],
+): string | null => {
+  const baseAmount = computeBaseAmount(amountNative, fxRateToBase);
+  if (baseAmount == null || baseAmount <= 0) {
+    return null;
+  }
+
+  const converted = convertToCurrency(
+    baseAmount,
+    counterpartCurrency,
+    baseCurrency,
+    cachedRates,
+  );
+  return converted == null ? null : formatMoneyAmount(converted);
+};
+
+/**
+ * Checks a filled form and, on success, returns the payload to persist along
+ * with anything worth querying first. `funds` and `baseCurrency` are needed to
+ * resolve what the destination of a transfer is denominated in.
+ *
+ * The payload carries that resolved currency rather than whatever the form
+ * captured: the schema refuses a transfer naming no received currency, so a
+ * form value left null would abort the write.
+ */
 export const validateTransactionForm = (
   values: TransactionFormValues,
+  funds: readonly FundRecord[],
+  baseCurrency: string | null,
 ): TransactionFormValidationResult => {
   const errors: TransactionFormErrors = {};
 
@@ -311,6 +384,16 @@ export const validateTransactionForm = (
   }
 
   let counterpartAmount: number | null = null;
+  const counterpartCurrency = isTransfer
+    ? resolveCounterpartCurrency(
+        values.counterpartFundId,
+        values.counterpartCurrencyCode,
+        funds,
+        baseCurrency,
+        values.currencyCode,
+      )
+    : null;
+
   if (isTransfer) {
     if (values.counterpartFundId == null) {
       errors.counterpartFundId = 'Choose a destination fund.';
@@ -318,16 +401,34 @@ export const validateTransactionForm = (
       errors.counterpartFundId = 'A transfer needs two different funds.';
     }
 
-    // Blank means the destination received what left, which is what a
-    // same-currency transfer records.
+    const sameCurrency =
+      counterpartCurrency != null &&
+      counterpartCurrency.trim().toUpperCase() ===
+        values.currencyCode.trim().toUpperCase();
+
     const raw = values.counterpartAmount.trim();
-    counterpartAmount = raw ? Number(raw) : Number(values.amountNative);
-    const receivedCheck = validatePositiveAmount(
-      counterpartAmount,
-      'Amount received',
-    );
-    if (!receivedCheck.valid) {
-      errors.counterpartAmount = receivedCheck.message;
+    if (raw) {
+      counterpartAmount = Number(raw);
+    } else if (sameCurrency) {
+      // Blank means the destination received what left, which is what a
+      // transfer within one currency records.
+      counterpartAmount = Number(values.amountNative);
+    } else {
+      // Across a currency boundary the two are not the same figure, and copying
+      // one onto the other would assert a rate of 1 between them.
+      errors.counterpartAmount = `Enter the amount that arrived in ${
+        counterpartCurrency ?? 'the destination fund'
+      }.`;
+    }
+
+    if (counterpartAmount != null) {
+      const receivedCheck = validatePositiveAmount(
+        counterpartAmount,
+        'Amount received',
+      );
+      if (!receivedCheck.valid) {
+        errors.counterpartAmount = receivedCheck.message;
+      }
     }
   }
 
@@ -347,8 +448,29 @@ export const validateTransactionForm = (
     return { ok: false, errors };
   }
 
+  const warnings: TransactionFormWarning[] = [];
+  if (
+    isTransfer &&
+    isSuspectTransferRate({
+      amountNative: Number(values.amountNative),
+      counterpartAmount,
+      currencyCode: values.currencyCode,
+      counterpartCurrencyCode: counterpartCurrency,
+    })
+  ) {
+    warnings.push({
+      field: 'counterpartAmount',
+      code: 'suspect-transfer-rate',
+      message:
+        `${formatMoneyAmount(Number(values.amountNative))} ${values.currencyCode.trim().toUpperCase()}` +
+        ` and ${formatMoneyAmount(counterpartAmount as number)} ${counterpartCurrency}` +
+        ' imply a rate of 1.',
+    });
+  }
+
   return {
     ok: true,
+    warnings,
     value: {
       type: values.type,
       description,
@@ -366,9 +488,7 @@ export const validateTransactionForm = (
       fundId: values.fundId as number,
       counterpartFundId: isTransfer ? values.counterpartFundId : null,
       counterpartAmount: isTransfer ? counterpartAmount : null,
-      counterpartCurrencyCode: isTransfer
-        ? (values.counterpartCurrencyCode ?? null)
-        : null,
+      counterpartCurrencyCode: isTransfer ? counterpartCurrency : null,
       notes: ensureNotes(values.notes),
     },
   };

@@ -25,11 +25,32 @@ export const isDefaultFund = (
 ): boolean => findDefaultFund(funds)?.id === fundId;
 
 /**
- * Currency a fund's opening balance is denominated in. A fund with no currency
- * of its own follows the configured base currency, so its opening balance joins
- * the same group its transactions do.
+ * Currency a fund is denominated in: its own, else the configured base
+ * currency, else nothing while no base currency has been chosen.
  */
 export const fundCurrency = (
   fund: FundRecord,
   baseCurrency: string | null,
 ): string | null => fund.currencyCode ?? baseCurrency;
+
+/**
+ * Currency a transfer's received amount is denominated in: what the row already
+ * recorded, else the destination fund's own, else the base currency that fund
+ * follows, else the currency the transfer left in.
+ *
+ * Total by construction. The last fallback is what makes it so — a fund holding
+ * no currency and a base currency never chosen would otherwise resolve to
+ * nothing, and the schema refuses a transfer that names no received currency.
+ * Falling back to the source asserts a same-currency transfer, which is what an
+ * unlabelled row already meant.
+ */
+export const resolveTransferCurrency = (
+  recordedCurrencyCode: string | null,
+  destinationFund: FundRecord | null,
+  baseCurrency: string | null,
+  sourceCurrencyCode: string,
+): string =>
+  recordedCurrencyCode ??
+  (destinationFund ? fundCurrency(destinationFund, baseCurrency) : null) ??
+  baseCurrency ??
+  sourceCurrencyCode;

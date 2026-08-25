@@ -194,7 +194,11 @@ describe('ManageFundsScreen', () => {
     fireEvent.press(screen.getByLabelText('Save fund'));
 
     await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
-    expect((Alert.alert as jest.Mock).mock.calls[0][1]).toContain('currency');
+    expect((Alert.alert as jest.Mock).mock.calls[0][1]).toContain(
+      'Changing the currency only moves where the opening balance is reported.' +
+        ' Everything already recorded keeps the currency it was entered in, so' +
+        ' this fund will report a separate figure for each.',
+    );
     expect(value.actions.updateFund).not.toHaveBeenCalled();
   });
 
@@ -322,6 +326,45 @@ describe('ManageFundsScreen', () => {
     });
 
     expect(screen.getByText(/250\.50/)).toBeOnTheScreen();
+  });
+
+  it('reports a fund in its own currency rather than the base', () => {
+    renderScreen({
+      state: {
+        funds: [makeFund({ id: 1, name: 'Travel', currencyCode: 'EUR' })],
+      },
+      selectors: {
+        fundBalances: [
+          {
+            fundId: 1,
+            byCurrency: [{ currencyCode: 'EUR', balance: 460 }],
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByText('EUR · +460.00 EUR')).toBeOnTheScreen();
+  });
+
+  it('lists each currency a fund holds', () => {
+    renderScreen({
+      state: {
+        funds: [makeFund({ id: 1, name: 'Travel', currencyCode: 'EUR' })],
+      },
+      selectors: {
+        fundBalances: [
+          {
+            fundId: 1,
+            byCurrency: [
+              { currencyCode: 'EUR', balance: 0 },
+              { currencyCode: 'USD', balance: -32.4 },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByText('EUR · 0.00 EUR · -32.40 USD')).toBeOnTheScreen();
   });
 
   it('saves an unchanged fund without asking', async () => {

@@ -1,4 +1,10 @@
-import { normalizeAmount, previewImport, commitImport } from '../importManager';
+import {
+  normalizeAmount,
+  previewImport,
+  commitImport,
+  ratesToSeed,
+} from '../importManager';
+import { fxPairKey } from '../types';
 import type {
   FieldMapping,
   ImportContext,
@@ -1014,6 +1020,7 @@ describe('commitImport', () => {
           fundName: null,
           counterpartFundName: null,
           fxRateSource: 'cached',
+          counterpartAmountSource: null,
         },
       ],
       invalid: [{ line: 3, reason: 'bad' }],
@@ -1182,8 +1189,10 @@ describe('commitImport', () => {
       overrides: Partial<PreparedTransaction['record']> = {},
       categoryName: string | null = 'Food',
       fxRateSource: PreparedTransaction['fxRateSource'] = 'cached',
+      counterpartAmountSource: PreparedTransaction['counterpartAmountSource'] = null,
     ): PreparedTransaction => ({
       line,
+      counterpartAmountSource,
       record: {
         type: 'expense',
         description: `Row ${line}`,
@@ -1781,6 +1790,31 @@ describe('fund rules on import', () => {
   const wellFormedTransfer =
     ',50,USD,1,2024-01-02,,,USD,Transfer,General,Travel,60,EUR\r\n';
 
+  it('reads a received amount the file carried as the file’s own', () => {
+    const result = previewImport(
+      `${SHAPE_HEADER}${wellFormedTransfer}`,
+      TRANSFER_SHAPE,
+      'iso',
+      withFunds(),
+    );
+
+    expect(result.valid[0].record.counterpartAmount).toBe(60);
+    expect(result.valid[0].counterpartAmountSource).toBe('column');
+  });
+
+  it('leaves a row that is not a transfer carrying no received amount at all', () => {
+    const result = previewImport(
+      `${SHAPE_HEADER},50,USD,1,2024-01-02,,,USD,Expense,General,,,
+
+`,
+      TRANSFER_SHAPE,
+      'iso',
+      withFunds(),
+    );
+
+    expect(result.valid[0].counterpartAmountSource).toBeNull();
+  });
+
   it('rejects a transfer that names no destination fund', () => {
     const text =
       `${SHAPE_HEADER},50,USD,1,2024-01-01,,,USD,Transfer,General,,,\r\n` +
@@ -1852,5 +1886,369 @@ describe('fund rules on import', () => {
 
     expect(result.valid).toHaveLength(2);
     expect(result.duplicates).toEqual([]);
+  });
+
+  const NO_AMOUNT_SHAPE: FieldMapping = {
+    ...APP_MAPPING,
+    transactionType: 8,
+    fundName: 9,
+    counterpartFundName: 10,
+  };
+  const NO_AMOUNT_HEADER = `${HEADER.trimEnd()},type,fund,to_fund\r\n`;
+
+  const withTravel = (
+    currencyCode: string | null,
+    overrides: Partial<ImportContext> = {},
+  ): ImportContext =>
+    withFunds({
+      existingFunds: [
+        {
+          id: 1,
+          name: 'General',
+          currencyCode: null,
+          openingBalance: 0,
+          notes: null,
+          createdAt: '',
+          updatedAt: '',
+        },
+        {
+          id: 2,
+          name: 'Travel',
+          currencyCode,
+          openingBalance: 0,
+          notes: null,
+          createdAt: '',
+          updatedAt: '',
+        },
+      ],
+      ...overrides,
+    });
+
+  it('reads a blank received amount as the same magnitude within one currency', () => {
+    const text = `${NO_AMOUNT_HEADER},50,USD,1,2024-01-01,,,USD,Transfer,General,Travel\r\n`;
+
+    const result = previewImport(
+      text,
+      NO_AMOUNT_SHAPE,
+      'iso',
+      withTravel(null),
+    );
+
+    expect(result.valid).toHaveLength(1);
+    expect(result.valid[0].record.counterpartAmount).toBe(50);
+    expect(result.valid[0].record.counterpartCurrencyCode).toBe('USD');
+    expect(result.valid[0].counterpartAmountSource).toBe('parity');
+    expect(result.transferConversions).toEqual([]);
+  });
+
+  it('converts a blank received amount across currencies from a saved rate', () => {
+    const text = `${NO_AMOUNT_HEADER},50,USD,1,2024-01-01,,,USD,Transfer,General,Travel\r\n`;
+
+    const result = previewImport(
+      text,
+      NO_AMOUNT_SHAPE,
+      'iso',
+      withTravel('EUR', {
+        fxRateCache: [
+          {
+            baseCurrencyCode: 'USD',
+            currencyCode: 'EUR',
+            fxRateToBase: 2,
+            updatedAt: '',
+          },
+        ],
+      }),
+    );
+
+    expect(result.valid).toHaveLength(1);
+    expect(result.valid[0].record.counterpartAmount).toBe(25);
+    expect(result.valid[0].record.counterpartCurrencyCode).toBe('EUR');
+    expect(result.valid[0].counterpartAmountSource).toBe('cached');
+    expect(result.transferConversions).toEqual([
+      {
+        currencyCode: 'USD',
+        counterpartCurrencyCode: 'EUR',
+        rate: 0.5,
+        rowCount: 1,
+      },
+    ]);
+  });
+
+  it('holds a cross-currency transfer back when no rate covers the pair', () => {
+    const text = `${NO_AMOUNT_HEADER},50,USD,1,2024-01-01,,,USD,Transfer,General,Travel\r\n`;
+
+    const result = previewImport(
+      text,
+      NO_AMOUNT_SHAPE,
+      'iso',
+      withTravel('EUR'),
+    );
+
+    expect(result.valid).toEqual([]);
+    expect(result.needsFxRate).toEqual([
+      {
+        line: 2,
+        reason: 'A cross-currency transfer needs the amount received.',
+      },
+    ]);
+  });
+
+  it('offers the missing pair for review so the rate can be supplied', () => {
+    const text = `${NO_AMOUNT_HEADER},50,USD,1,2024-01-01,,,USD,Transfer,General,Travel\r\n`;
+
+    const result = previewImport(
+      text,
+      NO_AMOUNT_SHAPE,
+      'iso',
+      withTravel('EUR'),
+    );
+
+    expect(result.fxReview).toEqual([
+      {
+        baseCurrencyCode: 'USD',
+        currencyCode: 'EUR',
+        suggestedRate: null,
+        suggestedRateUpdatedAt: null,
+        rowCount: 1,
+      },
+    ]);
+  });
+
+  it('counts every held row against the one pair it needs', () => {
+    const text =
+      `${NO_AMOUNT_HEADER},50,USD,1,2024-01-01,,,USD,Transfer,General,Travel\r\n` +
+      `,70,USD,1,2024-01-02,,,USD,Transfer,General,Travel\r\n`;
+
+    const result = previewImport(
+      text,
+      NO_AMOUNT_SHAPE,
+      'iso',
+      withTravel('EUR'),
+    );
+
+    expect(result.needsFxRate).toHaveLength(2);
+    expect(result.fxReview).toHaveLength(1);
+    expect(result.fxReview[0]).toMatchObject({
+      baseCurrencyCode: 'USD',
+      currencyCode: 'EUR',
+      rowCount: 2,
+    });
+  });
+
+  it('imports the held transfer once the rate is confirmed', () => {
+    const text = `${NO_AMOUNT_HEADER},50,USD,1,2024-01-01,,,USD,Transfer,General,Travel\r\n`;
+
+    const result = previewImport(text, NO_AMOUNT_SHAPE, 'iso', {
+      ...withTravel('EUR'),
+      manualFxRates: { [fxPairKey('USD', 'EUR')]: 0.5 },
+    });
+
+    expect(result.needsFxRate).toEqual([]);
+    expect(result.valid).toHaveLength(1);
+    expect(result.valid[0].record).toMatchObject({
+      counterpartAmount: 100,
+      counterpartCurrencyCode: 'EUR',
+    });
+  });
+
+  it('leaves a rate the user confirmed out of the conversion disclosure', () => {
+    const text = `${NO_AMOUNT_HEADER},50,USD,1,2024-01-01,,,USD,Transfer,General,Travel\r\n`;
+
+    const result = previewImport(text, NO_AMOUNT_SHAPE, 'iso', {
+      ...withTravel('EUR'),
+      manualFxRates: { [fxPairKey('USD', 'EUR')]: 0.5 },
+    });
+
+    expect(result.valid[0].counterpartAmountSource).toBe('manual');
+    expect(result.transferConversions).toEqual([]);
+  });
+
+  it('holds a transfer back when the saved rate covering it was rejected', () => {
+    const text = `${NO_AMOUNT_HEADER},50,USD,1,2024-01-01,,,USD,Transfer,General,Travel\r\n`;
+
+    const result = previewImport(text, NO_AMOUNT_SHAPE, 'iso', {
+      ...withTravel('EUR', {
+        fxRateCache: [
+          {
+            baseCurrencyCode: 'USD',
+            currencyCode: 'EUR',
+            fxRateToBase: 0.5,
+            updatedAt: '',
+          },
+        ],
+      }),
+      useCachedRates: false,
+    });
+
+    expect(result.valid).toEqual([]);
+    expect(result.needsFxRate).toHaveLength(1);
+  });
+
+  it('labels a transfer the file left unlabelled from the destination fund', () => {
+    const text = `${NO_AMOUNT_HEADER},50,USD,1,2024-01-01,,,USD,Transfer,General,Travel\r\n`;
+
+    const result = previewImport(
+      text,
+      NO_AMOUNT_SHAPE,
+      'iso',
+      withTravel('USD'),
+    );
+
+    expect(result.valid[0].record.counterpartCurrencyCode).toBe('USD');
+  });
+
+  it('lands a transfer into a fund it has yet to create on the base currency', () => {
+    const text = `${NO_AMOUNT_HEADER},50,USD,1,2024-01-01,,,USD,Transfer,General,Rainy\r\n`;
+
+    const result = previewImport(text, NO_AMOUNT_SHAPE, 'iso', withFunds());
+
+    expect(result.valid).toHaveLength(1);
+    expect(result.valid[0].record.counterpartCurrencyCode).toBe('USD');
+    expect(result.valid[0].record.counterpartAmount).toBe(50);
+  });
+
+  it('labels a transfer from its own currency when nothing else names one', () => {
+    const text = `${NO_AMOUNT_HEADER},50,USD,1,2024-01-01,,,,Transfer,General,Rainy
+`;
+
+    // No base currency, and a destination fund that does not exist yet: the
+    // schema still requires the transfer to name a received currency.
+    const result = previewImport(text, NO_AMOUNT_SHAPE, 'iso', {
+      ...withFunds(),
+      baseCurrency: null,
+    });
+
+    expect(result.valid).toHaveLength(1);
+    expect(result.valid[0].record.counterpartCurrencyCode).toBe('USD');
+  });
+
+  it('counts every row a converted pair covers', () => {
+    const row = ',50,USD,1,2024-01-01,,,USD,Transfer,General,Travel\r\n';
+    const text =
+      NO_AMOUNT_HEADER + row + row.replace('2024-01-01', '2024-01-02');
+
+    const result = previewImport(
+      text,
+      NO_AMOUNT_SHAPE,
+      'iso',
+      withTravel('EUR', {
+        fxRateCache: [
+          {
+            baseCurrencyCode: 'USD',
+            currencyCode: 'EUR',
+            fxRateToBase: 2,
+            updatedAt: '',
+          },
+        ],
+      }),
+    );
+
+    expect(result.transferConversions).toHaveLength(1);
+    expect(result.transferConversions[0].rowCount).toBe(2);
+  });
+});
+
+describe('ratesToSeed', () => {
+  const candidate = (
+    overrides: Partial<PreparedTransaction['record']> = {},
+    fxRateSource: PreparedTransaction['fxRateSource'] = 'column',
+    counterpartAmountSource: PreparedTransaction['counterpartAmountSource'] = null,
+  ) => ({
+    record: {
+      type: 'transfer' as const,
+      baseCurrencyCode: 'MYR',
+      currencyCode: 'EUR',
+      fxRateToBase: 5,
+      baseAmount: 500,
+      counterpartAmount: 17000,
+      counterpartCurrencyCode: 'JPY',
+      ...overrides,
+    },
+    fxRateSource,
+    counterpartAmountSource,
+  });
+
+  it('saves what a confirmed transfer says about the destination currency', () => {
+    expect(ratesToSeed([candidate({}, 'column', 'manual')])).toEqual([
+      { baseCurrencyCode: 'MYR', currencyCode: 'EUR', fxRateToBase: 5 },
+      {
+        baseCurrencyCode: 'MYR',
+        currencyCode: 'JPY',
+        fxRateToBase: 500 / 17000,
+      },
+    ]);
+  });
+
+  it('treats a received amount the file supplied as history', () => {
+    expect(ratesToSeed([candidate({}, 'column', 'column')])).toEqual([
+      { baseCurrencyCode: 'MYR', currencyCode: 'EUR', fxRateToBase: 5 },
+    ]);
+  });
+
+  it('does not write a saved rate back over itself', () => {
+    expect(ratesToSeed([candidate({}, 'column', 'cached')])).toEqual([
+      { baseCurrencyCode: 'MYR', currencyCode: 'EUR', fxRateToBase: 5 },
+    ]);
+  });
+
+  it('has no destination rate to save for a same-currency transfer', () => {
+    expect(
+      ratesToSeed([
+        candidate({ counterpartCurrencyCode: 'EUR' }, 'column', 'parity'),
+      ]),
+    ).toEqual([
+      { baseCurrencyCode: 'MYR', currencyCode: 'EUR', fxRateToBase: 5 },
+    ]);
+  });
+
+  it('prefers a confirmed rate over one the file carried for the same pair', () => {
+    const rates = ratesToSeed([
+      candidate(
+        {
+          type: 'expense',
+          currencyCode: 'JPY',
+          fxRateToBase: 0.02,
+          counterpartAmount: null,
+          counterpartCurrencyCode: null,
+        },
+        'column',
+      ),
+      candidate({}, 'column', 'manual'),
+    ]);
+    expect(rates).toContainEqual({
+      baseCurrencyCode: 'MYR',
+      currencyCode: 'JPY',
+      fxRateToBase: 500 / 17000,
+    });
+  });
+
+  it('keeps the first row when two carry the pair on equal evidence', () => {
+    const rates = ratesToSeed([
+      candidate({
+        type: 'expense',
+        currencyCode: 'JPY',
+        fxRateToBase: 0.02,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
+      }),
+      candidate({
+        type: 'expense',
+        currencyCode: 'JPY',
+        fxRateToBase: 0.03,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
+      }),
+    ]);
+    expect(rates).toEqual([
+      { baseCurrencyCode: 'MYR', currencyCode: 'JPY', fxRateToBase: 0.02 },
+    ]);
+  });
+
+  it('saves a confirmed rate the file gave it no reason to doubt', () => {
+    expect(
+      ratesToSeed([
+        candidate({ counterpartAmount: 100 }, 'column', 'manual'),
+      ]).map(item => item.currencyCode),
+    ).toEqual(['EUR', 'JPY']);
   });
 });

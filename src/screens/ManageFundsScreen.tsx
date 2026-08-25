@@ -24,7 +24,7 @@ import type { FundRecord } from '../database';
 const NO_CURRENCY_LABEL = 'Follows base currency';
 
 const describeBalance = (balance: FundBalance | undefined): string => {
-  if (!balance || balance.byCurrency.length === 0) {
+  if (!balance) {
     return 'Empty';
   }
   return balance.byCurrency
@@ -177,7 +177,7 @@ const ManageFundsScreen: React.FC = () => {
     }
     if (existing.currencyCode !== currencyCode) {
       confirmations.push(
-        'Changing the currency only moves where the opening balance is reported. No stored transaction changes.',
+        'Changing the currency only moves where the opening balance is reported. Everything already recorded keeps the currency it was entered in, so this fund will report a separate figure for each.',
       );
     }
 

@@ -13,6 +13,108 @@ export type Migration = {
 
 const MIGRATIONS: readonly Migration[] = [
   {
+    version: 11,
+    name: 'transfer-counterpart-currency-required',
+    statements: [
+      // Same rebuild procedure as v10, and for the same reason: SQLite cannot
+      // alter a CHECK constraint. See sqlite.org/lang_altertable.html#otherALTER.
+      {
+        sql: `CREATE TABLE transactions_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL DEFAULT 'expense' CHECK (type IN ('expense','income','transfer')),
+            description TEXT NOT NULL,
+            payee TEXT NOT NULL DEFAULT 'Unknown',
+            amount_native REAL NOT NULL CHECK (amount_native > 0),
+            currency_code TEXT NOT NULL CHECK (LENGTH(currency_code) = 3),
+            fx_rate_to_base REAL NOT NULL CHECK (fx_rate_to_base > 0),
+            base_amount REAL NOT NULL CHECK (base_amount >= 0),
+            base_currency_code TEXT NULL,
+            date TEXT NOT NULL CHECK (LENGTH(date) = 10),
+            time TEXT NULL CHECK (time IS NULL OR LENGTH(time) = 5),
+            category_id INTEGER NULL,
+            fund_id INTEGER NOT NULL,
+            counterpart_fund_id INTEGER NULL,
+            counterpart_amount REAL NULL CHECK (counterpart_amount IS NULL OR counterpart_amount > 0),
+            counterpart_currency_code TEXT NULL CHECK (counterpart_currency_code IS NULL OR LENGTH(counterpart_currency_code) = 3),
+            notes TEXT NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            CHECK (
+              (type = 'transfer'
+                AND counterpart_fund_id IS NOT NULL
+                AND counterpart_amount IS NOT NULL
+                AND counterpart_currency_code IS NOT NULL
+                AND counterpart_fund_id <> fund_id)
+              OR
+              (type <> 'transfer'
+                AND counterpart_fund_id IS NULL
+                AND counterpart_amount IS NULL
+                AND counterpart_currency_code IS NULL)
+            ),
+            FOREIGN KEY (category_id)
+              REFERENCES categories(id)
+              ON DELETE SET NULL
+              ON UPDATE CASCADE,
+            FOREIGN KEY (fund_id)
+              REFERENCES funds(id)
+              ON DELETE RESTRICT
+              ON UPDATE CASCADE,
+            FOREIGN KEY (counterpart_fund_id)
+              REFERENCES funds(id)
+              ON DELETE RESTRICT
+              ON UPDATE CASCADE
+          );`,
+      },
+      // The currency is resolved during the copy rather than by a later UPDATE:
+      // the CHECK is evaluated per inserted row, so a transfer missing one would
+      // be rejected before an UPDATE could supply it.
+      //
+      // The last fallback is the row's own currency_code, which is NOT NULL and
+      // so makes the expression total. A base currency the user never set is
+      // stored as NULL, and a fund may hold no currency of its own, so the two
+      // preceding levels can both yield nothing — and a NULL here would fail the
+      // CHECK and leave the database unopenable.
+      {
+        sql: `INSERT INTO transactions_new (
+            id, type, description, payee, amount_native, currency_code,
+            fx_rate_to_base, base_amount, base_currency_code, date, time,
+            category_id, fund_id, counterpart_fund_id, counterpart_amount,
+            counterpart_currency_code, notes, created_at, updated_at
+          )
+          SELECT
+            id, type, description, payee, amount_native, currency_code,
+            fx_rate_to_base, base_amount, base_currency_code, date, time,
+            category_id, fund_id, counterpart_fund_id, counterpart_amount,
+            CASE WHEN type = 'transfer' THEN COALESCE(
+              counterpart_currency_code,
+              (SELECT f.currency_code FROM funds f WHERE f.id = transactions.counterpart_fund_id),
+              (SELECT value FROM app_settings WHERE key = 'base_currency'),
+              currency_code
+            ) ELSE NULL END,
+            notes, created_at, updated_at
+          FROM transactions;`,
+      },
+      {
+        sql: `DROP TABLE transactions;`,
+      },
+      {
+        sql: `ALTER TABLE transactions_new RENAME TO transactions;`,
+      },
+      {
+        sql: `CREATE INDEX IF NOT EXISTS idx_transactions_date_time ON transactions(date DESC, time DESC);`,
+      },
+      {
+        sql: `CREATE INDEX IF NOT EXISTS idx_transactions_category_id ON transactions(category_id);`,
+      },
+      {
+        sql: `CREATE INDEX IF NOT EXISTS idx_transactions_fund_id ON transactions(fund_id);`,
+      },
+      {
+        sql: `CREATE INDEX IF NOT EXISTS idx_transactions_counterpart_fund_id ON transactions(counterpart_fund_id) WHERE counterpart_fund_id IS NOT NULL;`,
+      },
+    ],
+  },
+  {
     version: 10,
     name: 'funds-and-transfers',
     statements: [

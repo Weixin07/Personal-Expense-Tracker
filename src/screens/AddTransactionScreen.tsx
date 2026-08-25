@@ -29,6 +29,8 @@ import {
   buildUpdatePayload,
   computeBaseAmount,
   getDefaultTransactionFormValues,
+  resolveCounterpartAmountSeed,
+  resolveCounterpartCurrency,
   resolveFundCurrencySeed,
   resolveFxRateForCurrency,
   validateTransactionForm,
@@ -41,8 +43,15 @@ import {
   parseBritishDateInput,
   parseTimeInput,
 } from '../utils/date';
-import { formatDirectionalMoney, formatMoneyAmount } from '../utils/formatting';
 import {
+  formatDirectionalMoney,
+  formatFxRate,
+  formatMoneyAmount,
+} from '../utils/formatting';
+import { impliedTransferRate } from '../utils/fxRates';
+import {
+  SUGGESTION_WINDOW_MONTHS,
+  TRANSFER_SUGGESTION_WINDOW_MONTHS,
   buildSuggestionIndex,
   filterSuggestions,
   rankFundIdsByFrequency,
@@ -127,20 +136,38 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
   const [currencyTouched, setCurrencyTouched] = useState(
     existingTransaction != null,
   );
+  /**
+   * Whether the received amount is the user's own figure. Starts true on a
+   * stored transfer for the same reason `currencyTouched` does: what arrived is
+   * a recorded fact, and editing the source side must not restate it. Choosing
+   * another destination fund is the deliberate exception — see
+   * `handleCounterpartSelect`.
+   */
+  const [counterpartAmountTouched, setCounterpartAmountTouched] = useState(
+    existingTransaction != null,
+  );
 
   const isTransfer = values.type === 'transfer';
   /**
-   * Direction to read category and suggestion data with. A transfer has no
-   * direction of its own, so it borrows `expense` purely to keep those lookups
-   * total; both are hidden while it is selected.
+   * Direction to read category data with. A transfer has no direction of its
+   * own, so it borrows `expense` purely to keep the lookup total; the category
+   * picker is not mounted while it is selected.
    */
-  const direction: TransactionDirection = isTransfer
+  const categoryDirection: TransactionDirection = isTransfer
     ? 'expense'
     : (values.type as TransactionDirection);
 
+  const suggestionWindowMonths = isTransfer
+    ? TRANSFER_SUGGESTION_WINDOW_MONTHS
+    : SUGGESTION_WINDOW_MONTHS;
+
   const fundUsageCounts = useMemo(
-    () => rankFundIdsByFrequency(transactions),
-    [transactions],
+    () =>
+      rankFundIdsByFrequency(transactions, {
+        type: values.type,
+        windowMonths: suggestionWindowMonths,
+      }),
+    [transactions, values.type, suggestionWindowMonths],
   );
 
   const selectedFund = useMemo(
@@ -152,6 +179,49 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
     () => funds.find(fund => fund.id === values.counterpartFundId) ?? null,
     [funds, values.counterpartFundId],
   );
+
+  // What the row records, not what the fund holds now: a fund re-denominated
+  // after the fact must not relabel a transfer already stored against it.
+  const counterpartCurrency = useMemo(
+    () =>
+      resolveCounterpartCurrency(
+        values.counterpartFundId,
+        values.counterpartCurrencyCode,
+        funds,
+        settings.baseCurrency,
+        values.currencyCode,
+      ),
+    [
+      funds,
+      settings.baseCurrency,
+      values.counterpartCurrencyCode,
+      values.counterpartFundId,
+      values.currencyCode,
+    ],
+  );
+
+  const impliedRateLabel = useMemo(() => {
+    if (
+      !counterpartCurrency ||
+      counterpartCurrency.toUpperCase() ===
+        values.currencyCode.trim().toUpperCase()
+    ) {
+      return '';
+    }
+    const rate = impliedTransferRate(
+      Number(values.amountNative),
+      Number(values.counterpartAmount),
+    );
+    if (rate == null || !values.counterpartAmount.trim()) {
+      return '';
+    }
+    return `1 ${values.currencyCode.trim().toUpperCase()} = ${formatFxRate(rate)} ${counterpartCurrency}`;
+  }, [
+    counterpartCurrency,
+    values.amountNative,
+    values.counterpartAmount,
+    values.currencyCode,
+  ]);
 
   useEffect(() => {
     setValues(initialFormValues);
@@ -167,6 +237,47 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
       setFormError(error);
     }
   }, [error]);
+
+  // What arrived follows what left while the user has not said otherwise, and
+  // only across a currency boundary: within one currency a blank field already
+  // means the same magnitude arrived.
+  useEffect(() => {
+    if (
+      !isTransfer ||
+      counterpartAmountTouched ||
+      values.counterpartFundId == null ||
+      !values.counterpartCurrencyCode ||
+      values.counterpartCurrencyCode.toUpperCase() ===
+        values.currencyCode.trim().toUpperCase()
+    ) {
+      return;
+    }
+    const seed = resolveCounterpartAmountSeed(
+      values.amountNative,
+      values.fxRateToBase,
+      values.counterpartCurrencyCode,
+      settings.baseCurrency,
+      fxRateCache,
+    );
+    if (seed == null) {
+      return;
+    }
+    setValues(prev =>
+      prev.counterpartAmount === seed
+        ? prev
+        : { ...prev, counterpartAmount: seed },
+    );
+  }, [
+    isTransfer,
+    counterpartAmountTouched,
+    values.amountNative,
+    values.fxRateToBase,
+    values.currencyCode,
+    values.counterpartCurrencyCode,
+    values.counterpartFundId,
+    settings.baseCurrency,
+    fxRateCache,
+  ]);
 
   const computedBaseAmount = useMemo(() => {
     const amount = computeBaseAmount(values.amountNative, values.fxRateToBase);
@@ -195,10 +306,11 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
   // what has been typed.
   const suggestionOptions = useMemo(
     () => ({
-      type: direction,
+      type: values.type,
+      windowMonths: suggestionWindowMonths,
       excludeTransactionId: transactionId ?? undefined,
     }),
-    [direction, transactionId],
+    [values.type, suggestionWindowMonths, transactionId],
   );
 
   const descriptionIndex = useMemo(
@@ -267,6 +379,11 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
     }
   };
 
+  const handleCounterpartAmountChange = (text: string) => {
+    setCounterpartAmountTouched(true);
+    handleChange('counterpartAmount')(text);
+  };
+
   const handleCategorySelect = (categoryId: number | null) => {
     setValues(prev => ({ ...prev, categoryId }));
   };
@@ -289,13 +406,43 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
   // The destination's currency is captured with the choice so the stored row
   // records what the received amount was denominated in, not what the fund is
   // denominated in whenever it is next read.
+  //
+  // The amount moves with it, and does so even for a stored transfer, which is
+  // the one case `counterpartAmountTouched` does not gate: choosing another
+  // destination restates what the transfer is, and a figure left behind under a
+  // currency it was never denominated in contradicts its own row.
   const handleCounterpartSelect = (fundId: number) => {
     const fund = funds.find(item => item.id === fundId) ?? null;
-    setValues(prev => ({
-      ...prev,
-      counterpartFundId: fundId,
-      counterpartCurrencyCode: fund?.currencyCode ?? settings.baseCurrency,
-    }));
+    const currency = fund?.currencyCode ?? settings.baseCurrency;
+    setValues(prev => {
+      const next = {
+        ...prev,
+        counterpartFundId: fundId,
+        counterpartCurrencyCode: currency,
+      };
+      // An amount keeps its meaning while its currency does, so a destination
+      // denominated the same way leaves what was already recorded alone.
+      if (
+        (prev.counterpartCurrencyCode ?? '').toUpperCase() ===
+        (currency ?? '').toUpperCase()
+      ) {
+        return next;
+      }
+      return {
+        ...next,
+        counterpartAmount:
+          resolveCounterpartAmountSeed(
+            prev.amountNative,
+            prev.fxRateToBase,
+            currency,
+            settings.baseCurrency,
+            fxRateCache,
+          ) ?? '',
+      };
+    });
+    if (errors.counterpartAmount) {
+      setErrors(prev => ({ ...prev, counterpartAmount: undefined }));
+    }
   };
 
   const applyType = (nextType: TransactionType, clearCategory: boolean) => {
@@ -327,6 +474,7 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
         counterpartAmount: '',
         counterpartCurrencyCode: null,
       }));
+      setCounterpartAmountTouched(existingTransaction != null);
       return;
     }
 
@@ -380,10 +528,14 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
 
   const handleSubmit = async () => {
     setFormError(null);
-    const validation = validateTransactionForm({
-      ...values,
-      baseAmount: computedBaseAmount,
-    });
+    const validation = validateTransactionForm(
+      {
+        ...values,
+        baseAmount: computedBaseAmount,
+      },
+      funds,
+      settings.baseCurrency,
+    );
 
     if (!validation.ok) {
       setErrors(validation.errors);
@@ -393,23 +545,40 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
       return;
     }
 
-    setSubmitting(true);
-    try {
-      if (existingTransaction) {
-        await updateTransaction(
-          buildUpdatePayload(existingTransaction.id, validation.value),
+    const { value, warnings } = validation;
+    const persist = async () => {
+      setSubmitting(true);
+      try {
+        if (existingTransaction) {
+          await updateTransaction(
+            buildUpdatePayload(existingTransaction.id, value),
+          );
+        } else {
+          await createTransaction(buildCreatePayload(value));
+        }
+        navigation.goBack();
+      } catch (err) {
+        setFormError(
+          err instanceof Error ? err.message : 'Failed to save transaction.',
         );
-      } else {
-        await createTransaction(buildCreatePayload(validation.value));
+      } finally {
+        setSubmitting(false);
       }
-      navigation.goBack();
-    } catch (err) {
-      setFormError(
-        err instanceof Error ? err.message : 'Failed to save transaction.',
+    };
+
+    if (warnings.length > 0) {
+      Alert.alert(
+        'Check the amount received',
+        `${warnings.map(warning => warning.message).join('\n\n')}\n\nSave anyway?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Save anyway', onPress: () => void persist() },
+        ],
       );
-    } finally {
-      setSubmitting(false);
+      return;
     }
+
+    await persist();
   };
 
   const handleDelete = () => {
@@ -648,12 +817,12 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
 
               <TextInput
                 label={
-                  counterpartFund?.currencyCode
-                    ? `Amount received (${counterpartFund.currencyCode})`
+                  counterpartCurrency
+                    ? `Amount received (${counterpartCurrency})`
                     : 'Amount received'
                 }
                 value={values.counterpartAmount}
-                onChangeText={handleChange('counterpartAmount')}
+                onChangeText={handleCounterpartAmountChange}
                 mode="outlined"
                 keyboardType="decimal-pad"
                 accessibilityLabel="Amount received in the destination fund"
@@ -665,6 +834,16 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
               >
                 {errors.counterpartAmount}
               </HelperText>
+
+              {impliedRateLabel ? (
+                <TextInput
+                  label="Implied rate"
+                  value={impliedRateLabel}
+                  mode="outlined"
+                  editable={false}
+                  accessibilityLabel="Rate implied by the two amounts"
+                />
+              ) : null}
             </>
           ) : (
             <SelectField
@@ -735,9 +914,9 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
           visible={categoryDialogVisible}
           onDismiss={() => setCategoryDialogVisible(false)}
           categories={categories}
-          directionFilter={direction}
+          directionFilter={categoryDirection}
           selectedId={values.categoryId ?? null}
-          usageCounts={categoryUsageCounts[direction]}
+          usageCounts={categoryUsageCounts[categoryDirection]}
           onSelect={handleCategorySelect}
         />
       )}

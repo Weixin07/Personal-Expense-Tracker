@@ -12,6 +12,7 @@ import {
 import type {
   CategoryType,
   CurrencyFxRateRecord,
+  FundRecord,
   TransactionDirection,
   TransactionType,
   NewTransactionRecord,
@@ -23,6 +24,8 @@ import {
   validatePositiveRate,
   validateIsoDateWithinFutureWindow,
 } from '../utils/validation';
+import { convertToCurrency, deriveCounterpartRate } from '../utils/fxRates';
+import { resolveTransferCurrency } from '../utils/funds';
 import { computeBaseAmount } from '../screens/transactionFormUtils';
 import { parseCsv } from './csvParser';
 import {
@@ -43,6 +46,7 @@ import type {
   CategorySuggestion,
   CategoryTypeWidening,
   CommitImportOptions,
+  CounterpartAmountSource,
   DateFormat,
   DateOrder,
   DuplicateFlag,
@@ -58,6 +62,7 @@ import type {
   PreparedTransaction,
   SeededRate,
   SuspectDerivedRate,
+  TransferConversion,
   UnmappedColumn,
 } from './types';
 
@@ -90,7 +95,7 @@ const timesMatch = (a: string | null, b: string | null): boolean =>
  *
  * The fund is absent for everything but a transfer. Re-filing a transaction
  * into another fund must not stop a re-imported backup recognising it. A
- * transfer is the exception: it carries neither payee nor description, so
+ * transfer is the exception: its payee and description are usually blank, so
  * without its two funds two distinct moves of the same amount on one day would
  * share a key.
  */
@@ -341,8 +346,10 @@ export const previewImport = (
     : null;
 
   const fundNameById = new Map<number, string>();
+  const existingFundsByName = new Map<string, FundRecord>();
   ctx.existingFunds.forEach(fund => {
     fundNameById.set(fund.id, fund.name);
+    existingFundsByName.set(fund.name.trim().toLowerCase(), fund);
   });
 
   const existingKeys = new Map<string, { id: number; time: string | null }[]>();
@@ -431,6 +438,7 @@ export const previewImport = (
   const unreadableTimes: ImportRowError[] = [];
   const fxReview = new Map<string, FxSuggestion>();
   const suspectDerived = new Map<string, SuspectDerivedRate>();
+  const transferConversions = new Map<string, TransferConversion>();
   const currencyReview = new Map<string, AmbiguousCurrency>();
   const duplicates: DuplicateFlag[] = [];
   const seenKeys = new Map<string, { line: number; time: string | null }[]>();
@@ -701,29 +709,12 @@ export const previewImport = (
 
     let counterpartAmount: number | null = null;
     let counterpartCurrencyCode: string | null = null;
+    let counterpartAmountSource: CounterpartAmountSource | null = null;
     if (transactionType === 'transfer') {
-      const rawCounterpartAmount = (raw.counterpartAmount ?? '').trim();
-      // Absent means the destination received the same magnitude that left,
-      // which is what a same-currency transfer records.
-      counterpartAmount = rawCounterpartAmount
-        ? normalizeAmount(rawCounterpartAmount, ctx.numberFormat)
-        : magnitude;
-      if (
-        counterpartAmount == null ||
-        !validatePositiveAmount(Math.abs(counterpartAmount), 'Amount received')
-          .valid
-      ) {
-        invalid.push({
-          line,
-          reason: 'Amount received is not a positive number.',
-        });
-        return;
-      }
-      counterpartAmount = Math.abs(counterpartAmount);
-
       // What the received amount was denominated in when the transfer happened.
-      // Read from the row rather than the destination fund, which can be
-      // re-denominated after the fact.
+      // The row wins, since the destination fund can be re-denominated after the
+      // fact; a fund carrying no currency of its own follows the base currency,
+      // which is also where a fund this import has yet to create lands.
       const rawCounterpartCurrency = (raw.counterpartCurrency ?? '').trim();
       if (rawCounterpartCurrency) {
         const resolved = resolveCurrency(
@@ -741,7 +732,118 @@ export const previewImport = (
           return;
         }
         counterpartCurrencyCode = code;
+      } else {
+        const destination = counterpartFundName
+          ? (existingFundsByName.get(counterpartFundName.toLowerCase()) ?? null)
+          : null;
+        counterpartCurrencyCode = resolveTransferCurrency(
+          null,
+          destination,
+          baseCurrency,
+          currencyCode,
+        );
       }
+
+      const rawCounterpartAmount = (raw.counterpartAmount ?? '').trim();
+      const sameCurrency =
+        counterpartCurrencyCode != null &&
+        counterpartCurrencyCode.toUpperCase() === currencyCode.toUpperCase();
+      if (rawCounterpartAmount) {
+        counterpartAmount = normalizeAmount(
+          rawCounterpartAmount,
+          ctx.numberFormat,
+        );
+        counterpartAmountSource = 'column';
+      } else if (sameCurrency) {
+        // Absent means the destination received the same magnitude that left,
+        // which is what a same-currency transfer records.
+        counterpartAmount = magnitude;
+        counterpartAmountSource = 'parity';
+      } else {
+        // Copying the magnitude across a currency boundary would assert a rate
+        // of 1 between two currencies that are not worth the same.
+        const conversionKey =
+          baseCurrencyCode && counterpartCurrencyCode
+            ? fxPairKey(baseCurrencyCode, counterpartCurrencyCode)
+            : null;
+        const manualConversionRate =
+          conversionKey != null ? manualFxRates[conversionKey] : undefined;
+        const manualConversionUsable =
+          manualConversionRate != null &&
+          validatePositiveRate(manualConversionRate, 'FX rate').valid;
+        const cachedForConversion = useCachedRates ? ctx.fxRateCache : [];
+        const converted = convertToCurrency(
+          baseAmount,
+          counterpartCurrencyCode,
+          baseCurrencyCode,
+          manualConversionUsable
+            ? [
+                {
+                  baseCurrencyCode: baseCurrencyCode as string,
+                  currencyCode: counterpartCurrencyCode as string,
+                  fxRateToBase: manualConversionRate as number,
+                  updatedAt: '',
+                },
+                ...cachedForConversion,
+              ]
+            : cachedForConversion,
+        );
+        if (converted == null) {
+          if (conversionKey != null) {
+            const seenPair = fxReview.get(conversionKey);
+            if (seenPair) {
+              seenPair.rowCount += 1;
+            } else {
+              const cachedRecord = findCachedRate(
+                ctx.fxRateCache,
+                baseCurrencyCode as string,
+                counterpartCurrencyCode as string,
+              );
+              fxReview.set(conversionKey, {
+                baseCurrencyCode: baseCurrencyCode as string,
+                currencyCode: counterpartCurrencyCode as string,
+                suggestedRate: cachedRecord?.fxRateToBase ?? null,
+                suggestedRateUpdatedAt: cachedRecord?.updatedAt ?? null,
+                rowCount: 1,
+              });
+            }
+          }
+          needsFxRate.push({
+            line,
+            reason: 'A cross-currency transfer needs the amount received.',
+          });
+          return;
+        }
+        counterpartAmount = converted;
+        counterpartAmountSource = manualConversionUsable ? 'manual' : 'cached';
+        if (!manualConversionUsable) {
+          const disclosureKey = `${currencyCode}>${counterpartCurrencyCode}`;
+          const seenConversion = transferConversions.get(disclosureKey);
+          if (seenConversion) {
+            seenConversion.rowCount += 1;
+          } else {
+            transferConversions.set(disclosureKey, {
+              currencyCode,
+              counterpartCurrencyCode: counterpartCurrencyCode as string,
+              rate: converted / magnitude,
+              rowCount: 1,
+            });
+          }
+        }
+      }
+
+      if (
+        counterpartAmount == null ||
+        !validatePositiveAmount(Math.abs(counterpartAmount), 'Amount received')
+          .valid
+      ) {
+        invalid.push({
+          line,
+          reason: 'Amount received is not a positive number.',
+        });
+        return;
+      }
+      counterpartAmount = Math.abs(counterpartAmount);
     }
 
     const notes = (raw.notes ?? '').trim();
@@ -835,6 +937,7 @@ export const previewImport = (
       fundName,
       counterpartFundName,
       fxRateSource,
+      counterpartAmountSource,
     });
   });
 
@@ -866,6 +969,7 @@ export const previewImport = (
     unreadableTimes,
     fxReview: [...fxReview.values()],
     suspectDerivedRates: [...suspectDerived.values()],
+    transferConversions: [...transferConversions.values()],
     currencyReview: [...currencyReview.values()],
     duplicates,
     newCategoryNames: [...newCategoryNames],
@@ -887,37 +991,87 @@ export const previewImport = (
 type SeedCandidate = {
   record: Pick<
     NewTransactionRecord,
-    'baseCurrencyCode' | 'currencyCode' | 'fxRateToBase'
+    | 'type'
+    | 'baseCurrencyCode'
+    | 'currencyCode'
+    | 'fxRateToBase'
+    | 'baseAmount'
+    | 'counterpartAmount'
+    | 'counterpartCurrencyCode'
   >;
   fxRateSource: FxRateSource;
+  counterpartAmountSource: CounterpartAmountSource | null;
 };
 
 /**
- * The rates an import saves as current, one per pair, taking the first row that
- * carries it. A derived rate reconstructs what the source recorded at the time
- * of the transaction, so it is history rather than a rate to reuse; a row whose
- * currency already matches its base carries no conversion to save.
+ * How far a rate's origin is from the user's own judgement, highest first. A
+ * pair carried by more than one row is saved at its best-evidenced rate rather
+ * than at whichever row came first, so a rate confirmed during review is never
+ * displaced by one a saved rate stood in for.
+ */
+const RATE_RANK: Record<FxRateSource, number> = {
+  manual: 3,
+  column: 2,
+  cached: 1,
+  derived: 0,
+  parity: 0,
+};
+
+/**
+ * The rates an import saves as current, one per pair. A derived rate
+ * reconstructs what the source recorded at the time of the transaction, so it
+ * is history rather than a rate to reuse; a row whose currency already matches
+ * its base carries no conversion to save.
+ *
+ * A cross-currency transfer also carries what the destination currency was
+ * worth, but only where the user confirmed that rate during review: a received
+ * amount the file supplied is history for the same reason a derived rate is,
+ * and one a saved rate produced is already held.
  *
  * Shared by the commit and the disclosure that precedes it, so what a user is
  * told will be saved is what gets saved.
  */
 export const ratesToSeed = (items: readonly SeedCandidate[]): SeededRate[] => {
-  const seeded = new Map<string, SeededRate>();
-  items.forEach(({ record, fxRateSource }) => {
+  const seeded = new Map<string, { rate: SeededRate; rank: number }>();
+  const offer = (rate: SeededRate, rank: number) => {
+    const key = fxPairKey(rate.baseCurrencyCode, rate.currencyCode);
+    const held = seeded.get(key);
+    if (!held || rank > held.rank) {
+      seeded.set(key, { rate, rank });
+    }
+  };
+
+  items.forEach(({ record, fxRateSource, counterpartAmountSource }) => {
     const { baseCurrencyCode, currencyCode, fxRateToBase } = record;
-    if (
-      fxRateSource === 'derived' ||
-      !baseCurrencyCode ||
-      baseCurrencyCode === currencyCode
-    ) {
+    if (!baseCurrencyCode) {
       return;
     }
-    const key = fxPairKey(baseCurrencyCode, currencyCode);
-    if (!seeded.has(key)) {
-      seeded.set(key, { baseCurrencyCode, currencyCode, fxRateToBase });
+
+    if (fxRateSource !== 'derived' && baseCurrencyCode !== currencyCode) {
+      offer(
+        { baseCurrencyCode, currencyCode, fxRateToBase },
+        RATE_RANK[fxRateSource],
+      );
     }
+
+    if (record.type !== 'transfer' || counterpartAmountSource !== 'manual') {
+      return;
+    }
+    const counterpartRate = deriveCounterpartRate(record);
+    if (counterpartRate == null || record.counterpartCurrencyCode == null) {
+      return;
+    }
+    offer(
+      {
+        baseCurrencyCode,
+        currencyCode: record.counterpartCurrencyCode,
+        fxRateToBase: counterpartRate,
+      },
+      RATE_RANK.manual,
+    );
   });
-  return [...seeded.values()];
+
+  return [...seeded.values()].map(entry => entry.rate);
 };
 
 /**
@@ -1078,7 +1232,11 @@ export const commitImport = async (
           fundId: resolvedFunds?.fundId ?? defaultFundId,
           counterpartFundId: resolvedFunds?.counterpart ?? null,
         };
-        return { record, fxRateSource: item.fxRateSource };
+        return {
+          record,
+          fxRateSource: item.fxRateSource,
+          counterpartAmountSource: item.counterpartAmountSource,
+        };
       });
 
       const records = prepared.map(entry => entry.record);

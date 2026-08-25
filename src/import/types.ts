@@ -83,6 +83,13 @@ export type FxRateSource =
   | 'cached';
 
 /**
+ * Where a transfer's received amount came from: a column the file carried, the
+ * magnitude that left when both sides share a currency, a rate the user
+ * confirmed during review, or a rate saved from earlier use.
+ */
+export type CounterpartAmountSource = 'column' | 'parity' | 'manual' | 'cached';
+
+/**
  * Address a rate by the pair it converts, since one native currency can appear
  * under several base currencies in the same file. Used for `ImportContext`
  * manual rates and for `commitImport` overrides, which must agree.
@@ -133,6 +140,19 @@ export type FxSuggestion = {
 export type SuspectDerivedRate = {
   baseCurrencyCode: string;
   currencyCode: string;
+  rate: number;
+  rowCount: number;
+};
+
+/**
+ * A pair of currencies whose received amount the import computed from a saved
+ * rate, because the file carried a transfer between them and no amount to go
+ * with it. `rowCount` is how many rows the pair was applied to, so a disclosure
+ * can state what the conversion covered.
+ */
+export type TransferConversion = {
+  currencyCode: string;
+  counterpartCurrencyCode: string;
   rate: number;
   rowCount: number;
 };
@@ -275,6 +295,8 @@ export type PreparedTransaction = {
   fundName: string | null;
   counterpartFundName: string | null;
   fxRateSource: FxRateSource;
+  /** Null on every row that is not a transfer. */
+  counterpartAmountSource: CounterpartAmountSource | null;
 };
 
 export type ImportPreview = {
@@ -299,6 +321,13 @@ export type ImportPreview = {
    * stand, so a caller that ignores this imports them at the suspect rate.
    */
   suspectDerivedRates: SuspectDerivedRate[];
+  /**
+   * Transfers whose received amount was computed from a saved rate because the
+   * file supplied none. Advisory rather than a rejection: the rows sit in
+   * `valid` and import as they stand, so a caller that ignores this imports a
+   * figure the file did not contain.
+   */
+  transferConversions: TransferConversion[];
   /** Ambiguous currency cells blocking rows until the user picks a code. */
   currencyReview: AmbiguousCurrency[];
   duplicates: DuplicateFlag[];

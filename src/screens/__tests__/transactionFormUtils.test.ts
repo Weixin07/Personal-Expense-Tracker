@@ -4,6 +4,8 @@ import {
   buildUpdatePayload,
   computeBaseAmount,
   getDefaultTransactionFormValues,
+  resolveCounterpartAmountSeed,
+  resolveCounterpartCurrency,
   resolveFundCurrencySeed,
   validateTransactionForm,
 } from '../transactionFormUtils';
@@ -25,6 +27,11 @@ describe('transactionFormUtils', () => {
     updatedAt: '',
     ...overrides,
   });
+
+  const funds: FundRecord[] = [
+    makeFund({ id: 1, name: 'General', currencyCode: null }),
+    makeFund({ id: 2, name: 'Travel', currencyCode: 'EUR' }),
+  ];
 
   describe('resolveFundCurrencySeed', () => {
     const cachedRates = [
@@ -88,6 +95,96 @@ describe('transactionFormUtils', () => {
       expect(
         resolveFundCurrencySeed(null, false, '1.5', 'USD', cachedRates),
       ).toBeNull();
+    });
+  });
+
+  describe('resolveCounterpartAmountSeed', () => {
+    const cachedRates = [
+      {
+        baseCurrencyCode: 'USD',
+        currencyCode: 'EUR',
+        fxRateToBase: 2,
+        updatedAt: '',
+      },
+    ];
+
+    it('converts the base amount into the destination currency', () => {
+      expect(
+        resolveCounterpartAmountSeed('100', '1', 'EUR', 'USD', cachedRates),
+      ).toBe('50.00');
+    });
+
+    it('carries the rate through to the base amount first', () => {
+      expect(
+        resolveCounterpartAmountSeed('100', '1.5', 'EUR', 'USD', cachedRates),
+      ).toBe('75.00');
+    });
+
+    it('leaves the amount as it stands when the pair is not cached', () => {
+      expect(
+        resolveCounterpartAmountSeed('100', '1', 'JPY', 'USD', cachedRates),
+      ).toBeNull();
+    });
+
+    it('leaves the amount as it stands without a base currency', () => {
+      expect(
+        resolveCounterpartAmountSeed('100', '1', 'EUR', null, cachedRates),
+      ).toBeNull();
+    });
+
+    it('seeds the same figure when the destination shares the base currency', () => {
+      expect(
+        resolveCounterpartAmountSeed('100', '1', 'USD', 'USD', cachedRates),
+      ).toBe('100.00');
+    });
+
+    it('seeds nothing from an amount that is not yet a number', () => {
+      expect(
+        resolveCounterpartAmountSeed('', '1', 'EUR', 'USD', cachedRates),
+      ).toBeNull();
+    });
+
+    it('seeds nothing from a zero amount', () => {
+      expect(
+        resolveCounterpartAmountSeed('0', '1', 'EUR', 'USD', cachedRates),
+      ).toBeNull();
+    });
+  });
+
+  describe('resolveCounterpartCurrency', () => {
+    const funds = [
+      makeFund({ id: 1, name: 'General', currencyCode: null }),
+      makeFund({ id: 2, name: 'Travel', currencyCode: 'EUR' }),
+    ];
+
+    it('keeps the currency the form already captured', () => {
+      expect(resolveCounterpartCurrency(2, 'GBP', funds, 'USD', 'MYR')).toBe(
+        'GBP',
+      );
+    });
+
+    it('reads the destination fund when the form carries none', () => {
+      expect(resolveCounterpartCurrency(2, null, funds, 'USD', 'MYR')).toBe(
+        'EUR',
+      );
+    });
+
+    it('follows the base currency for a fund holding none', () => {
+      expect(resolveCounterpartCurrency(1, null, funds, 'USD', 'MYR')).toBe(
+        'USD',
+      );
+    });
+
+    it('falls back to the currency the transfer left in', () => {
+      expect(resolveCounterpartCurrency(1, null, funds, null, 'MYR')).toBe(
+        'MYR',
+      );
+    });
+
+    it('falls back to the source currency for an unknown fund', () => {
+      expect(resolveCounterpartCurrency(99, null, funds, null, 'MYR')).toBe(
+        'MYR',
+      );
     });
   });
 
@@ -185,7 +282,7 @@ describe('transactionFormUtils', () => {
         categories,
         existingLargeAmount,
       );
-      const result = validateTransactionForm(values);
+      const result = validateTransactionForm(values, funds, 'USD');
 
       expect(result.ok).toBe(true);
       if (result.ok) {
@@ -201,24 +298,28 @@ describe('transactionFormUtils', () => {
       futureDate.setDate(futureDate.getDate() + 10); // Exceeds the 3-day future limit.
       const futureDateStr = futureDate.toISOString().slice(0, 10);
 
-      const result = validateTransactionForm({
-        type: 'expense',
-        description: '',
-        payee: '',
-        amountNative: '0',
-        currencyCode: 'BTC',
-        fxRateToBase: '0',
-        baseAmount: '',
-        baseCurrencyCode: 'USD',
-        date: futureDateStr,
-        time: '',
-        categoryId: null,
-        fundId: 1,
-        counterpartFundId: null,
-        counterpartAmount: '',
-        counterpartCurrencyCode: null,
-        notes: '',
-      });
+      const result = validateTransactionForm(
+        {
+          type: 'expense',
+          description: '',
+          payee: '',
+          amountNative: '0',
+          currencyCode: 'BTC',
+          fxRateToBase: '0',
+          baseAmount: '',
+          baseCurrencyCode: 'USD',
+          date: futureDateStr,
+          time: '',
+          categoryId: null,
+          fundId: 1,
+          counterpartFundId: null,
+          counterpartAmount: '',
+          counterpartCurrencyCode: null,
+          notes: '',
+        },
+        funds,
+        'USD',
+      );
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.errors.form).toBe(
@@ -237,24 +338,28 @@ describe('transactionFormUtils', () => {
     });
 
     it('passes with valid data', () => {
-      const result = validateTransactionForm({
-        type: 'expense',
-        description: 'Dinner',
-        payee: 'Bistro',
-        amountNative: '20.50',
-        currencyCode: 'USD',
-        fxRateToBase: '1.123456',
-        baseAmount: '',
-        baseCurrencyCode: 'USD',
-        date: '2025-01-10',
-        time: '',
-        categoryId: 1,
-        fundId: 1,
-        counterpartFundId: null,
-        counterpartAmount: '',
-        counterpartCurrencyCode: null,
-        notes: 'Friends',
-      });
+      const result = validateTransactionForm(
+        {
+          type: 'expense',
+          description: 'Dinner',
+          payee: 'Bistro',
+          amountNative: '20.50',
+          currencyCode: 'USD',
+          fxRateToBase: '1.123456',
+          baseAmount: '',
+          baseCurrencyCode: 'USD',
+          date: '2025-01-10',
+          time: '',
+          categoryId: 1,
+          fundId: 1,
+          counterpartFundId: null,
+          counterpartAmount: '',
+          counterpartCurrencyCode: null,
+          notes: 'Friends',
+        },
+        funds,
+        'USD',
+      );
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.payee).toBe('Bistro');
@@ -279,16 +384,20 @@ describe('transactionFormUtils', () => {
     } as const;
 
     it('accepts a category-only expense with blank description and payee', () => {
-      const result = validateTransactionForm({
-        ...validBase,
-        description: '',
-        payee: '',
-        categoryId: 1,
-        fundId: 1,
-        counterpartFundId: null,
-        counterpartAmount: '',
-        counterpartCurrencyCode: null,
-      });
+      const result = validateTransactionForm(
+        {
+          ...validBase,
+          description: '',
+          payee: '',
+          categoryId: 1,
+          fundId: 1,
+          counterpartFundId: null,
+          counterpartAmount: '',
+          counterpartCurrencyCode: null,
+        },
+        funds,
+        'USD',
+      );
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.description).toBe('');
@@ -297,32 +406,44 @@ describe('transactionFormUtils', () => {
     });
 
     it('accepts a description-only expense with no payee or category', () => {
-      const result = validateTransactionForm({
-        ...validBase,
-        description: 'Lunch',
-        payee: '',
-        categoryId: null,
-      });
+      const result = validateTransactionForm(
+        {
+          ...validBase,
+          description: 'Lunch',
+          payee: '',
+          categoryId: null,
+        },
+        funds,
+        'USD',
+      );
       expect(result.ok).toBe(true);
     });
 
     it('accepts a payee-only expense with no description or category', () => {
-      const result = validateTransactionForm({
-        ...validBase,
-        description: '',
-        payee: 'Cafe',
-        categoryId: null,
-      });
+      const result = validateTransactionForm(
+        {
+          ...validBase,
+          description: '',
+          payee: 'Cafe',
+          categoryId: null,
+        },
+        funds,
+        'USD',
+      );
       expect(result.ok).toBe(true);
     });
 
     it('rejects an expense with no description, payee, or category', () => {
-      const result = validateTransactionForm({
-        ...validBase,
-        description: '   ',
-        payee: '',
-        categoryId: null,
-      });
+      const result = validateTransactionForm(
+        {
+          ...validBase,
+          description: '   ',
+          payee: '',
+          categoryId: null,
+        },
+        funds,
+        'USD',
+      );
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.errors.form).toBe(
@@ -459,7 +580,11 @@ describe('transactionFormUtils', () => {
     } as const;
 
     it('carries a valid time through to the payload', () => {
-      const result = validateTransactionForm({ ...timeBase, time: '14:30' });
+      const result = validateTransactionForm(
+        { ...timeBase, time: '14:30' },
+        funds,
+        'USD',
+      );
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.time).toBe('14:30');
@@ -467,7 +592,11 @@ describe('transactionFormUtils', () => {
     });
 
     it('records a blank time as absent rather than as an error', () => {
-      const result = validateTransactionForm({ ...timeBase, time: '   ' });
+      const result = validateTransactionForm(
+        { ...timeBase, time: '   ' },
+        funds,
+        'USD',
+      );
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(result.value.time).toBeNull();
@@ -475,7 +604,11 @@ describe('transactionFormUtils', () => {
     });
 
     it('rejects a time that could not be read', () => {
-      const result = validateTransactionForm({ ...timeBase, time: 'lunch' });
+      const result = validateTransactionForm(
+        { ...timeBase, time: 'lunch' },
+        funds,
+        'USD',
+      );
       expect(result.ok).toBe(false);
       if (!result.ok) {
         expect(result.errors.time).toBe(
@@ -485,7 +618,11 @@ describe('transactionFormUtils', () => {
     });
 
     it('carries the time through both payload builders', () => {
-      const result = validateTransactionForm({ ...timeBase, time: '08:15' });
+      const result = validateTransactionForm(
+        { ...timeBase, time: '08:15' },
+        funds,
+        'USD',
+      );
       expect(result.ok).toBe(true);
       if (result.ok) {
         expect(buildCreatePayload(result.value).time).toBe('08:15');
@@ -496,6 +633,22 @@ describe('transactionFormUtils', () => {
 });
 
 describe('transfers', () => {
+  const fund = (
+    id: number,
+    name: string,
+    currencyCode: string | null = null,
+  ): FundRecord => ({
+    id,
+    name,
+    currencyCode,
+    openingBalance: 0,
+    notes: null,
+    createdAt: '',
+    updatedAt: '',
+  });
+
+  const funds = [fund(1, 'General'), fund(2, 'Travel', 'EUR')];
+
   const transferBase = {
     type: 'transfer' as const,
     description: '',
@@ -518,15 +671,19 @@ describe('transfers', () => {
   it('saves with no description, payee or category', () => {
     // A transfer is identified by the two funds it moves money between, so the
     // rule that every other transaction needs one of those must not apply.
-    const result = validateTransactionForm(transferBase);
+    const result = validateTransactionForm(transferBase, funds, 'USD');
     expect(result.ok).toBe(true);
   });
 
   it('requires a destination fund', () => {
-    const result = validateTransactionForm({
-      ...transferBase,
-      counterpartFundId: null,
-    });
+    const result = validateTransactionForm(
+      {
+        ...transferBase,
+        counterpartFundId: null,
+      },
+      funds,
+      'USD',
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors.counterpartFundId).toBeDefined();
@@ -534,32 +691,151 @@ describe('transfers', () => {
   });
 
   it('refuses the same fund on both sides', () => {
-    const result = validateTransactionForm({
-      ...transferBase,
-      counterpartFundId: 1,
-    });
+    const result = validateTransactionForm(
+      {
+        ...transferBase,
+        counterpartFundId: 1,
+      },
+      funds,
+      'USD',
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors.counterpartFundId).toContain('two different funds');
     }
   });
 
-  it('treats a blank received amount as the amount that left', () => {
-    const result = validateTransactionForm({
-      ...transferBase,
-      counterpartAmount: '',
-    });
+  it('treats a blank received amount as the amount that left within one currency', () => {
+    const result = validateTransactionForm(
+      {
+        ...transferBase,
+        counterpartCurrencyCode: 'USD',
+        counterpartAmount: '',
+      },
+      funds,
+      'USD',
+    );
     expect(result.ok).toBe(true);
     if (result.ok) {
+      expect(result.value.counterpartAmount).toBe(100);
+      expect(result.warnings).toEqual([]);
+    }
+  });
+
+  it('refuses a blank received amount across two currencies', () => {
+    const result = validateTransactionForm(
+      {
+        ...transferBase,
+        counterpartAmount: '',
+      },
+      funds,
+      'USD',
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.counterpartAmount).toBe(
+        'Enter the amount that arrived in EUR.',
+      );
+    }
+  });
+
+  it('reads the destination currency from the fund when the form carries none', () => {
+    const result = validateTransactionForm(
+      { ...transferBase, counterpartCurrencyCode: null, counterpartAmount: '' },
+      funds,
+      'USD',
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.counterpartAmount).toBe(
+        'Enter the amount that arrived in EUR.',
+      );
+    }
+  });
+
+  it('records the resolved destination currency on a transfer that carried none', () => {
+    const result = validateTransactionForm(
+      { ...transferBase, counterpartCurrencyCode: null },
+      funds,
+      'USD',
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.counterpartCurrencyCode).toBe('EUR');
+    }
+  });
+
+  it('follows the base currency for a destination fund holding none', () => {
+    const fundsFollowingBase = [fund(1, 'General'), fund(2, 'Pocket')];
+    const result = validateTransactionForm(
+      { ...transferBase, counterpartCurrencyCode: null, counterpartAmount: '' },
+      fundsFollowingBase,
+      'USD',
+    );
+    // The fund follows USD, which is what the transfer left in, so a blank
+    // field still means the same magnitude arrived.
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.counterpartAmount).toBe(100);
+      expect(result.value.counterpartCurrencyCode).toBe('USD');
+    }
+  });
+
+  it('labels a transfer from its own currency when nothing else names one', () => {
+    const fundsFollowingBase = [fund(1, 'General'), fund(2, 'Pocket')];
+    const result = validateTransactionForm(
+      { ...transferBase, counterpartCurrencyCode: null, counterpartAmount: '' },
+      fundsFollowingBase,
+      null,
+    );
+
+    // Neither the fund nor a base currency names one, and the schema refuses a
+    // transfer that carries no received currency.
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.counterpartCurrencyCode).toBe('USD');
       expect(result.value.counterpartAmount).toBe(100);
     }
   });
 
+  it('queries a cross-currency transfer that implies a rate of one', () => {
+    const result = validateTransactionForm(
+      {
+        ...transferBase,
+        counterpartAmount: '100',
+      },
+      funds,
+      'USD',
+    );
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.warnings).toEqual([
+        {
+          field: 'counterpartAmount',
+          code: 'suspect-transfer-rate',
+          message: '100.00 USD and 100.00 EUR imply a rate of 1.',
+        },
+      ]);
+    }
+  });
+
+  it('leaves a converted transfer unqueried', () => {
+    const result = validateTransactionForm(transferBase, funds, 'USD');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.warnings).toEqual([]);
+    }
+  });
+
   it('drops any category a transfer was carrying', () => {
-    const result = validateTransactionForm({
-      ...transferBase,
-      categoryId: 7,
-    });
+    const result = validateTransactionForm(
+      {
+        ...transferBase,
+        categoryId: 7,
+      },
+      funds,
+      'USD',
+    );
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.categoryId).toBeNull();
@@ -567,14 +843,18 @@ describe('transfers', () => {
   });
 
   it('requires a fund on every transaction', () => {
-    const result = validateTransactionForm({
-      ...transferBase,
-      type: 'expense',
-      description: 'Coffee',
-      counterpartFundId: null,
-      counterpartAmount: '',
-      fundId: null,
-    });
+    const result = validateTransactionForm(
+      {
+        ...transferBase,
+        type: 'expense',
+        description: 'Coffee',
+        counterpartFundId: null,
+        counterpartAmount: '',
+        fundId: null,
+      },
+      funds,
+      'USD',
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors.fundId).toBeDefined();
@@ -582,11 +862,15 @@ describe('transfers', () => {
   });
 
   it('leaves counterpart fields off a non-transfer', () => {
-    const result = validateTransactionForm({
-      ...transferBase,
-      type: 'expense',
-      description: 'Coffee',
-    });
+    const result = validateTransactionForm(
+      {
+        ...transferBase,
+        type: 'expense',
+        description: 'Coffee',
+      },
+      funds,
+      'USD',
+    );
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.counterpartFundId).toBeNull();

@@ -1,33 +1,13 @@
 import { formatFxRate } from '../utils/formatting';
+import { isImplausibleRate } from '../utils/fxRates';
 import { fxPairKey } from './types';
-import type { FxSuggestion, SuspectDerivedRate } from './types';
+import type {
+  FxSuggestion,
+  SuspectDerivedRate,
+  TransferConversion,
+} from './types';
 
-/**
- * How far a rate may sit from the last known one before it is queried. An order
- * of magnitude rather than a percentage, so ordinary drift against a stale rate
- * passes quietly while a reciprocal — the usual way this value goes wrong —
- * never does.
- */
-export const IMPLAUSIBLE_RATE_FACTOR = 10;
-
-/**
- * Whether a rate is worth a second look before it is applied. A rate with a
- * known counterpart is judged against it; one with none is judged against
- * parity, since a rate of exactly 1 between two different currencies is nearly
- * always a misread of which way the conversion runs.
- */
-export const isImplausibleRate = (
-  rate: number,
-  knownRate: number | null,
-): boolean => {
-  if (knownRate != null && knownRate > 0) {
-    const ratio = rate / knownRate;
-    return (
-      ratio >= IMPLAUSIBLE_RATE_FACTOR || ratio <= 1 / IMPLAUSIBLE_RATE_FACTOR
-    );
-  }
-  return rate === 1;
-};
+export { IMPLAUSIBLE_RATE_FACTOR, isImplausibleRate } from '../utils/fxRates';
 
 /** Entered rates worth querying before they are applied to the whole import. */
 export const implausibleRates = (
@@ -73,4 +53,8 @@ export const isSuspectDerivedRate = (candidate: {
 
 export const describeSuspectDerivedRate = (item: SuspectDerivedRate): string =>
   `1 ${item.currencyCode} = ${formatFxRate(item.rate)} ${item.baseCurrencyCode}` +
+  ` affects ${item.rowCount} row${item.rowCount === 1 ? '' : 's'}.`;
+
+export const describeTransferConversion = (item: TransferConversion): string =>
+  `1 ${item.currencyCode} = ${formatFxRate(item.rate)} ${item.counterpartCurrencyCode}` +
   ` affects ${item.rowCount} row${item.rowCount === 1 ? '' : 's'}.`;

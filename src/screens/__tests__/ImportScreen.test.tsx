@@ -1401,4 +1401,104 @@ describe('ImportScreen fund decisions', () => {
       fundAliases: { travel: 'Rainy day' },
     });
   });
+
+  const EUR_FUNDS = [
+    makeFund({ id: 1, name: 'General' }),
+    makeFund({ id: 2, name: 'Travel', currencyCode: 'EUR' }),
+  ];
+
+  const TRANSFER_CSV =
+    'Date,Description,Amount,Currency,Type,Fund,To fund\r\n' +
+    '2024-01-01,,50,USD,Transfer,General,Travel\r\n';
+
+  const reachWith = async (
+    csv: string,
+    overrides: Parameters<typeof makeContextValue>[0],
+  ) => {
+    mockedUseExpenseData.mockReturnValue(
+      makeContextValue({
+        actions: { importTransactions },
+        ...overrides,
+      }),
+    );
+    mockedPickCsvFile.mockResolvedValue({ ok: true, uri: 'content://x.csv' });
+    mockedReadFileAsString.mockResolvedValue(csv);
+    renderWithProviders(<ImportScreen />);
+    fireEvent.press(screen.getByLabelText('Import from a CSV file'));
+    await waitFor(() =>
+      expect(screen.getByText('Map columns')).toBeOnTheScreen(),
+    );
+    fireEvent.press(screen.getByLabelText('Preview import'));
+    await waitFor(() =>
+      expect(screen.getByText('Review import')).toBeOnTheScreen(),
+    );
+  };
+
+  it('discloses a transfer converted from a saved rate', async () => {
+    await reachWith(TRANSFER_CSV, {
+      state: {
+        funds: EUR_FUNDS,
+        fxRateCache: [
+          {
+            baseCurrencyCode: 'USD',
+            currencyCode: 'EUR',
+            fxRateToBase: 2,
+            updatedAt: '',
+          },
+        ],
+      },
+    });
+
+    expect(
+      screen.getByText(/converted using your last saved rate/),
+    ).toBeOnTheScreen();
+    expect(
+      screen.getByText('1 USD = 0.500000 EUR affects 1 row.'),
+    ).toBeOnTheScreen();
+  });
+
+  it('imports a converted transfer without asking first', async () => {
+    const alertSpy = jest.spyOn(Alert, 'alert');
+    alertSpy.mockClear();
+    await reachWith(TRANSFER_CSV, {
+      state: {
+        funds: EUR_FUNDS,
+        fxRateCache: [
+          {
+            baseCurrencyCode: 'USD',
+            currencyCode: 'EUR',
+            fxRateToBase: 2,
+            updatedAt: '',
+          },
+        ],
+      },
+    });
+
+    // A conversion from the user's own saved rate is disclosed, not queried:
+    // it must not join the blocking checks in `needsDecision`.
+    fireEvent.press(screen.getByLabelText('Confirm import'));
+    await waitFor(() => expect(importTransactions).toHaveBeenCalled());
+  });
+
+  it('holds a transfer back when no saved rate covers the pair', async () => {
+    await reachWith(TRANSFER_CSV, { state: { funds: EUR_FUNDS } });
+
+    expect(screen.getByText(/1 row needs? an FX rate/)).toBeOnTheScreen();
+  });
+
+  it('names the line and what it is missing for a held-back row', async () => {
+    await reachWith(TRANSFER_CSV, { state: { funds: EUR_FUNDS } });
+
+    expect(
+      screen.getByText(
+        /Line 2: A cross-currency transfer needs the amount received\./,
+      ),
+    ).toBeOnTheScreen();
+  });
+
+  it('offers the rate input that releases a held-back transfer', async () => {
+    await reachWith(TRANSFER_CSV, { state: { funds: EUR_FUNDS } });
+
+    expect(screen.getByLabelText('FX rate EUR to USD')).toBeOnTheScreen();
+  });
 });

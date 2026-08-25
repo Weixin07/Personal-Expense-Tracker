@@ -13,6 +13,7 @@ export const makeImportPreview = (
   unreadableTimes: [],
   fxReview: [],
   suspectDerivedRates: [],
+  transferConversions: [],
   currencyReview: [],
   duplicates: [],
   newCategoryNames: [],

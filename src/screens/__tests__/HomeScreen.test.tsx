@@ -448,6 +448,7 @@ describe('fund balances', () => {
       makeContextValue({
         state: { funds, ...(overrides.state ?? {}) },
         selectors: { fundBalances, ...(overrides.selectors ?? {}) },
+        actions: overrides.actions ?? {},
       }),
     );
     return renderWithProviders(<HomeScreen />);
@@ -459,6 +460,45 @@ describe('fund balances', () => {
     expect(screen.getByText('Funds')).toBeOnTheScreen();
     expect(screen.getByText('General')).toBeOnTheScreen();
     expect(screen.getByText('Travel')).toBeOnTheScreen();
+  });
+
+  it('says which currency the balances are denominated in', () => {
+    render();
+
+    expect(screen.getByText('Each fund in its own currency')).toBeOnTheScreen();
+  });
+
+  it('lists every currency a fund holds, in the order the selector gave them', () => {
+    render({
+      selectors: {
+        fundBalances: [
+          {
+            fundId: 1,
+            byCurrency: [
+              { currencyCode: 'EUR', balance: 0 },
+              { currencyCode: 'USD', balance: -32.4 },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(screen.getByText('0.00 EUR · -32.40 USD')).toBeOnTheScreen();
+    expect(
+      screen.getByLabelText('General balance 0.00 EUR, -32.40 USD'),
+    ).toBeOnTheScreen();
+  });
+
+  it('names the currency of a fund holding nothing yet', () => {
+    render({
+      selectors: {
+        fundBalances: [
+          { fundId: 1, byCurrency: [{ currencyCode: 'EUR', balance: 0 }] },
+        ],
+      },
+    });
+
+    expect(screen.getByText('0.00 EUR')).toBeOnTheScreen();
   });
 
   it('renders the same balance whatever date filter is applied', () => {
@@ -545,7 +585,7 @@ describe('fund balances', () => {
     expect(screen.getByText('General → Travel')).toBeOnTheScreen();
   });
 
-  it('names both funds on a transfer row instead of a payee', () => {
+  it('titles a transfer row with the two funds rather than a payee', () => {
     const transfer = makeTransaction({
       id: 5,
       type: 'transfer',
@@ -558,5 +598,143 @@ describe('fund balances', () => {
     render({ selectors: { filteredTransactions: [transfer] } });
 
     expect(screen.getByText('General → Travel')).toBeOnTheScreen();
+  });
+
+  it('shows a transfer’s description and payee on the detail line', () => {
+    const transfer = makeTransaction({
+      id: 5,
+      type: 'transfer',
+      description: 'Monthly top-up',
+      payee: 'Wise',
+      fundId: 1,
+      counterpartFundId: 2,
+    });
+
+    render({ selectors: { filteredTransactions: [transfer] } });
+
+    expect(screen.getByText('General → Travel')).toBeOnTheScreen();
+    expect(
+      screen.getByText(/Transfer \| Monthly top-up \| Wise \|/),
+    ).toBeOnTheScreen();
+  });
+
+  it('surfaces a payee a transfer carries on its own', () => {
+    const transfer = makeTransaction({
+      id: 5,
+      type: 'transfer',
+      description: '',
+      payee: 'Wise',
+      fundId: 1,
+      counterpartFundId: 2,
+    });
+
+    render({ selectors: { filteredTransactions: [transfer] } });
+
+    expect(screen.getByText(/Transfer \| Wise \|/)).toBeOnTheScreen();
+  });
+
+  it('adds nothing to the detail line of a transfer with no text', () => {
+    const transfer = makeTransaction({
+      id: 5,
+      type: 'transfer',
+      description: '',
+      payee: '',
+      date: '2025-01-10',
+      amountNative: 40,
+      currencyCode: 'USD',
+      fundId: 1,
+      counterpartFundId: 2,
+    });
+
+    render({ selectors: { filteredTransactions: [transfer] } });
+
+    expect(
+      screen.getByText('10/01/2025 | Transfer | 40.00 USD'),
+    ).toBeOnTheScreen();
+  });
+
+  const crossCurrencyTransfer = makeTransaction({
+    id: 6,
+    type: 'transfer',
+    payee: '',
+    description: '',
+    amountNative: 1000,
+    currencyCode: 'MYR',
+    fundId: 1,
+    counterpartFundId: 2,
+    counterpartAmount: 195,
+    counterpartCurrencyCode: 'EUR',
+  });
+
+  it('names both legs of a cross-currency transfer', () => {
+    render({ selectors: { filteredTransactions: [crossCurrencyTransfer] } });
+
+    expect(screen.getByText(/1,000\.00 MYR → 195\.00 EUR/)).toBeOnTheScreen();
+  });
+
+  it('marks a transfer whose amounts imply a rate of one', () => {
+    render({
+      selectors: {
+        filteredTransactions: [crossCurrencyTransfer],
+        suspectTransferIds: new Set([6]),
+      },
+    });
+
+    expect(screen.getByText(/⚠ 1:1/)).toBeOnTheScreen();
+  });
+
+  it('leaves an ordinary transfer unmarked', () => {
+    render({ selectors: { filteredTransactions: [crossCurrencyTransfer] } });
+
+    expect(screen.queryByText(/⚠ 1:1/)).toBeNull();
+  });
+
+  it('counts the transfers needing review', () => {
+    render({ selectors: { suspectTransferIds: new Set([6, 7]) } });
+
+    expect(screen.getByText('2 transfers need review')).toBeOnTheScreen();
+  });
+
+  it('says nothing when no transfer needs review', () => {
+    render();
+
+    expect(screen.queryByText(/need review/)).toBeNull();
+  });
+
+  it('narrows to the transfers needing review', () => {
+    const setFilters = jest.fn();
+    render({
+      selectors: { suspectTransferIds: new Set([6]) },
+      actions: { setFilters },
+    });
+
+    fireEvent.press(
+      screen.getByLabelText('Review transfers needing attention'),
+    );
+
+    expect(setFilters).toHaveBeenCalledWith({ needsReview: true });
+  });
+
+  it('hides the notice once it is dismissed', () => {
+    render({ selectors: { suspectTransferIds: new Set([6]) } });
+
+    fireEvent.press(screen.getByLabelText('Dismiss the review notice'));
+
+    expect(screen.queryByText(/need review/)).toBeNull();
+  });
+
+  it('offers a chip that clears the review filter', () => {
+    const setFilters = jest.fn();
+    render({
+      state: { filters: { needsReview: true } },
+      actions: { setFilters },
+    });
+
+    expect(screen.getByText('Needs review')).toBeOnTheScreen();
+    fireEvent.press(
+      screen.getByLabelText('Filter by transfers needing review'),
+    );
+
+    expect(setFilters).toHaveBeenCalledWith({ needsReview: undefined });
   });
 });

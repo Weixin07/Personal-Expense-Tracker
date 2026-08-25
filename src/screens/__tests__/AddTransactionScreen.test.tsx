@@ -608,6 +608,15 @@ describe('AddTransactionScreen', () => {
         type: 'income',
         date: recent(6),
       }),
+      makeTransaction({
+        id: 400,
+        payee: 'Wise',
+        description: 'Monthly top-up',
+        type: 'transfer',
+        fundId: 1,
+        counterpartFundId: 2,
+        date: recent(7),
+      }),
     ];
 
     const renderWithHistory = (params?: { transactionId?: number }) =>
@@ -646,7 +655,7 @@ describe('AddTransactionScreen', () => {
       expect(suggestionLabels()).toEqual([]);
     });
 
-    it('offers only the selected direction before anything is typed', () => {
+    it('offers only the selected type before anything is typed', () => {
       renderWithHistory();
       fireEvent(screen.getByLabelText('Transaction payee'), 'focus');
       expect(suggestionLabels()).not.toContain('Salary Ltd');
@@ -654,6 +663,10 @@ describe('AddTransactionScreen', () => {
       fireEvent.press(screen.getByText('Income'));
       fireEvent(screen.getByLabelText('Transaction payee'), 'focus');
       expect(suggestionLabels()).toEqual(['Salary Ltd']);
+
+      fireEvent.press(screen.getByText('Transfer'));
+      fireEvent(screen.getByLabelText('Transaction payee'), 'focus');
+      expect(suggestionLabels()).toEqual(['Wise']);
     });
 
     it('suggests matching payees from the first character', () => {
@@ -809,6 +822,48 @@ describe('funds and transfers', () => {
   it('saves a transfer carrying no description, payee or category', async () => {
     const createTransaction = jest.fn().mockResolvedValue(undefined);
     renderScreen(undefined, {
+      // Both funds follow the base currency, so the transfer stays within one
+      // and the received amount can be left to mean the same magnitude.
+      state: { funds: [funds[0], makeFund({ id: 2, name: 'Pocket' })] },
+      actions: { createTransaction },
+    });
+
+    fireEvent.press(screen.getByText('Transfer'));
+    fireEvent.changeText(
+      screen.getByLabelText('Amount in native currency'),
+      '100',
+    );
+    fireEvent.press(screen.getByLabelText('Select destination fund'));
+    fireEvent.press(screen.getByLabelText('Select Pocket'));
+    fireEvent.press(screen.getByLabelText('Create transaction'));
+
+    await waitFor(() => expect(createTransaction).toHaveBeenCalledTimes(1));
+    expect(createTransaction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'transfer',
+        fundId: 1,
+        counterpartFundId: 2,
+        categoryId: null,
+        description: '',
+        payee: '',
+        counterpartAmount: 100,
+        counterpartCurrencyCode: 'USD',
+      }),
+    );
+  });
+
+  const ratesToEur = [
+    {
+      baseCurrencyCode: 'USD',
+      currencyCode: 'EUR',
+      fxRateToBase: 2,
+      updatedAt: '',
+    },
+  ];
+
+  it('refuses a cross-currency transfer with no amount received', async () => {
+    const createTransaction = jest.fn().mockResolvedValue(undefined);
+    renderScreen(undefined, {
       state: { funds },
       actions: { createTransaction },
     });
@@ -822,17 +877,238 @@ describe('funds and transfers', () => {
     fireEvent.press(screen.getByLabelText('Select Travel'));
     fireEvent.press(screen.getByLabelText('Create transaction'));
 
-    await waitFor(() => expect(createTransaction).toHaveBeenCalledTimes(1));
-    expect(createTransaction).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'transfer',
-        fundId: 1,
-        counterpartFundId: 2,
-        categoryId: null,
-        description: '',
-        payee: '',
-      }),
+    await waitFor(() =>
+      expect(
+        screen.getByText('Enter the amount that arrived in EUR.'),
+      ).toBeOnTheScreen(),
     );
+    expect(createTransaction).not.toHaveBeenCalled();
+  });
+
+  it('seeds the amount received from the rate saved for the pair', async () => {
+    renderScreen(undefined, {
+      state: { funds, fxRateCache: ratesToEur },
+    });
+
+    fireEvent.press(screen.getByText('Transfer'));
+    fireEvent.changeText(
+      screen.getByLabelText('Amount in native currency'),
+      '100',
+    );
+    fireEvent.press(screen.getByLabelText('Select destination fund'));
+    fireEvent.press(screen.getByLabelText('Select Travel'));
+
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText('Amount received in the destination fund').props
+          .value,
+      ).toBe('50.00'),
+    );
+  });
+
+  it('seeds the amount received from a rate an earlier transfer implied', () => {
+    const impliedByAnEarlierTransfer = [
+      {
+        baseCurrencyCode: 'USD',
+        currencyCode: 'EUR',
+        fxRateToBase: 100 / 3400,
+        updatedAt: '',
+      },
+    ];
+    renderScreen(undefined, {
+      state: { funds, fxRateCache: impliedByAnEarlierTransfer },
+    });
+
+    fireEvent.press(screen.getByText('Transfer'));
+    fireEvent.changeText(
+      screen.getByLabelText('Amount in native currency'),
+      '200',
+    );
+    fireEvent.press(screen.getByLabelText('Select destination fund'));
+    fireEvent.press(screen.getByLabelText('Select Travel'));
+
+    expect(
+      screen.getByLabelText('Amount received in the destination fund').props
+        .value,
+    ).toBe('6800.00');
+  });
+
+  it('reseeds the amount received when the destination fund changes', async () => {
+    const stored = makeTransaction({
+      id: 7,
+      type: 'transfer',
+      amountNative: 100,
+      currencyCode: 'USD',
+      fundId: 1,
+      counterpartFundId: 3,
+      counterpartAmount: 100,
+      counterpartCurrencyCode: 'USD',
+      categoryId: null,
+    });
+    renderScreen(
+      { transactionId: 7 },
+      {
+        state: {
+          funds: [...funds, makeFund({ id: 3, name: 'Pocket' })],
+          transactions: [stored],
+          fxRateCache: ratesToEur,
+        },
+      },
+    );
+
+    expect(
+      screen.getByLabelText('Amount received in the destination fund').props
+        .value,
+    ).toBe('100.00');
+
+    fireEvent.press(screen.getByLabelText('Select destination fund'));
+    fireEvent.press(screen.getByLabelText('Select Travel'));
+
+    // The stored figure was denominated in USD; the destination now holds EUR,
+    // so leaving it in place would relabel a number it never applied to.
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText('Amount received in the destination fund').props
+          .value,
+      ).toBe('50.00'),
+    );
+  });
+
+  it('never restates the amount a stored transfer recorded', () => {
+    const stored = makeTransaction({
+      id: 8,
+      type: 'transfer',
+      amountNative: 100,
+      currencyCode: 'USD',
+      fundId: 1,
+      counterpartFundId: 2,
+      counterpartAmount: 90,
+      counterpartCurrencyCode: 'EUR',
+      categoryId: null,
+    });
+    renderScreen(
+      { transactionId: 8 },
+      { state: { funds, transactions: [stored], fxRateCache: ratesToEur } },
+    );
+
+    fireEvent.changeText(
+      screen.getByLabelText('Amount in native currency'),
+      '200',
+    );
+
+    expect(
+      screen.getByLabelText('Amount received in the destination fund').props
+        .value,
+    ).toBe('90.00');
+  });
+
+  it('leaves a figure the user typed alone when the amount changes', async () => {
+    renderScreen(undefined, {
+      state: { funds, fxRateCache: ratesToEur },
+    });
+
+    fireEvent.press(screen.getByText('Transfer'));
+    fireEvent.changeText(
+      screen.getByLabelText('Amount in native currency'),
+      '100',
+    );
+    fireEvent.press(screen.getByLabelText('Select destination fund'));
+    fireEvent.press(screen.getByLabelText('Select Travel'));
+    fireEvent.changeText(
+      screen.getByLabelText('Amount received in the destination fund'),
+      '47',
+    );
+    fireEvent.changeText(
+      screen.getByLabelText('Amount in native currency'),
+      '300',
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText('Amount received in the destination fund').props
+          .value,
+      ).toBe('47'),
+    );
+  });
+
+  it('shows the rate the two amounts imply', async () => {
+    renderScreen(undefined, {
+      state: { funds, fxRateCache: ratesToEur },
+    });
+
+    fireEvent.press(screen.getByText('Transfer'));
+    fireEvent.changeText(
+      screen.getByLabelText('Amount in native currency'),
+      '100',
+    );
+    fireEvent.press(screen.getByLabelText('Select destination fund'));
+    fireEvent.press(screen.getByLabelText('Select Travel'));
+
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText('Rate implied by the two amounts').props.value,
+      ).toBe('1 USD = 0.500000 EUR'),
+    );
+  });
+
+  it('labels the received amount with the currency the row recorded', () => {
+    const stored = makeTransaction({
+      id: 9,
+      type: 'transfer',
+      amountNative: 100,
+      currencyCode: 'USD',
+      fundId: 1,
+      counterpartFundId: 2,
+      counterpartAmount: 90,
+      counterpartCurrencyCode: 'GBP',
+      categoryId: null,
+    });
+    renderScreen(
+      { transactionId: 9 },
+      { state: { funds, transactions: [stored] } },
+    );
+
+    // The fund holds EUR now; the transfer was recorded in GBP and says so.
+    expect(screen.getAllByText('Amount received (GBP)').length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it('queries a transfer whose amounts imply a rate of one before saving', async () => {
+    const createTransaction = jest.fn().mockResolvedValue(undefined);
+    const alertSpy = jest.spyOn(Alert, 'alert');
+    renderScreen(undefined, {
+      state: { funds },
+      actions: { createTransaction },
+    });
+
+    fireEvent.press(screen.getByText('Transfer'));
+    fireEvent.changeText(
+      screen.getByLabelText('Amount in native currency'),
+      '100',
+    );
+    fireEvent.press(screen.getByLabelText('Select destination fund'));
+    fireEvent.press(screen.getByLabelText('Select Travel'));
+    fireEvent.changeText(
+      screen.getByLabelText('Amount received in the destination fund'),
+      '100',
+    );
+    fireEvent.press(screen.getByLabelText('Create transaction'));
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    expect(alertSpy.mock.calls[0][0]).toBe('Check the amount received');
+    expect(alertSpy.mock.calls[0][1]).toContain(
+      '100.00 USD and 100.00 EUR imply a rate of 1.',
+    );
+    expect(createTransaction).not.toHaveBeenCalled();
+
+    const buttons = alertSpy.mock.calls[0][2] as {
+      text: string;
+      onPress?: () => void;
+    }[];
+    buttons.find(button => button.text === 'Save anyway')?.onPress?.();
+
+    await waitFor(() => expect(createTransaction).toHaveBeenCalledTimes(1));
   });
 
   it('adopts the chosen fund currency and its rate on a new transaction', async () => {
@@ -921,6 +1197,40 @@ describe('funds and transfers', () => {
 
     expect(screen.queryByLabelText('Select General')).toBeNull();
     expect(screen.getByLabelText('Select Travel')).toBeOnTheScreen();
+  });
+
+  it('orders the transfer funds by transfer history, not by spending', () => {
+    const threeFunds = [
+      ...funds,
+      makeFund({ id: 3, name: 'Household', currencyCode: 'USD' }),
+    ];
+    const history = [
+      ...Array.from({ length: 3 }, (_, index) =>
+        makeTransaction({ id: 10 + index, type: 'expense', fundId: 2 }),
+      ),
+      makeTransaction({
+        id: 20,
+        type: 'transfer',
+        fundId: 1,
+        counterpartFundId: 3,
+      }),
+    ];
+    renderScreen(undefined, {
+      state: { funds: threeFunds, transactions: history },
+    });
+
+    fireEvent.press(screen.getByText('Transfer'));
+    fireEvent.press(screen.getByLabelText('Select destination fund'));
+
+    const fundNames = new Set(threeFunds.map(fund => fund.name));
+    expect(
+      screen
+        .queryAllByLabelText(/^Select /)
+        .map(node =>
+          String(node.props.accessibilityLabel).replace('Select ', ''),
+        )
+        .filter(name => fundNames.has(name)),
+    ).toEqual(['Household', 'Travel']);
   });
 
   it('refuses a transfer with no destination fund', async () => {

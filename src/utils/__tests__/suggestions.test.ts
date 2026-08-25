@@ -1,9 +1,11 @@
 import {
   MAX_SUGGESTIONS,
+  TRANSFER_SUGGESTION_WINDOW_MONTHS,
   buildCategoryUsageCounts,
   buildSuggestionIndex,
   filterSuggestions,
   rankCategoryIdsByFrequency,
+  rankFundIdsByFrequency,
 } from '../suggestions';
 import type { TransactionRecord } from '../../database';
 
@@ -11,6 +13,9 @@ const NOW = new Date(2026, 7, 14, 12, 0, 0);
 const IN_WINDOW = '2026-06-01';
 const WINDOW_START = '2025-08-14';
 const JUST_OUTSIDE = '2025-08-13';
+const TRANSFER_WINDOW_START = '2024-08-14';
+const BETWEEN_WINDOWS = '2025-02-14';
+const OUTSIDE_BOTH_WINDOWS = '2024-02-14';
 const LONG_AGO = '2021-03-02';
 
 let nextId = 1;
@@ -343,18 +348,31 @@ describe('buildCategoryUsageCounts', () => {
   });
 });
 
-describe('transfers are absent from suggestions', () => {
-  it('offers no payee spelling from a transfer', () => {
-    const index = buildSuggestionIndex(
-      [
-        makeTransaction({ id: 1, type: 'transfer', payee: 'Moved to Travel' }),
-        makeTransaction({ id: 2, type: 'expense', payee: 'Cafe' }),
-      ],
-      'payee',
-      { now: NOW },
-    );
+describe('suggestions are scoped to a transaction type', () => {
+  const mixedHistory = [
+    makeTransaction({ id: 1, type: 'transfer', payee: 'Moved to Travel' }),
+    makeTransaction({ id: 2, type: 'expense', payee: 'Cafe' }),
+    makeTransaction({ id: 3, type: 'income', payee: 'Salary Ltd' }),
+  ];
 
-    expect(index.map(entry => entry.value)).toEqual(['Cafe']);
+  it('offers a transfer the spellings other transfers used', () => {
+    expect(payeeIndex(mixedHistory, { type: 'transfer' })).toEqual([
+      expect.objectContaining({ value: 'Moved to Travel' }),
+    ]);
+  });
+
+  it('offers no transfer spelling to an expense', () => {
+    expect(
+      payeeIndex(mixedHistory, { type: 'expense' }).map(entry => entry.value),
+    ).toEqual(['Cafe']);
+  });
+
+  it('counts every type when no type is given', () => {
+    expect(
+      payeeIndex(mixedHistory)
+        .map(entry => entry.value)
+        .sort(),
+    ).toEqual(['Cafe', 'Moved to Travel', 'Salary Ltd']);
   });
 
   it('counts a transfer against neither direction of category usage', () => {
@@ -364,5 +382,117 @@ describe('transfers are absent from suggestions', () => {
     );
 
     expect(counts.get(3)).toBeUndefined();
+  });
+});
+
+describe('the transfer recency window', () => {
+  const eighteenMonthsOld = [
+    makeTransaction({
+      type: 'transfer',
+      payee: 'Monthly top-up',
+      date: BETWEEN_WINDOWS,
+    }),
+  ];
+
+  it('puts an 18-month-old value in the recent tier at 24 months but not at 12', () => {
+    expect(
+      payeeIndex(eighteenMonthsOld, {
+        type: 'transfer',
+        windowMonths: TRANSFER_SUGGESTION_WINDOW_MONTHS,
+      }),
+    ).toEqual([expect.objectContaining({ inWindow: 1, older: 0 })]);
+
+    expect(payeeIndex(eighteenMonthsOld, { type: 'transfer' })).toEqual([
+      expect.objectContaining({ inWindow: 0, older: 1 }),
+    ]);
+  });
+
+  it('counts a value dated exactly on the 24-month start as recent', () => {
+    const transactions = [
+      makeTransaction({
+        type: 'transfer',
+        payee: 'Boundary',
+        date: TRANSFER_WINDOW_START,
+      }),
+    ];
+
+    expect(
+      payeeIndex(transactions, {
+        type: 'transfer',
+        windowMonths: TRANSFER_SUGGESTION_WINDOW_MONTHS,
+      }),
+    ).toEqual([expect.objectContaining({ inWindow: 1, older: 0 })]);
+  });
+
+  it('leaves a 30-month-old value in the older tier at either window', () => {
+    const transactions = [
+      makeTransaction({
+        type: 'transfer',
+        payee: 'Ancient',
+        date: OUTSIDE_BOTH_WINDOWS,
+      }),
+    ];
+
+    expect(
+      payeeIndex(transactions, {
+        type: 'transfer',
+        windowMonths: TRANSFER_SUGGESTION_WINDOW_MONTHS,
+      }),
+    ).toEqual([expect.objectContaining({ inWindow: 0, older: 1 })]);
+    expect(payeeIndex(transactions, { type: 'transfer' })).toEqual([
+      expect.objectContaining({ inWindow: 0, older: 1 }),
+    ]);
+  });
+
+  it('still offers a value older than both windows, ranked last', () => {
+    const transactions = [
+      makeTransaction({
+        type: 'transfer',
+        payee: 'Ancient move',
+        date: OUTSIDE_BOTH_WINDOWS,
+      }),
+      makeTransaction({
+        type: 'transfer',
+        payee: 'Recent move',
+        date: BETWEEN_WINDOWS,
+      }),
+    ];
+
+    expect(
+      rankedPayees(transactions, 'move', {
+        type: 'transfer',
+        windowMonths: TRANSFER_SUGGESTION_WINDOW_MONTHS,
+      }),
+    ).toEqual(['Recent move', 'Ancient move']);
+  });
+});
+
+describe('rankFundIdsByFrequency', () => {
+  const transferAndExpense = [
+    makeTransaction({
+      type: 'transfer',
+      fundId: 1,
+      counterpartFundId: 2,
+    }),
+    ...repeat(3, { type: 'expense', fundId: 3 }),
+  ];
+
+  it('counts both legs of a transfer and ignores other types when scoped', () => {
+    const counts = rankFundIdsByFrequency(transferAndExpense, {
+      now: NOW,
+      type: 'transfer',
+    });
+
+    expect(counts.get(1)).toEqual({ inWindow: 1, older: 0 });
+    expect(counts.get(2)).toEqual({ inWindow: 1, older: 0 });
+    expect(counts.get(3)).toBeUndefined();
+  });
+
+  it('counts every type when no type is given', () => {
+    const counts = rankFundIdsByFrequency(transferAndExpense, { now: NOW });
+
+    expect(counts.get(1)).toEqual({ inWindow: 1, older: 0 });
+    expect(counts.get(2)).toEqual({ inWindow: 1, older: 0 });
+    expect(counts.get(3)).toEqual({ inWindow: 3, older: 0 });
   });
 });

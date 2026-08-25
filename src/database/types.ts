@@ -40,19 +40,21 @@ export type TransactionRecord = {
   fundId: number;
   /**
    * Destination fund of a transfer, and null for every other type. The database
-   * enforces that this and `counterpartAmount` are present together and only on
-   * a transfer.
+   * enforces that this, `counterpartAmount` and `counterpartCurrencyCode` are
+   * present together and only on a transfer.
    */
   counterpartFundId: number | null;
   /**
    * Positive magnitude that arrived in the destination fund, in
    * `counterpartCurrencyCode`. The rate a cross-currency transfer used is
    * implied by this against `amountNative` rather than stored, so the two
-   * cannot disagree.
+   * cannot disagree. When the two currencies differ the figure is one the user
+   * entered or a conversion of `baseAmount`, never a copy of `amountNative`:
+   * copying it would assert a rate of 1 between two different currencies.
    *
-   * Balance arithmetic does not use it: a transfer conserves value, so
-   * `baseAmount` leaves the source and the same figure arrives at the
-   * destination. Two independently rounded legs would create or destroy money.
+   * This is the figure that reaches the destination fund's balance, denominated
+   * in the currency it arrived in. The two legs are never added together, so a
+   * transfer across a currency boundary claims no conserved value between them.
    */
   counterpartAmount: number | null;
   /**

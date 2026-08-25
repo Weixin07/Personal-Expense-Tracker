@@ -87,6 +87,7 @@ export const makeContextSelectors = (
     mixedBase: false,
   },
   fundBalances: [],
+  suspectTransferIds: new Set<number>(),
   hasActiveFilters: false,
   categoryUsageCounts: EMPTY_CATEGORY_USAGE_COUNTS,
   ...overrides,

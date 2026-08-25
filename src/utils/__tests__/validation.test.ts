@@ -47,6 +47,16 @@ describe('validation helpers', () => {
       expect(validatePositiveRate(0.89).valid).toBe(true);
     });
 
+    it('rejects a value no arithmetic can bring back into range', () => {
+      expect(validatePositiveAmount(Number.POSITIVE_INFINITY).valid).toBe(
+        false,
+      );
+      expect(validatePositiveRate(Number.POSITIVE_INFINITY).valid).toBe(false);
+      expect(validatePositiveAmount(Number.NEGATIVE_INFINITY).valid).toBe(
+        false,
+      );
+    });
+
     it('rejects zero, negatives, or NaN', () => {
       expect(validatePositiveAmount(0)).toEqual({
         valid: false,

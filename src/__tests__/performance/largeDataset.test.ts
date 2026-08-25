@@ -10,11 +10,23 @@ import {
   buildSuggestionIndex,
   filterSuggestions,
 } from '../../utils/suggestions';
-import type { TransactionRecord } from '../../database/types';
+import { calculateFundBalances } from '../../utils/fundBalances';
+import type { FundRecord, TransactionRecord } from '../../database/types';
 
 describe('Performance: Large Dataset (10k expenses)', () => {
   const EXPENSE_COUNT = 10000;
   let mockTransactions: TransactionRecord[];
+
+  // `generateMockTransactions` spreads its rows across five fund ids.
+  const mockFunds: FundRecord[] = Array.from({ length: 5 }, (_, index) => ({
+    id: index + 1,
+    name: `Fund ${index + 1}`,
+    currencyCode: null,
+    openingBalance: 0,
+    notes: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  }));
 
   beforeAll(() => {
     console.log(
@@ -146,36 +158,13 @@ describe('Performance: Large Dataset (10k expenses)', () => {
     });
 
     it('should compute fund balances for 10k transactions in under 100ms', async () => {
-      // Mirrors the shape of AppContext's balance pass, which is unexported:
-      // one sweep, with a transfer contributing its single base amount to both
-      // funds under opposite signs. It measures the cost of that operation, not
-      // of the production function.
-      const { result, metrics } = await measurePerformance(() => {
-        const balances = new Map<number, number>();
-        const add = (fundId: number, amount: number) => {
-          balances.set(fundId, (balances.get(fundId) ?? 0) + amount);
-        };
-        mockTransactions.forEach(transaction => {
-          if (transaction.type === 'transfer') {
-            add(transaction.fundId, -transaction.baseAmount);
-            if (transaction.counterpartFundId != null) {
-              add(transaction.counterpartFundId, transaction.baseAmount);
-            }
-            return;
-          }
-          add(
-            transaction.fundId,
-            transaction.type === 'income'
-              ? transaction.baseAmount
-              : -transaction.baseAmount,
-          );
-        });
-        return balances;
-      });
+      const { result, metrics } = await measurePerformance(() =>
+        calculateFundBalances(mockFunds, mockTransactions, 'USD'),
+      );
 
       console.log(`Balance Time: ${formatDuration(metrics.duration)}`);
 
-      expect(result.size).toBeGreaterThan(0);
+      expect(result.length).toBe(mockFunds.length);
       assertPerformance(
         metrics,
         { maxDuration: 100 },

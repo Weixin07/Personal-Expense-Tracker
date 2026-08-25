@@ -161,6 +161,10 @@ export const validatePositiveAmount = (
     return invalid(`${fieldLabel} is required.`);
   }
 
+  if (!Number.isFinite(amount)) {
+    return invalid(`${fieldLabel} must be a number.`);
+  }
+
   if (amount <= 0) {
     return invalid(`${fieldLabel} must be greater than zero.`);
   }

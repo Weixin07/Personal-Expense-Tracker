@@ -51,7 +51,10 @@ import type {
   TransactionType,
 } from '../database';
 import { bankersRound } from '../utils/math';
-import { fundCurrency } from '../utils/funds';
+import { resolveTransferCurrency } from '../utils/funds';
+import { calculateFundBalances } from '../utils/fundBalances';
+import type { FundBalance } from '../utils/fundBalances';
+import { isSuspectTransferRate, ratesForTransaction } from '../utils/fxRates';
 import { buildCategoryUsageCounts } from '../utils/suggestions';
 import type { CategoryUsageCounts } from '../utils/suggestions';
 import { toError, toErrorMessage } from '../utils/errors';
@@ -64,6 +67,7 @@ import type { BiometricGateState, ExportQueueItem } from '../hooks';
 import { BiometricGateModal } from '../components/BiometricGateModal';
 
 export type { ExportQueueItem } from '../hooks';
+export type { FundBalance, FundBalanceFigure } from '../utils/fundBalances';
 
 export type TransactionFilters = {
   /**
@@ -77,6 +81,12 @@ export type TransactionFilters = {
    * what the filter shows.
    */
   fundId?: number;
+  /**
+   * Narrows to transfers whose recorded amounts imply a rate their currencies
+   * contradict. Has no false form: a filter that is not wanted is absent, which
+   * is what every other member here means by omission.
+   */
+  needsReview?: true;
   startDate?: string;
   endDate?: string;
 };
@@ -134,29 +144,17 @@ export type TransactionTotals = {
   mixedBase: boolean;
 };
 
-export type FundBalanceFigure = {
-  /** Currency this figure is denominated in, and the only scope it sums over. */
-  currencyCode: string | null;
-  balance: number;
-};
-
-/**
- * A fund's standing, spanning its whole history rather than the filtered view:
- * a balance that moved with the date filter would describe a period, not a pot.
- *
- * Figures are grouped by currency because amounts captured against different
- * base currencies cannot be added. The opening balance joins the group named by
- * the fund's own currency, which for a fund without one is the base currency.
- */
-export type FundBalance = {
-  fundId: number;
-  byCurrency: FundBalanceFigure[];
-};
-
 export type TransactionDataSelectors = {
   filteredTransactions: TransactionRecord[];
   totals: TransactionTotals;
   fundBalances: FundBalance[];
+  /**
+   * Transfers whose recorded amounts imply a rate their currencies contradict.
+   * Spans the whole history rather than the filtered view, for the same reason
+   * `fundBalances` does: a count that moved with the date filter would describe
+   * a period rather than the state of the ledger.
+   */
+  suspectTransferIds: ReadonlySet<number>;
   hasActiveFilters: boolean;
   /**
    * Counted over the whole history rather than the filtered view: a picker
@@ -331,6 +329,12 @@ const normalizeFilters = (
     update.fundId === undefined
   ) {
     delete next.fundId;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(update, 'needsReview') &&
+    update.needsReview === undefined
+  ) {
+    delete next.needsReview;
   }
   if (
     Object.prototype.hasOwnProperty.call(update, 'startDate') &&
@@ -510,6 +514,7 @@ export const transactionDataReducer = (
 const applyFilters = (
   transactions: TransactionRecord[],
   filters: TransactionFilters,
+  suspectTransferIds: ReadonlySet<number>,
 ): TransactionRecord[] => {
   if (!transactions.length) {
     return transactions;
@@ -519,10 +524,14 @@ const applyFilters = (
     filters,
     'categoryId',
   );
-  const { type, categoryId, fundId, startDate, endDate } = filters;
+  const { type, categoryId, fundId, needsReview, startDate, endDate } = filters;
 
   return transactions.filter(transaction => {
     if (type !== undefined && transaction.type !== type) {
+      return false;
+    }
+
+    if (needsReview && !suspectTransferIds.has(transaction.id)) {
       return false;
     }
 
@@ -619,62 +628,50 @@ const calculateTotals = (
 };
 
 /**
- * Running balance per fund: opening balance, plus income, less spending, plus
- * or minus what transfers moved. A transfer contributes its single `baseAmount`
- * to both sides, under the rule on `TransactionRecord.counterpartAmount`.
+ * Transfers whose two amounts imply a rate their two currencies contradict,
+ * under the rule on `TransactionRecord.counterpartAmount`.
+ *
+ * The destination currency is resolved by `resolveTransferCurrency`, because a
+ * row stored before that column was required carries none. A transfer is judged
+ * on what it records, never on what the fund holds now.
  */
-const calculateFundBalances = (
-  funds: readonly FundRecord[],
+const calculateSuspectTransferIds = (
   transactions: readonly TransactionRecord[],
+  funds: readonly FundRecord[],
   baseCurrency: string | null,
-): FundBalance[] => {
-  const perFund = new Map<number, Map<string | null, number>>();
-
-  const contribute = (
-    fundId: number,
-    currencyCode: string | null,
-    amount: number,
-  ): void => {
-    const byCurrency = perFund.get(fundId) ?? new Map<string | null, number>();
-    byCurrency.set(currencyCode, (byCurrency.get(currencyCode) ?? 0) + amount);
-    perFund.set(fundId, byCurrency);
-  };
-
+): ReadonlySet<number> => {
+  const fundsById = new Map<number, FundRecord>();
   funds.forEach(fund => {
-    contribute(fund.id, fundCurrency(fund, baseCurrency), fund.openingBalance);
+    fundsById.set(fund.id, fund);
   });
 
+  const suspect = new Set<number>();
   transactions.forEach(transaction => {
-    const currencyCode = transaction.baseCurrencyCode ?? null;
-    if (transaction.type === 'transfer') {
-      contribute(transaction.fundId, currencyCode, -transaction.baseAmount);
-      if (transaction.counterpartFundId != null) {
-        contribute(
-          transaction.counterpartFundId,
-          currencyCode,
-          transaction.baseAmount,
-        );
-      }
+    if (transaction.type !== 'transfer') {
       return;
     }
-    contribute(
-      transaction.fundId,
-      currencyCode,
-      transaction.type === 'income'
-        ? transaction.baseAmount
-        : -transaction.baseAmount,
-    );
+    const destination =
+      transaction.counterpartFundId != null
+        ? (fundsById.get(transaction.counterpartFundId) ?? null)
+        : null;
+    if (
+      isSuspectTransferRate({
+        amountNative: transaction.amountNative,
+        counterpartAmount: transaction.counterpartAmount,
+        currencyCode: transaction.currencyCode,
+        counterpartCurrencyCode: resolveTransferCurrency(
+          transaction.counterpartCurrencyCode,
+          destination,
+          baseCurrency,
+          transaction.currencyCode,
+        ),
+      })
+    ) {
+      suspect.add(transaction.id);
+    }
   });
 
-  return funds.map(fund => ({
-    fundId: fund.id,
-    byCurrency: Array.from(perFund.get(fund.id)?.entries() ?? []).map(
-      ([currencyCode, balance]) => ({
-        currencyCode,
-        balance: bankersRound(balance, 2),
-      }),
-    ),
-  }));
+  return suspect;
 };
 
 const hasActiveFilters = (filters: TransactionFilters): boolean => {
@@ -685,6 +682,9 @@ const hasActiveFilters = (filters: TransactionFilters): boolean => {
     return true;
   }
   if (filters.fundId !== undefined) {
+    return true;
+  }
+  if (filters.needsReview !== undefined) {
     return true;
   }
   if (filters.startDate || filters.endDate) {
@@ -813,30 +813,26 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
   >(async payload => {
     dispatch({ type: 'operation/start' });
     try {
-      const transaction = await withDatabase(async db => {
+      const { transaction, rates } = await withDatabase(async db => {
         const created = await dbCreateTransaction(db, payload);
-        if (created.baseCurrencyCode) {
+        const derived = ratesForTransaction(created);
+        for (const rate of derived) {
           await dbUpsertCurrencyFxRate(
             db,
-            created.baseCurrencyCode,
-            created.currencyCode,
-            created.fxRateToBase,
+            rate.baseCurrencyCode,
+            rate.currencyCode,
+            rate.fxRateToBase,
           );
         }
-        return created;
+        return { transaction: created, rates: derived };
       });
       dispatch({ type: 'transaction/add', payload: transaction });
-      if (transaction.baseCurrencyCode) {
+      rates.forEach(rate => {
         dispatch({
           type: 'fx-cache/upsert',
-          payload: {
-            baseCurrencyCode: transaction.baseCurrencyCode,
-            currencyCode: transaction.currencyCode,
-            fxRateToBase: transaction.fxRateToBase,
-            updatedAt: transaction.updatedAt,
-          },
+          payload: { ...rate, updatedAt: transaction.updatedAt },
         });
-      }
+      });
       return transaction;
     } catch (error) {
       dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
@@ -851,30 +847,26 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
   >(async payload => {
     dispatch({ type: 'operation/start' });
     try {
-      const transaction = await withDatabase(async db => {
+      const { transaction, rates } = await withDatabase(async db => {
         const updated = await dbUpdateTransaction(db, payload);
-        if (updated.baseCurrencyCode) {
+        const derived = ratesForTransaction(updated);
+        for (const rate of derived) {
           await dbUpsertCurrencyFxRate(
             db,
-            updated.baseCurrencyCode,
-            updated.currencyCode,
-            updated.fxRateToBase,
+            rate.baseCurrencyCode,
+            rate.currencyCode,
+            rate.fxRateToBase,
           );
         }
-        return updated;
+        return { transaction: updated, rates: derived };
       });
       dispatch({ type: 'transaction/update', payload: transaction });
-      if (transaction.baseCurrencyCode) {
+      rates.forEach(rate => {
         dispatch({
           type: 'fx-cache/upsert',
-          payload: {
-            baseCurrencyCode: transaction.baseCurrencyCode,
-            currencyCode: transaction.currencyCode,
-            fxRateToBase: transaction.fxRateToBase,
-            updatedAt: transaction.updatedAt,
-          },
+          payload: { ...rate, updatedAt: transaction.updatedAt },
         });
-      }
+      });
       return transaction;
     } catch (error) {
       dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
@@ -1226,9 +1218,21 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     [loadFromDatabase],
   );
 
+  // Independent of `filters`, under the rule on `suspectTransferIds`, so the
+  // banner counting them and the filter narrowing to them read one value.
+  const suspectTransferIds = useMemo(
+    () =>
+      calculateSuspectTransferIds(
+        state.transactions,
+        state.funds,
+        state.settings.baseCurrency,
+      ),
+    [state.transactions, state.funds, state.settings.baseCurrency],
+  );
+
   const filteredTransactions = useMemo(
-    () => applyFilters(state.transactions, state.filters),
-    [state.transactions, state.filters],
+    () => applyFilters(state.transactions, state.filters, suspectTransferIds),
+    [state.transactions, state.filters, suspectTransferIds],
   );
 
   const totals = useMemo(
@@ -1258,6 +1262,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       filteredTransactions,
       totals,
       fundBalances,
+      suspectTransferIds,
       hasActiveFilters: hasActiveFilters(state.filters),
       categoryUsageCounts,
     }),
@@ -1265,6 +1270,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       filteredTransactions,
       totals,
       fundBalances,
+      suspectTransferIds,
       state.filters,
       categoryUsageCounts,
     ],

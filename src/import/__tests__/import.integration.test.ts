@@ -3,7 +3,11 @@ import { parseCsv } from '../csvParser';
 import { autoDetectMapping } from '../mapping';
 import { previewImport, commitImport } from '../importManager';
 import type { ImportContext } from '../types';
-import type { CategoryRecord, TransactionRecord } from '../../database';
+import type {
+  CategoryRecord,
+  FundRecord,
+  TransactionRecord,
+} from '../../database';
 import * as database from '../../database';
 
 jest.mock('../../database');
@@ -702,5 +706,188 @@ describe('export -> import round trip for a transfer', () => {
 
     expect(preview.duplicates).toHaveLength(1);
     expect(preview.duplicates[0].matchesTransactionId).toBe(9);
+  });
+});
+
+describe('an app-produced backup carrying a cross-currency transfer', () => {
+  const fund = (
+    id: number,
+    name: string,
+    currencyCode: string | null,
+  ): FundRecord => ({
+    id,
+    name,
+    currencyCode,
+    openingBalance: 0,
+    notes: null,
+    createdAt: '',
+    updatedAt: '',
+  });
+
+  const funds = [fund(1, 'General', null), fund(2, 'Travel', 'EUR')];
+
+  const transfer: TransactionRecord = {
+    id: 1,
+    type: 'transfer',
+    description: '',
+    payee: '',
+    amountNative: 1000,
+    currencyCode: 'MYR',
+    fxRateToBase: 1,
+    baseAmount: 1000,
+    baseCurrencyCode: 'MYR',
+    date: '2025-02-01',
+    time: null,
+    categoryId: null,
+    fundId: 1,
+    counterpartFundId: 2,
+    counterpartAmount: 195,
+    counterpartCurrencyCode: 'EUR',
+    notes: null,
+    createdAt: '',
+    updatedAt: '',
+  };
+
+  it('re-imports both legs exactly as they were exported', () => {
+    const { content } = buildTransactionsCsv({
+      transactions: [transfer],
+      funds,
+    });
+    const mapping = autoDetectMapping(parseCsv(content).header);
+    const ctx: ImportContext = {
+      baseCurrency: 'MYR',
+      defaultCurrency: null,
+      currencyChoices: {},
+      negativeMeans: 'income',
+      numberFormat: 'auto',
+      fxRateCache: [],
+      existingTransactions: [],
+      existingCategories: [],
+      existingFunds: funds,
+      defaultFundId: 1,
+    };
+
+    const preview = previewImport(content, mapping, 'iso', ctx);
+
+    expect(preview.invalid).toEqual([]);
+    expect(preview.needsFxRate).toEqual([]);
+    // The file names both amounts, so nothing is derived and nothing is
+    // disclosed: an export of this app re-imports as itself.
+    expect(preview.transferConversions).toEqual([]);
+    expect(preview.valid[0].record).toMatchObject({
+      amountNative: 1000,
+      currencyCode: 'MYR',
+      counterpartAmount: 195,
+      counterpartCurrencyCode: 'EUR',
+    });
+  });
+});
+
+/**
+ * A file whose transfer crosses a currency boundary without naming what
+ * arrived. The rate is supplied once at review and has to reach the cache from
+ * there, so the next transfer between the same currencies can be prefilled.
+ */
+describe('a cross-currency transfer whose rate is confirmed at review', () => {
+  const HEADER =
+    'description,amount_native,currency_code,date,type,fund,to_fund\r\n';
+  const ROW = 'Holiday float,200,MYR,2024-03-01,Transfer,Everyday,Travel\r\n';
+
+  const funds: FundRecord[] = [
+    {
+      id: 1,
+      name: 'Everyday',
+      currencyCode: 'MYR',
+      openingBalance: 0,
+      notes: null,
+      createdAt: '',
+      updatedAt: '',
+    },
+    {
+      id: 2,
+      name: 'Travel',
+      currencyCode: 'JPY',
+      openingBalance: 0,
+      notes: null,
+      createdAt: '',
+      updatedAt: '',
+    },
+  ];
+
+  const previewWith = (manualFxRates: Record<string, number>) =>
+    previewImport(
+      `${HEADER}${ROW}`,
+      {
+        description: 0,
+        amountNative: 1,
+        currencyCode: 2,
+        date: 3,
+        transactionType: 4,
+        fundName: 5,
+        counterpartFundName: 6,
+      },
+      'iso',
+      {
+        baseCurrency: 'MYR',
+        defaultCurrency: null,
+        currencyChoices: {},
+        negativeMeans: 'expense',
+        numberFormat: 'auto',
+        manualFxRates,
+        fxRateCache: [],
+        existingTransactions: [],
+        existingCategories: [],
+        existingFunds: funds,
+        defaultFundId: 1,
+      },
+    );
+
+  it('holds the transfer back while nothing says what the destination is worth', () => {
+    const preview = previewWith({});
+
+    expect(preview.valid).toHaveLength(0);
+    expect(preview.needsFxRate).toEqual([
+      {
+        line: 2,
+        reason: 'A cross-currency transfer needs the amount received.',
+      },
+    ]);
+    expect(preview.fxReview).toEqual([
+      {
+        baseCurrencyCode: 'MYR',
+        currencyCode: 'JPY',
+        suggestedRate: null,
+        suggestedRateUpdatedAt: null,
+        rowCount: 1,
+      },
+    ]);
+  });
+
+  it('saves the confirmed rate so the next transfer can be prefilled', async () => {
+    const mockDb = {};
+    (database.withDatabase as jest.Mock).mockImplementation(cb => cb(mockDb));
+    (database.withTransaction as jest.Mock).mockImplementation((_db, work) =>
+      work(mockDb),
+    );
+    (database.getCategoryByName as jest.Mock).mockResolvedValue(null);
+    (database.createTransactionsBulk as jest.Mock).mockResolvedValue(1);
+    (database.upsertCurrencyFxRate as jest.Mock).mockClear();
+    (database.upsertCurrencyFxRate as jest.Mock).mockResolvedValue(undefined);
+
+    const preview = previewWith({ 'MYR|JPY': 0.032 });
+    expect(preview.valid).toHaveLength(1);
+    expect(preview.valid[0].record.counterpartAmount).toBe(6250);
+
+    const summary = await commitImport(preview);
+
+    expect(summary.seededRates).toEqual([
+      { baseCurrencyCode: 'MYR', currencyCode: 'JPY', fxRateToBase: 0.032 },
+    ]);
+    expect(database.upsertCurrencyFxRate).toHaveBeenCalledWith(
+      mockDb,
+      'MYR',
+      'JPY',
+      0.032,
+    );
   });
 });

@@ -36,6 +36,7 @@ import {
   autoDetectMapping,
   describeSuspectDerivedRate,
   describeSuspectRate,
+  describeTransferConversion,
   fxPairKey,
   implausibleRates,
   inferDateOrder,
@@ -1104,6 +1105,20 @@ const ImportScreen: React.FC = () => {
                   {preview.needsFxRate.length === 1 ? '' : 's'} need an FX rate.
                   Enter the rates below, then apply them.
                 </Text>
+                {preview.needsFxRate.slice(0, MAX_LISTED_ERRORS).map(error => (
+                  <Text
+                    key={error.line}
+                    variant="bodySmall"
+                    style={styles.muted}
+                  >
+                    Line {error.line}: {error.reason}
+                  </Text>
+                ))}
+                {preview.needsFxRate.length > MAX_LISTED_ERRORS ? (
+                  <Text variant="bodySmall" style={styles.muted}>
+                    …and {preview.needsFxRate.length - MAX_LISTED_ERRORS} more.
+                  </Text>
+                ) : null}
               </View>
             ) : null}
 
@@ -1183,6 +1198,37 @@ const ImportScreen: React.FC = () => {
 
             <Divider />
             <Text variant="bodyMedium">For your information</Text>
+
+            {preview.transferConversions.length > 0 ? (
+              <View style={styles.bannerInfo}>
+                <Text variant="bodySmall">
+                  {preview.transferConversions.reduce(
+                    (total, item) => total + item.rowCount,
+                    0,
+                  )}{' '}
+                  transfer
+                  {preview.transferConversions.reduce(
+                    (total, item) => total + item.rowCount,
+                    0,
+                  ) === 1
+                    ? ''
+                    : 's'}{' '}
+                  converted using your last saved rate:
+                </Text>
+                {preview.transferConversions.map(item => (
+                  <Text
+                    key={fxPairKey(
+                      item.currencyCode,
+                      item.counterpartCurrencyCode,
+                    )}
+                    variant="bodySmall"
+                    style={styles.muted}
+                  >
+                    {describeTransferConversion(item)}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
 
             {preview.duplicates.length > 0 ? (
               <View style={styles.bannerInfo}>

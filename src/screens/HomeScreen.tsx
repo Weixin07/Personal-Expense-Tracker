@@ -76,6 +76,7 @@ const HomeScreen: React.FC = () => {
       filteredTransactions,
       totals,
       fundBalances,
+      suspectTransferIds,
       hasActiveFilters,
       categoryUsageCounts,
     },
@@ -83,6 +84,9 @@ const HomeScreen: React.FC = () => {
   } = useTransactionData();
 
   const [refreshing, setRefreshing] = useState(false);
+  // Not persisted: the condition clears itself once the transfers are corrected,
+  // and a data-integrity warning must not be dismissible for good.
+  const [reviewBannerDismissed, setReviewBannerDismissed] = useState(false);
   const [categoryDialogVisible, setCategoryDialogVisible] = useState(false);
   const [fundDialogVisible, setFundDialogVisible] = useState(false);
   const [baseCurrencyDialogVisible, setBaseCurrencyDialogVisible] =
@@ -126,6 +130,7 @@ const HomeScreen: React.FC = () => {
   const categoryFilterId = filters.categoryId ?? null;
   const fundFilterId = filters.fundId ?? null;
   const typeFilter = filters.type ?? null;
+  const needsReviewFilter = filters.needsReview ?? false;
   const incomeColor = theme.dark ? INCOME_COLOR_DARK : INCOME_COLOR_LIGHT;
   const negativeColor = theme.dark ? NEGATIVE_COLOR_DARK : NEGATIVE_COLOR_LIGHT;
   const mutedColor = theme.colors.onSurfaceVariant;
@@ -209,6 +214,10 @@ const HomeScreen: React.FC = () => {
     setFilters({ fundId: undefined });
   }, [setFilters]);
 
+  const handleClearNeedsReview = useCallback(() => {
+    setFilters({ needsReview: undefined });
+  }, [setFilters]);
+
   // Selecting the active direction clears it, so the pair behaves as one
   // three-state control without needing a separate clear affordance.
   const handleTypeSelect = useCallback(
@@ -226,6 +235,7 @@ const HomeScreen: React.FC = () => {
       categoryId: undefined,
       type: undefined,
       fundId: undefined,
+      needsReview: undefined,
     });
   }, [setFilters]);
 
@@ -274,8 +284,8 @@ const HomeScreen: React.FC = () => {
       const isTransfer = item.type === 'transfer';
       const isIncome = item.type === 'income';
       const fundName = fundsMap.get(item.fundId) ?? 'Unknown fund';
-      // A transfer names the two funds it moved between: it carries neither a
-      // payee nor a description to identify it by.
+      // A transfer names the two funds it moved between, whatever text it may
+      // also carry.
       const title = isTransfer
         ? `${fundName} → ${
             item.counterpartFundId != null
@@ -283,16 +293,35 @@ const HomeScreen: React.FC = () => {
               : 'Unknown fund'
           }`
         : payee || description || '(no payee)';
+      // A cross-currency transfer names both legs: the source amount alone says
+      // nothing about what arrived, which is the figure worth checking.
+      const crossCurrency =
+        isTransfer &&
+        item.counterpartCurrencyCode != null &&
+        item.counterpartCurrencyCode !== item.currencyCode;
+      const money =
+        crossCurrency && item.counterpartAmount != null
+          ? `${formatDisplayMoney(item.amountNative, item.currencyCode)} → ${formatDisplayMoney(
+              item.counterpartAmount,
+              item.counterpartCurrencyCode,
+            )}`
+          : formatDisplayMoney(item.amountNative, item.currencyCode);
       const descriptionParts = [
         formatDateTimeBritish(item.date, item.time),
         isTransfer ? 'Transfer' : (categoryName ?? 'No category'),
-        formatDisplayMoney(item.amountNative, item.currencyCode),
+        money,
       ];
       if (!isTransfer) {
         descriptionParts.splice(1, 0, fundName);
       }
       if (!isTransfer && payee && description) {
         descriptionParts.unshift(description);
+      }
+      if (isTransfer) {
+        descriptionParts.splice(2, 0, ...[description, payee].filter(Boolean));
+      }
+      if (suspectTransferIds.has(item.id)) {
+        descriptionParts.push('⚠ 1:1');
       }
       return (
         <List.Item
@@ -326,7 +355,14 @@ const HomeScreen: React.FC = () => {
         />
       );
     },
-    [categoriesMap, fundsMap, incomeColor, mutedColor, navigation],
+    [
+      categoriesMap,
+      fundsMap,
+      incomeColor,
+      mutedColor,
+      navigation,
+      suspectTransferIds,
+    ],
   );
 
   const keyExtractor = useCallback(
@@ -343,6 +379,39 @@ const HomeScreen: React.FC = () => {
     [],
   );
 
+  const reviewCard = useMemo(() => {
+    if (reviewBannerDismissed || suspectTransferIds.size === 0) {
+      return null;
+    }
+
+    const count = suspectTransferIds.size;
+    return (
+      <Surface style={styles.summaryCard} elevation={1}>
+        <Text variant="titleSmall">
+          {count} transfer{count === 1 ? '' : 's'} need review
+        </Text>
+        <Text variant="bodySmall" style={{ color: mutedColor }}>
+          The amount received matches the amount sent, but the currencies
+          differ.
+        </Text>
+        <View style={styles.reviewActions}>
+          <Button
+            onPress={() => setFilters({ needsReview: true })}
+            accessibilityLabel="Review transfers needing attention"
+          >
+            Review
+          </Button>
+          <Button
+            onPress={() => setReviewBannerDismissed(true)}
+            accessibilityLabel="Dismiss the review notice"
+          >
+            Dismiss
+          </Button>
+        </View>
+      </Surface>
+    );
+  }, [mutedColor, reviewBannerDismissed, setFilters, suspectTransferIds]);
+
   const balancesCard = useMemo(() => {
     if (!fundBalances.length) {
       return null;
@@ -351,11 +420,12 @@ const HomeScreen: React.FC = () => {
     return (
       <Surface style={styles.summaryCard} elevation={1}>
         <Text variant="titleSmall">Funds</Text>
+        <Text variant="bodySmall" style={{ color: mutedColor }}>
+          Each fund in its own currency
+        </Text>
         {fundBalances.map(balance => {
           const name = fundsMap.get(balance.fundId) ?? 'Unknown fund';
-          const figures = balance.byCurrency.length
-            ? balance.byCurrency
-            : [{ currencyCode: null, balance: 0 }];
+          const figures = balance.byCurrency;
           return (
             <View
               key={balance.fundId}
@@ -382,7 +452,7 @@ const HomeScreen: React.FC = () => {
         })}
       </Surface>
     );
-  }, [fundBalances, fundsMap]);
+  }, [fundBalances, fundsMap, mutedColor]);
 
   const summaryCard = useMemo(() => {
     if (!summaryGroups.length) {
@@ -493,6 +563,7 @@ const HomeScreen: React.FC = () => {
             disabled={refreshing}
           />
         </View>
+        {reviewCard}
         {balancesCard}
         {summaryCard}
         <Text variant="labelLarge" style={{ color: mutedColor }}>
@@ -592,6 +663,16 @@ const HomeScreen: React.FC = () => {
                 ? `Fund: ${fundsMap.get(fundFilterId) ?? 'Unknown'}`
                 : 'Fund'}
             </Chip>
+            {needsReviewFilter ? (
+              <Chip
+                selected
+                onPress={handleClearNeedsReview}
+                onClose={handleClearNeedsReview}
+                accessibilityLabel="Filter by transfers needing review"
+              >
+                Needs review
+              </Chip>
+            ) : null}
             {hasActiveFilters ? (
               <Chip
                 onPress={handleResetFilters}
@@ -629,6 +710,9 @@ const HomeScreen: React.FC = () => {
     fundFilterId,
     fundsMap,
     handleClearFund,
+    handleClearNeedsReview,
+    needsReviewFilter,
+    reviewCard,
   ]);
 
   const listEmptyComponent = useMemo(
@@ -733,6 +817,10 @@ const styles = StyleSheet.create({
   },
   summaryGroup: {
     gap: 4,
+  },
+  reviewActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
   },
   summaryRow: {
     flexDirection: 'row',

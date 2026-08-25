@@ -949,9 +949,7 @@ describe('transfers and fund balances', () => {
     expect(group.net.total).toBe(-10);
   });
 
-  it('moves one base amount out of the source fund and into the destination', async () => {
-    // With a base currency set, the funds' own currencies resolve to it, so the
-    // opening balances and the movement land in one group.
+  it('takes what left out of the source fund and puts what arrived into the destination', async () => {
     mockDb.getAllSettings.mockResolvedValue([
       { key: 'base_currency', value: 'USD' },
     ]);
@@ -964,14 +962,52 @@ describe('transfers and fund balances', () => {
     const destination = ctx.selectors.fundBalances.find(
       item => item.fundId === 2,
     );
-    // The counterpart amount of 117 is what the user saw arrive; the balance
-    // uses the single conserved base amount so a transfer cannot mint money.
     expect(source?.byCurrency).toEqual([
       { currencyCode: 'USD', balance: -100 },
     ]);
+    // Neither fund holds a currency of its own, so both open in the base
+    // currency; the 117 that arrived was recorded in EUR and joins its own
+    // figure rather than the one the fund opened under.
     expect(destination?.byCurrency).toEqual([
-      { currencyCode: 'USD', balance: 100 },
+      { currencyCode: 'USD', balance: 0 },
+      { currencyCode: 'EUR', balance: 117 },
     ]);
+  });
+
+  it('recomputes fund balances when a transaction is added', async () => {
+    mockDb.getAllSettings.mockResolvedValue([
+      { key: 'base_currency', value: 'USD' },
+    ]);
+    mockDb.listFunds.mockResolvedValue([fund(1)]);
+    mockDb.listTransactions.mockResolvedValue([]);
+    mockDb.createTransaction.mockResolvedValue({
+      ...transaction,
+      id: 99,
+      amountNative: 12,
+      currencyCode: 'USD',
+      baseAmount: 12,
+      fundId: 1,
+    });
+
+    await renderProvider();
+
+    expect(
+      ctx.selectors.fundBalances.find(item => item.fundId === 1)?.byCurrency,
+    ).toEqual([{ currencyCode: 'USD', balance: 0 }]);
+
+    await act(async () => {
+      await ctx.actions.createTransaction({
+        ...transaction,
+        amountNative: 12,
+        currencyCode: 'USD',
+        baseAmount: 12,
+        fundId: 1,
+      });
+    });
+
+    expect(
+      ctx.selectors.fundBalances.find(item => item.fundId === 1)?.byCurrency,
+    ).toEqual([{ currencyCode: 'USD', balance: -12 }]);
   });
 
   it('files an opening balance under the fund currency, falling back to base', async () => {
@@ -1005,5 +1041,217 @@ describe('transfers and fund balances', () => {
     });
 
     expect(ctx.selectors.filteredTransactions).toHaveLength(1);
+  });
+
+  const unconverted = {
+    ...transfer,
+    id: 51,
+    currencyCode: 'MYR',
+    counterpartAmount: 100,
+    counterpartCurrencyCode: 'EUR',
+  };
+
+  it('identifies a transfer whose amounts imply a rate of one', async () => {
+    mockDb.listFunds.mockResolvedValue([fund(1), fund(2)]);
+    mockDb.listTransactions.mockResolvedValue([unconverted]);
+
+    await renderProvider();
+
+    expect([...ctx.selectors.suspectTransferIds]).toEqual([51]);
+  });
+
+  it('leaves a converted transfer alone', async () => {
+    mockDb.listFunds.mockResolvedValue([fund(1), fund(2)]);
+    mockDb.listTransactions.mockResolvedValue([transfer]);
+
+    await renderProvider();
+
+    expect(ctx.selectors.suspectTransferIds.size).toBe(0);
+  });
+
+  it('leaves a same-currency transfer of equal magnitude alone', async () => {
+    mockDb.listFunds.mockResolvedValue([fund(1), fund(2)]);
+    mockDb.listTransactions.mockResolvedValue([
+      { ...unconverted, counterpartCurrencyCode: 'MYR' },
+    ]);
+
+    await renderProvider();
+
+    expect(ctx.selectors.suspectTransferIds.size).toBe(0);
+  });
+
+  it('reads an unlabelled transfer against the destination fund currency', async () => {
+    mockDb.listFunds.mockResolvedValue([
+      fund(1),
+      fund(2, { currencyCode: 'EUR' }),
+    ]);
+    mockDb.listTransactions.mockResolvedValue([
+      { ...unconverted, counterpartCurrencyCode: null },
+    ]);
+
+    await renderProvider();
+
+    expect([...ctx.selectors.suspectTransferIds]).toEqual([51]);
+  });
+
+  it('narrows to suspect transfers and reports the filter as active', async () => {
+    mockDb.listFunds.mockResolvedValue([fund(1), fund(2)]);
+    mockDb.listTransactions.mockResolvedValue([
+      { ...transaction, id: 1 },
+      unconverted,
+    ]);
+
+    await renderProvider();
+
+    await act(async () => {
+      ctx.actions.setFilters({ needsReview: true });
+    });
+
+    expect(ctx.selectors.filteredTransactions).toHaveLength(1);
+    expect(ctx.selectors.filteredTransactions[0].id).toBe(51);
+    expect(ctx.selectors.hasActiveFilters).toBe(true);
+
+    await act(async () => {
+      ctx.actions.setFilters({ needsReview: undefined });
+    });
+
+    expect(ctx.selectors.filteredTransactions).toHaveLength(2);
+    expect(ctx.selectors.hasActiveFilters).toBe(false);
+  });
+});
+
+describe('fx rate cache', () => {
+  const crossCurrencyTransfer: TransactionRecord = {
+    ...transaction,
+    id: 7,
+    type: 'transfer',
+    amountNative: 100,
+    currencyCode: 'EUR',
+    fxRateToBase: 5,
+    baseAmount: 500,
+    baseCurrencyCode: 'MYR',
+    counterpartFundId: 2,
+    counterpartAmount: 17000,
+    counterpartCurrencyCode: 'JPY',
+  };
+
+  const cachedRates = () =>
+    ctx.state.fxRateCache.map(item => [item.currencyCode, item.fxRateToBase]);
+
+  beforeEach(() => {
+    mockDb.getAllSettings.mockResolvedValue([
+      { key: 'base_currency', value: 'MYR' },
+    ]);
+  });
+
+  it('saves what a cross-currency transfer says about both currencies', async () => {
+    await renderProvider();
+    mockDb.createTransaction.mockResolvedValue(crossCurrencyTransfer);
+
+    await act(async () => {
+      await ctx.actions.createTransaction({ ...crossCurrencyTransfer });
+    });
+
+    expect(mockDb.upsertCurrencyFxRate).toHaveBeenCalledTimes(2);
+    expect(mockDb.upsertCurrencyFxRate).toHaveBeenNthCalledWith(
+      1,
+      {},
+      'MYR',
+      'EUR',
+      5,
+    );
+    expect(mockDb.upsertCurrencyFxRate).toHaveBeenNthCalledWith(
+      2,
+      {},
+      'MYR',
+      'JPY',
+      500 / 17000,
+    );
+  });
+
+  it('offers the destination rate without waiting for a reload', async () => {
+    await renderProvider();
+    mockDb.createTransaction.mockResolvedValue(crossCurrencyTransfer);
+
+    await act(async () => {
+      await ctx.actions.createTransaction({ ...crossCurrencyTransfer });
+    });
+
+    expect(cachedRates()).toEqual([
+      ['EUR', 5],
+      ['JPY', 500 / 17000],
+    ]);
+  });
+
+  it('saves both currencies again when a stored transfer is corrected', async () => {
+    await renderProvider();
+    mockDb.updateTransaction.mockResolvedValue({
+      ...crossCurrencyTransfer,
+      counterpartAmount: 16000,
+    });
+
+    await act(async () => {
+      await ctx.actions.updateTransaction({ ...crossCurrencyTransfer });
+    });
+
+    expect(mockDb.upsertCurrencyFxRate).toHaveBeenCalledTimes(2);
+    expect(cachedRates()).toEqual([
+      ['EUR', 5],
+      ['JPY', 500 / 16000],
+    ]);
+  });
+
+  it('keeps the source leg of a transfer whose amounts imply parity', async () => {
+    await renderProvider();
+    mockDb.createTransaction.mockResolvedValue({
+      ...crossCurrencyTransfer,
+      counterpartAmount: 100,
+    });
+
+    await act(async () => {
+      await ctx.actions.createTransaction({ ...crossCurrencyTransfer });
+    });
+
+    expect(mockDb.upsertCurrencyFxRate).toHaveBeenCalledTimes(1);
+    expect(mockDb.upsertCurrencyFxRate).toHaveBeenCalledWith(
+      {},
+      'MYR',
+      'EUR',
+      5,
+    );
+    expect(cachedRates()).toEqual([['EUR', 5]]);
+  });
+
+  it('keeps the source leg of a same-currency transfer that lost a fee', async () => {
+    await renderProvider();
+    mockDb.createTransaction.mockResolvedValue({
+      ...crossCurrencyTransfer,
+      counterpartCurrencyCode: 'EUR',
+      counterpartAmount: 98,
+    });
+
+    await act(async () => {
+      await ctx.actions.createTransaction({ ...crossCurrencyTransfer });
+    });
+
+    expect(mockDb.upsertCurrencyFxRate).toHaveBeenCalledTimes(1);
+    expect(cachedRates()).toEqual([['EUR', 5]]);
+  });
+
+  it('saves nothing for a transaction already in the base currency', async () => {
+    await renderProvider();
+    mockDb.createTransaction.mockResolvedValue({
+      ...transaction,
+      currencyCode: 'MYR',
+      baseCurrencyCode: 'MYR',
+      fxRateToBase: 1,
+    });
+
+    await act(async () => {
+      await ctx.actions.createTransaction({ ...transaction });
+    });
+
+    expect(mockDb.upsertCurrencyFxRate).not.toHaveBeenCalled();
+    expect(ctx.state.fxRateCache).toEqual([]);
   });
 });

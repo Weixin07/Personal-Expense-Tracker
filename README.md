@@ -51,9 +51,9 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 - **Category Organization**: Flexible categorization with 23 default categories (customizable), each usable for expenses, income, or both
 - **Date Filtering**: Quick filters (Last 7/30 days, This month, All time) plus custom date ranges
 - **Income and Expenses**: Record money in as well as out. Home summarises the filtered period as Spent, Received and Net, signed and grouped per base currency, with a transaction count for each direction
-- **Suggested Fills**: Tapping the description or payee field offers values from your own history, ranked by how much you use them in the last 12 months rather than alphabetically, and typing narrows the list. The category picker is ordered the same way
+- **Suggested Fills**: Tapping the description or payee field offers values from your own history for the type of transaction you are recording — an expense is never offered a payee you only ever used on income or a transfer. Values are ranked by how much you use them recently rather than alphabetically, and typing narrows the list. The recent window is the last 12 months, widened to 24 for transfers because they are rare enough that a shorter window leaves nothing to rank. The category and fund pickers are ordered the same way
 - **Funds (Budget Pots)**: Set money aside in named pots — a travel budget, household savings — each with its own currency and opening balance. Every transaction belongs to one, and Home shows what is left in each over your whole history rather than the filtered period
-- **Transfers Between Funds**: Move money between pots without it counting as spending or income. A cross-currency transfer records both what left and what arrived, so the rate it used is preserved rather than recomputed
+- **Transfers Between Funds**: Move money between pots without it counting as spending or income. A cross-currency transfer records both what left and what arrived, so the rate it used is preserved rather than recomputed. Each pot reports what it holds in the currency the money was recorded in, so the destination of a cross-currency transfer shows the amount that arrived rather than the amount that left. The rate a cross-currency transfer used is remembered, so the next transfer between the same two currencies arrives with the amount received already filled in — a rate whose two amounts imply parity is queried before saving and is not remembered, so a figure entered twice by mistake cannot become the default. A transfer may also carry a description and payee of its own, shown on the Home row beside the two fund names
 - **Rich Metadata**: Add notes, select categories, and track precise amounts with proper rounding
 
 ### 📊 Data & Analytics
@@ -144,10 +144,22 @@ CREATE TABLE transactions (
   fund_id INTEGER NOT NULL,  -- the pot this belongs to; for a transfer, the source
   counterpart_fund_id INTEGER NULL,  -- destination of a transfer, else NULL
   counterpart_amount REAL NULL,  -- what arrived, in counterpart_currency_code
-  counterpart_currency_code TEXT NULL,
+  counterpart_currency_code TEXT NULL,  -- what counterpart_amount is denominated in; required on a transfer
   notes TEXT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
+  CHECK (  -- the three counterpart columns are present together, and only on a transfer
+    (type = 'transfer'
+      AND counterpart_fund_id IS NOT NULL
+      AND counterpart_amount IS NOT NULL
+      AND counterpart_currency_code IS NOT NULL
+      AND counterpart_fund_id <> fund_id)
+    OR
+    (type <> 'transfer'
+      AND counterpart_fund_id IS NULL
+      AND counterpart_amount IS NULL
+      AND counterpart_currency_code IS NULL)
+  ),
   FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
   FOREIGN KEY (fund_id) REFERENCES funds(id) ON DELETE RESTRICT,
   FOREIGN KEY (counterpart_fund_id) REFERENCES funds(id) ON DELETE RESTRICT
@@ -155,10 +167,17 @@ CREATE TABLE transactions (
 ```
 
 A `transfer` moves money between two funds and is neither spending nor income:
-it is excluded from every summary figure. It conserves value, so the single
-`base_amount` leaves the source fund and the same figure arrives at the
-destination — `counterpart_amount` records what the user observed arriving and
-is never used for balance arithmetic.
+it is excluded from every summary figure. `amount_native` leaves the source fund
+and `counterpart_amount` — what the user observed arriving — reaches the
+destination, each denominated in the currency it was recorded in. The two are
+never added together, so a transfer across a currency boundary claims no
+conserved value between them.
+
+The rate a cross-currency transfer used is implied by `counterpart_amount`
+against `amount_native` rather than stored. Where the two currencies differ that
+figure is entered or converted from a saved rate, never copied from the source:
+copying it would assert a rate of 1 between two currencies that are not worth
+the same.
 
 Each transaction records the base currency its `fx_rate_to_base`/`base_amount`
 were captured against. Changing the `base_currency` setting applies to **new
@@ -202,9 +221,12 @@ A fund is a pot money is set aside in — a travel budget, household savings. Ev
 transaction belongs to exactly one; a "General" fund is seeded and every existing
 transaction is assigned to it on upgrade. A `NULL` `currency_code` means the fund
 follows the configured base currency. Balances span the whole history regardless
-of the date filter, and are reported per currency, since amounts captured against
-different base currencies cannot be summed. Deleting a fund still referenced by
-any transaction is refused by the database.
+of the date filter, and are reported per currency — the currency each amount was
+recorded in, since amounts in different currencies cannot be summed. A fund whose
+activity was all recorded in one currency therefore reports a single figure. This
+is a narrower scope than the Spent/Received/Net summary, which converts to the
+base currency because a total across funds is only meaningful in one. Deleting a
+fund still referenced by any transaction is refused by the database.
 
 **`app_settings`** (Key-value configuration)
 
@@ -250,7 +272,11 @@ CREATE TABLE currency_fx_rates (
 ```
 
 Caches the most recently entered rate for each `(base, currency)` pair so the
-Add Expense form can prefill it instead of requiring re-entry.
+Add Transaction form can prefill it instead of requiring re-entry. A
+cross-currency transfer contributes two: the currency it left in, and the
+currency it arrived in, the latter implied by the amount received against the
+base amount. A transaction already in the base currency contributes none, since
+a currency is always worth one of itself.
 
 The `counterpart_fund_id` index is partial (`WHERE counterpart_fund_id IS NOT
 NULL`): the column is NULL on every non-transfer row, so a full index would
@@ -710,7 +736,7 @@ PET/
 │   │   └── AppContext.tsx      # Global app state (expenses, categories, settings)
 │   ├── database/               # SQLite layer
 │   │   ├── database.ts         # Database initialization, connection
-│   │   ├── migrations.ts       # Schema migrations (v1-v10)
+│   │   ├── migrations.ts       # Schema migrations (v1-v11)
 │   │   ├── snapshot.ts         # Pre-migration database copy (WAL-checkpointed)
 │   │   ├── seeding.ts          # Default data seeding
 │   │   ├── repositories/       # Data access layer
@@ -778,6 +804,7 @@ PET/
 ├── package.json                # npm dependencies and scripts
 ├── pnpm-lock.yaml              # pnpm lockfile
 ├── tsconfig.json               # TypeScript configuration
+├── CHANGELOG.md                # User-facing changes per version
 ├── DEPLOY.md                   # Deployment & release build guide
 └── README.md                   # This file
 ```
@@ -1053,7 +1080,19 @@ pnpm typecheck
 
 ---
 
-#### 7. Git Hook Failures
+#### 7. Unexpected Text on an Older Transfer
+
+**Problem:** A transfer shows a description or payee you did not mean it to have, and offers that text as a suggestion on later transfers.
+
+**Cause:** Switching a part-filled form to Transfer clears the category but keeps whatever was typed into the description and payee, and saving stores it.
+
+**Solution:**
+
+- Open the transfer from Home and clear the field, then save. The text stops being offered as a suggestion once no transfer carries it.
+
+---
+
+#### 8. Git Hook Failures
 
 **Error:** `pnpm: command not found` in pre-commit hook
 

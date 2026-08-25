@@ -323,7 +323,7 @@ build's archived `mapping.txt` (see [Step 5](#retaining-the-r8-mapping-file-deob
 `schema_migrations`. There is no `down` step: **a release that ships a migration cannot
 be rolled back on a device that has already run it.**
 
-Two migrations in the current schema make that consequential:
+Several migrations in the current schema make that consequential:
 
 | Version | Change                                                                                   | What an older APK does after it has run                                                                                                                                                                                                      |
 | ------- | ---------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -332,6 +332,8 @@ Two migrations in the current schema make that consequential:
 | **9**   | nullable `time` column; `idx_transactions_date` replaced by `idx_transactions_date_time` | Nothing harmful. Inserts omit `time`, the column is nullable with no default, and the row simply carries no time. The index swap is invisible to an older build, whose date-only queries are still served by the composite's leading column. |
 
 | **10** | `funds` table; every transaction gains a required `fund_id`; `type` widened to admit `transfer` | Reads still work — the v9 columns are all present. **Writes fail**: an older insert omits `fund_id`, which is `NOT NULL` with no default. Breaks loudly on the first save, and the fix is to reinstall the newer build or clear app data. |
+
+| **11** | `transactions` rebuilt so a transfer must carry `counterpart_currency_code`; existing transfers are backfilled | Reads still work — the column set is unchanged from v10. **Transfer writes fail**: an older build omits the currency on a transfer, which the CHECK now refuses. Expenses and income are unaffected, so this breaks narrowly and loudly. |
 
 Practical rules:
 
@@ -355,8 +357,8 @@ the committed version is recorded — so the next launch retries the outstanding
 
 ## Pre-release manual checks
 
-Two properties of the funds feature cannot be established by the test suite and
-must be confirmed on a device before a release that carries schema v10.
+Three properties of the funds feature cannot be established by the test suite and
+must be confirmed on a device before a release that carries schema v10 or v11.
 
 **1. The pre-migration snapshot is written where it is expected.**
 `src/database/snapshot.ts` reconstructs the database path as a sibling of
@@ -374,6 +376,18 @@ older engine — `ALTER TABLE ... RENAME TO` in particular changed semantics in
 3.25. Install a v9 build, record several transactions including one in a
 non-base currency, upgrade to v10, and confirm every transaction is still listed
 and assigned to the **General** fund.
+
+**3. Migration v11 rebuilds `transactions` a second time, and its backfill must
+not yield NULL.** The migration adds a CHECK requiring every transfer to carry
+`counterpart_currency_code`, and fills the column for rows recorded before it was
+required. The value is taken from the destination fund, then the `base_currency`
+setting, then the transaction's own `currency_code` — the last of which is `NOT
+NULL`, so the expression cannot fail. Because `runMigrations` runs inside
+`openDatabase`, a migration that aborts leaves the app unable to launch at all,
+and **the pre-migration snapshot has no automatic restore path**: recovering from
+one means pulling the file off the device by hand. Install a v10 build, record a
+transfer between two funds of different currencies, upgrade to v11, and confirm
+the app launches and the transfer still reads back with both amounts.
 
 ## Distribution options
 

@@ -176,6 +176,15 @@ describe('transactionDataReducer', () => {
       expect(next.filters).not.toHaveProperty('endDate');
     });
 
+    it('filters/set deletes needsReview when explicitly undefined', () => {
+      const next = transactionDataReducer(
+        { ...initialState, filters: { needsReview: true, fundId: 2 } },
+        { type: 'filters/set', payload: { needsReview: undefined } },
+      );
+      expect(next.filters).not.toHaveProperty('needsReview');
+      expect(next.filters.fundId).toBe(2);
+    });
+
     it('filters/clear resets to empty', () => {
       const next = transactionDataReducer(
         { ...initialState, filters: { categoryId: 1 } },

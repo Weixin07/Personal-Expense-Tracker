@@ -66,6 +66,12 @@ module.exports = {
       lines: 93,
       statements: 93,
     },
+    './src/utils/fxRates.ts': {
+      branches: 95,
+      functions: 95,
+      lines: 95,
+      statements: 95,
+    },
     './src/utils/funds.ts': {
       branches: 95,
       functions: 95,

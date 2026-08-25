@@ -15,12 +15,23 @@ export type SuggestionField = 'description' | 'payee';
  */
 export const SUGGESTION_WINDOW_MONTHS = 12;
 
+/**
+ * The recency window to read a transfer's history with, passed as
+ * `windowMonths` by a caller scoping to `type: 'transfer'`. Transfers are far
+ * rarer than expenses, so the ordinary window leaves too thin a history in the
+ * recent tier for ranking to discriminate between values.
+ */
+export const TRANSFER_SUGGESTION_WINDOW_MONTHS = 24;
+
 export const MAX_SUGGESTIONS = 6;
 
 export type FrequencyOptions = {
   now?: Date;
   windowMonths?: number;
-  /** Limits counting to one direction. Omit to count every transaction. */
+  /**
+   * Limits counting to one transaction type. Omit to count every transaction
+   * of every type, transfers included.
+   */
   type?: TransactionType;
   excludeTransactionId?: number;
 };
@@ -34,6 +45,14 @@ export type CategoryUsageOptions = Omit<
   'excludeTransactionId' | 'type'
 > & {
   type?: TransactionDirection;
+};
+
+/**
+ * Fund usage, unlike category usage, is countable for a transfer, so this
+ * widens the scope back to the full transaction type.
+ */
+export type FundUsageOptions = Omit<CategoryUsageOptions, 'type'> & {
+  type?: TransactionType;
 };
 
 /**
@@ -136,11 +155,6 @@ const isEligible = (
   excludeTransactionId: number | undefined,
 ): boolean => {
   if (excludeTransactionId != null && transaction.id === excludeTransactionId) {
-    return false;
-  }
-  // A transfer records no payee or description, so it has no spelling to offer
-  // and would only contribute empty groups.
-  if (transaction.type === 'transfer') {
     return false;
   }
   return !type || transaction.type === type;
@@ -258,8 +272,10 @@ export const rankCategoryIdsByFrequency = (
   const counts = new Map<number, CategoryUsage>();
 
   transactions.forEach(transaction => {
-    // A transfer carries no category by design; skipping it here keeps that
-    // true of the counts even if one ever reached the table with a category.
+    // A transfer carries no category by design, enforced when a form is
+    // validated. This skip must survive: unlike the type scope in
+    // `buildSuggestionIndex`, it is not a scoping rule but the invariant, and
+    // dropping it would count categories that cannot exist.
     if (transaction.categoryId == null || transaction.type === 'transfer') {
       return;
     }
@@ -284,13 +300,19 @@ export const rankCategoryIdsByFrequency = (
 
 /**
  * Usage per fund id, counting both sides of a transfer: money moved into a fund
- * is use of that fund. Funds never used are absent rather than zeroed.
+ * is use of that fund. `type` limits which rows are considered, and both-sides
+ * counting applies within that scope. Funds never used are absent rather than
+ * zeroed.
  */
 export const rankFundIdsByFrequency = (
   transactions: readonly TransactionRecord[],
-  options: Omit<CategoryUsageOptions, 'type'> = {},
+  options: FundUsageOptions = {},
 ): ReadonlyMap<number, CategoryUsage> => {
-  const { now = new Date(), windowMonths = SUGGESTION_WINDOW_MONTHS } = options;
+  const {
+    now = new Date(),
+    windowMonths = SUGGESTION_WINDOW_MONTHS,
+    type,
+  } = options;
   const cutoff = windowStartDate(now, windowMonths);
   const counts = new Map<number, CategoryUsage>();
 
@@ -305,6 +327,9 @@ export const rankFundIdsByFrequency = (
   };
 
   transactions.forEach(transaction => {
+    if (type && transaction.type !== type) {
+      return;
+    }
     const inWindow = transaction.date >= cutoff;
     count(transaction.fundId, inWindow);
     if (transaction.counterpartFundId != null) {
