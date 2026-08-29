@@ -52,8 +52,8 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 - **Date Filtering**: Quick filters (Last 7/30 days, This month, All time) plus custom date ranges
 - **Income and Expenses**: Record money in as well as out. Home summarises the filtered period as Spent, Received and Net, signed and grouped per base currency, with a transaction count for each direction
 - **Suggested Fills**: Tapping the description or payee field offers values from your own history for the type of transaction you are recording — an expense is never offered a payee you only ever used on income or a transfer. Values are ranked by how much you use them recently rather than alphabetically, and typing narrows the list. The recent window is the last 12 months, widened to 24 for transfers because they are rare enough that a shorter window leaves nothing to rank. The category and fund pickers are ordered the same way
-- **Funds (Budget Pots)**: Set money aside in named pots — a travel budget, household savings — each with its own currency and opening balance. Every transaction belongs to one, and Home shows what is left in each over your whole history rather than the filtered period
-- **Transfers Between Funds**: Move money between pots without it counting as spending or income. A cross-currency transfer records both what left and what arrived, so the rate it used is preserved rather than recomputed. Each pot reports what it holds in the currency the money was recorded in, so the destination of a cross-currency transfer shows the amount that arrived rather than the amount that left. The rate a cross-currency transfer used is remembered, so the next transfer between the same two currencies arrives with the amount received already filled in — a rate whose two amounts imply parity is queried before saving and is not remembered, so a figure entered twice by mistake cannot become the default. A transfer may also carry a description and payee of its own, shown on the Home row beside the two fund names
+- **Funds (Budget Pots)**: Set money aside in named pots — a travel budget, household savings — each denominated in one currency, with an opening balance. Every transaction belongs to one, and Home shows what is left in each as a single figure in that currency, over your whole history rather than the filtered period. A pot holding activity no saved rate can convert lists its figures separately, marked, rather than stating a total it cannot stand behind
+- **Transfers Between Funds**: Move money between pots without it counting as spending or income. A cross-currency transfer records both what left and what arrived, so the rate it used is preserved rather than recomputed. A transfer conserves value: the destination is credited what the source gave up, so the amount recorded as arriving describes the transfer without feeding either balance — a transfer that lost a fee on the way reports no loss. The rate a cross-currency transfer used is remembered, so the next transfer between the same two currencies arrives with the amount received already filled in — a rate whose two amounts imply parity is queried before saving and is not remembered, so a figure entered twice by mistake cannot become the default. A transfer may also carry a description and payee of its own, shown on the Home row beside the two fund names
 - **Rich Metadata**: Add notes, select categories, and track precise amounts with proper rounding
 
 ### 📊 Data & Analytics
@@ -167,11 +167,11 @@ CREATE TABLE transactions (
 ```
 
 A `transfer` moves money between two funds and is neither spending nor income:
-it is excluded from every summary figure. `amount_native` leaves the source fund
-and `counterpart_amount` — what the user observed arriving — reaches the
-destination, each denominated in the currency it was recorded in. The two are
-never added together, so a transfer across a currency boundary claims no
-conserved value between them.
+it is excluded from every summary figure. A transfer conserves value: the single
+`base_amount` leaves the source fund and that same figure reaches the
+destination. `counterpart_amount` — what the user observed arriving — records
+what the transfer looked like without feeding either balance, so a transfer that
+lost a fee on the way reports no loss.
 
 The rate a cross-currency transfer used is implied by `counterpart_amount`
 against `amount_native` rather than stored. Where the two currencies differ that
@@ -221,12 +221,16 @@ A fund is a pot money is set aside in — a travel budget, household savings. Ev
 transaction belongs to exactly one; a "General" fund is seeded and every existing
 transaction is assigned to it on upgrade. A `NULL` `currency_code` means the fund
 follows the configured base currency. Balances span the whole history regardless
-of the date filter, and are reported per currency — the currency each amount was
-recorded in, since amounts in different currencies cannot be summed. A fund whose
-activity was all recorded in one currency therefore reports a single figure. This
-is a narrower scope than the Spent/Received/Net summary, which converts to the
-base currency because a total across funds is only meaningful in one. Deleting a
-fund still referenced by any transaction is refused by the database.
+of the date filter, and are reported as one figure in the fund's own currency:
+each transaction contributes the `base_amount` recorded against it, and the
+subtotals are converted at the latest cached rate. A fund whose own currency is
+the base currency needs no rate at all. Where one subtotal has no rate to convert
+it — a currency never yet exchanged, or rows saved before a base currency was
+chosen — the fund reports every subtotal unconverted rather than some of them,
+so a figure is never half-translated. A fund is denominated in exactly one
+currency, whereas the Spent/Received/Net summary keeps its per-base-currency
+groups: a total spanning funds has no single currency to claim. Deleting a fund
+still referenced by any transaction is refused by the database.
 
 **`app_settings`** (Key-value configuration)
 

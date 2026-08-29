@@ -11,6 +11,7 @@ import type { CategoryRecord } from '../../database';
 import HomeScreen from '../HomeScreen';
 import { useTransactionData } from '../../context/AppContext';
 import type { TransactionRecord } from '../../database';
+import type { FundBalance } from '../../utils/fundBalances';
 
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
@@ -438,9 +439,17 @@ describe('fund balances', () => {
     makeFund({ id: 2, name: 'Travel' }),
   ];
 
-  const fundBalances = [
-    { fundId: 1, byCurrency: [{ currencyCode: 'USD', balance: 250 }] },
-    { fundId: 2, byCurrency: [{ currencyCode: 'USD', balance: -40 }] },
+  const fundBalances: FundBalance[] = [
+    {
+      fundId: 1,
+      basis: 'converted',
+      byCurrency: [{ currencyCode: 'USD', balance: 250 }],
+    },
+    {
+      fundId: 2,
+      basis: 'converted',
+      byCurrency: [{ currencyCode: 'USD', balance: -40 }],
+    },
   ];
 
   const render = (overrides: Parameters<typeof makeContextValue>[0] = {}) => {
@@ -468,12 +477,20 @@ describe('fund balances', () => {
     expect(screen.getByText('Each fund in its own currency')).toBeOnTheScreen();
   });
 
-  it('lists every currency a fund holds, in the order the selector gave them', () => {
+  it('shows a converted fund as one figure, unmarked', () => {
+    render();
+
+    expect(screen.getByText('+250.00 USD')).toBeOnTheScreen();
+    expect(screen.queryByText(/unconverted/)).toBeNull();
+  });
+
+  it('marks a fund whose figures could not be converted', () => {
     render({
       selectors: {
         fundBalances: [
           {
             fundId: 1,
+            basis: 'unconverted',
             byCurrency: [
               { currencyCode: 'EUR', balance: 0 },
               { currencyCode: 'USD', balance: -32.4 },
@@ -483,9 +500,33 @@ describe('fund balances', () => {
       },
     });
 
-    expect(screen.getByText('0.00 EUR · -32.40 USD')).toBeOnTheScreen();
     expect(
-      screen.getByLabelText('General balance 0.00 EUR, -32.40 USD'),
+      screen.getByText('0.00 EUR · -32.40 USD  ⚠ unconverted'),
+    ).toBeOnTheScreen();
+  });
+
+  it('speaks the marker as a word rather than a glyph', () => {
+    // A screen reader announces ⚠ inconsistently, so the spoken label spells
+    // the condition out.
+    render({
+      selectors: {
+        fundBalances: [
+          {
+            fundId: 1,
+            basis: 'unconverted',
+            byCurrency: [
+              { currencyCode: 'EUR', balance: 0 },
+              { currencyCode: 'USD', balance: -32.4 },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(
+      screen.getByLabelText(
+        'General balance 0.00 EUR, -32.40 USD, unconverted',
+      ),
     ).toBeOnTheScreen();
   });
 
@@ -493,7 +534,11 @@ describe('fund balances', () => {
     render({
       selectors: {
         fundBalances: [
-          { fundId: 1, byCurrency: [{ currencyCode: 'EUR', balance: 0 }] },
+          {
+            fundId: 1,
+            basis: 'converted',
+            byCurrency: [{ currencyCode: 'EUR', balance: 0 }],
+          },
         ],
       },
     });
@@ -670,6 +715,14 @@ describe('fund balances', () => {
     render({ selectors: { filteredTransactions: [crossCurrencyTransfer] } });
 
     expect(screen.getByText(/1,000\.00 MYR → 195\.00 EUR/)).toBeOnTheScreen();
+  });
+
+  it('carries no base amount beside a transfer row', () => {
+    // The base amount is what left the source, which describes neither leg of
+    // the row; both are already named in the subline.
+    render({ selectors: { filteredTransactions: [crossCurrencyTransfer] } });
+
+    expect(screen.queryByText('3.50 USD')).toBeNull();
   });
 
   it('marks a transfer whose amounts imply a rate of one', () => {

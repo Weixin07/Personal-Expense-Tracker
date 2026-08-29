@@ -31,6 +31,24 @@ migration table, not here.
 
 ### Changed
 
+- **Each pot now shows a single figure.** Before, a pot that had received money
+  in another currency showed a separate line per currency. It now reports one
+  balance, in its own currency.
+
+- **A transfer moves exactly what it took.** The destination pot is credited the
+  value that left the source, converted at the rate you confirmed. So if fees
+  meant slightly less arrived than you sent, that difference no longer shows up
+  anywhere — the pot reports the full amount as having arrived. This reverses
+  how transfers behaved earlier in this same unreleased window.
+
+- **A pot held in a currency other than your base currency is shown using your
+  most recent rate for that pair.** Its figure can therefore move when you enter
+  a newer rate, even though nothing about the pot itself changed.
+
+- **A pot the app cannot express as one figure says so.** If you have no saved
+  rate covering one of its currencies, it lists its figures separately and marks
+  them `⚠ unconverted` until a rate is available.
+
 - Fields that used to be blank now fill themselves in. If a prefilled figure is
   wrong, type over it — what you type is what gets remembered.
 

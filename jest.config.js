@@ -78,6 +78,12 @@ module.exports = {
       lines: 95,
       statements: 95,
     },
+    './src/utils/fundBalances.ts': {
+      branches: 95,
+      functions: 95,
+      lines: 95,
+      statements: 95,
+    },
   },
   bail: false,
 };

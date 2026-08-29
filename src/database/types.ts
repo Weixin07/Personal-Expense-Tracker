@@ -52,9 +52,8 @@ export type TransactionRecord = {
    * entered or a conversion of `baseAmount`, never a copy of `amountNative`:
    * copying it would assert a rate of 1 between two different currencies.
    *
-   * This is the figure that reaches the destination fund's balance, denominated
-   * in the currency it arrived in. The two legs are never added together, so a
-   * transfer across a currency boundary claims no conserved value between them.
+   * Records what was observed rather than what a balance is built from: a
+   * fund's balance credits the destination the source's `baseAmount` instead.
    */
   counterpartAmount: number | null;
   /**

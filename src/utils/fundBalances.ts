@@ -1,6 +1,19 @@
-import type { FundRecord, TransactionRecord } from '../database';
+import type {
+  CurrencyFxRateRecord,
+  FundRecord,
+  TransactionRecord,
+} from '../database';
+import { formatSignedMoney } from './formatting';
 import { bankersRound } from './math';
-import { fundCurrency, resolveTransferCurrency } from './funds';
+import { fundCurrency } from './funds';
+import { convertToCurrency } from './fxRates';
+
+/**
+ * Whether a fund's standing was expressed in its own currency, or left as the
+ * base-currency subtotals it was built from because at least one of them could
+ * not be converted.
+ */
+export type FundBalanceBasis = 'converted' | 'unconverted';
 
 export type FundBalanceFigure = {
   /** Currency this figure is denominated in, and the only scope it sums over. */
@@ -12,15 +25,16 @@ export type FundBalanceFigure = {
  * A fund's standing, spanning its whole history rather than the filtered view:
  * a balance that moved with the date filter would describe a period, not a pot.
  *
- * Figures are grouped by the currency each amount was recorded in, since
- * amounts in different currencies cannot be added. Every fund carries at least
- * one figure — its opening balance, under the fund's own currency — and a
- * figure that nets to zero is reported rather than dropped, so a pot whose
- * denomination and activity disagree says so. The fund's own currency leads and
- * the rest follow in ascending order.
+ * `converted` carries exactly one figure, denominated in the fund's own
+ * currency. `unconverted` carries one per base currency the fund's history was
+ * recorded against, unsummed. Either way a figure in the fund's own currency is
+ * always present — reported even when it nets to zero, so a pot whose
+ * denomination and activity disagree says so — and leads, the rest following in
+ * ascending order.
  */
 export type FundBalance = {
   fundId: number;
+  basis: FundBalanceBasis;
   byCurrency: FundBalanceFigure[];
 };
 
@@ -38,80 +52,106 @@ const compareFigures =
 
 /**
  * Running balance per fund: opening balance, plus income, less spending, plus
- * or minus what transfers moved, each in the currency it was recorded in.
+ * or minus what transfers moved, each measured by its recorded `baseAmount`.
  *
- * A transfer's destination receives `counterpartAmount` — the figure that
- * arrived — rather than what left, so the two legs are never added together and
- * no exchange rate is applied here.
+ * A transfer's destination receives the same `baseAmount` its source gives up,
+ * so `counterpartAmount` — what the user observed arriving — never reaches a
+ * balance, and a cross-currency transfer that lost a fee reports no loss.
  *
- * The shape and ordering of the result are described on `FundBalance`.
+ * Subtotals convert into the fund's own currency at the currently cached rate,
+ * so a fund denominated differently from the base currency restates itself
+ * when a newer rate is saved. One subtotal the cache cannot cover leaves every
+ * one of them unconverted rather than part of them.
  */
-export const calculateFundBalances = (
-  funds: readonly FundRecord[],
-  transactions: readonly TransactionRecord[],
-  baseCurrency: string | null,
-): FundBalance[] => {
-  const fundsById = new Map<number, FundRecord>();
-  funds.forEach(fund => {
-    fundsById.set(fund.id, fund);
-  });
-
+export const calculateFundBalances = ({
+  funds,
+  transactions,
+  baseCurrency,
+  cachedRates,
+}: {
+  funds: readonly FundRecord[];
+  transactions: readonly TransactionRecord[];
+  baseCurrency: string | null;
+  cachedRates: readonly CurrencyFxRateRecord[];
+}): FundBalance[] => {
   const perFund = new Map<number, Map<string | null, number>>();
 
   const contribute = (
     fundId: number,
-    currencyCode: string | null,
+    baseCurrencyCode: string | null,
     amount: number,
   ): void => {
-    const byCurrency = perFund.get(fundId) ?? new Map<string | null, number>();
-    byCurrency.set(currencyCode, (byCurrency.get(currencyCode) ?? 0) + amount);
-    perFund.set(fundId, byCurrency);
+    const byBase = perFund.get(fundId) ?? new Map<string | null, number>();
+    byBase.set(baseCurrencyCode, (byBase.get(baseCurrencyCode) ?? 0) + amount);
+    perFund.set(fundId, byBase);
   };
 
-  funds.forEach(fund => {
-    contribute(fund.id, fundCurrency(fund, baseCurrency), fund.openingBalance);
-  });
-
   transactions.forEach(transaction => {
+    const baseKey = transaction.baseCurrencyCode ?? null;
+
     if (transaction.type === 'transfer') {
-      contribute(
-        transaction.fundId,
-        transaction.currencyCode,
-        -transaction.amountNative,
-      );
-      // Resolved rather than read from the destination fund, under the rule on
-      // `TransactionRecord.counterpartCurrencyCode`.
-      if (
-        transaction.counterpartFundId != null &&
-        transaction.counterpartAmount != null
-      ) {
+      contribute(transaction.fundId, baseKey, -transaction.baseAmount);
+      if (transaction.counterpartFundId != null) {
         contribute(
           transaction.counterpartFundId,
-          resolveTransferCurrency(
-            transaction.counterpartCurrencyCode,
-            fundsById.get(transaction.counterpartFundId) ?? null,
-            baseCurrency,
-            transaction.currencyCode,
-          ),
-          transaction.counterpartAmount,
+          baseKey,
+          transaction.baseAmount,
         );
       }
       return;
     }
+
     contribute(
       transaction.fundId,
-      transaction.currencyCode,
+      baseKey,
       transaction.type === 'income'
-        ? transaction.amountNative
-        : -transaction.amountNative,
+        ? transaction.baseAmount
+        : -transaction.baseAmount,
     );
   });
 
   return funds.map(fund => {
     const ownCurrency = fundCurrency(fund, baseCurrency);
+    const subtotals = Array.from(perFund.get(fund.id)?.entries() ?? []);
+
+    // Null once any subtotal cannot be converted, so a fund is reported whole
+    // in its own currency or not at all.
+    const total = subtotals.reduce<number | null>(
+      (running, [baseCurrencyCode, subtotal]) => {
+        if (running === null || baseCurrencyCode === null) {
+          return null;
+        }
+        const figure = convertToCurrency(
+          subtotal,
+          ownCurrency,
+          baseCurrencyCode,
+          cachedRates,
+        );
+        return figure === null ? null : running + figure;
+      },
+      fund.openingBalance,
+    );
+
+    if (total !== null) {
+      return {
+        fundId: fund.id,
+        basis: 'converted' as const,
+        byCurrency: [
+          { currencyCode: ownCurrency, balance: bankersRound(total, 2) },
+        ],
+      };
+    }
+
+    const byCurrency = new Map(subtotals);
+    byCurrency.set(
+      ownCurrency,
+      (byCurrency.get(ownCurrency) ?? 0) + fund.openingBalance,
+    );
+
     return {
       fundId: fund.id,
-      byCurrency: Array.from(perFund.get(fund.id)?.entries() ?? [])
+      basis: 'unconverted' as const,
+      byCurrency: Array.from(byCurrency.entries())
         .map(([currencyCode, balance]) => ({
           currencyCode,
           balance: bankersRound(balance, 2),
@@ -119,4 +159,30 @@ export const calculateFundBalances = (
         .sort(compareFigures(ownCurrency)),
     };
   });
+};
+
+/** Whether the formatted line will be read by eye or spoken aloud. */
+export type FundBalanceMarker = 'glyph' | 'text';
+
+const MARKERS: Record<FundBalanceMarker, { separator: string; note: string }> =
+  {
+    glyph: { separator: ' · ', note: '  ⚠ unconverted' },
+    text: { separator: ', ', note: ', unconverted' },
+  };
+
+/**
+ * A fund's standing as one line. `text` is for a label a screen reader speaks,
+ * where the glyph would be announced inconsistently or dropped; `glyph` is for
+ * anything read by eye.
+ */
+export const formatFundBalance = (
+  balance: FundBalance,
+  { marker = 'glyph' }: { marker?: FundBalanceMarker } = {},
+): string => {
+  const { separator, note } = MARKERS[marker];
+  const figures = balance.byCurrency
+    .map(figure => formatSignedMoney(figure.balance, figure.currencyCode))
+    .join(separator);
+
+  return balance.basis === 'converted' ? figures : `${figures}${note}`;
 };

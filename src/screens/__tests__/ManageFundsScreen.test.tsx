@@ -195,9 +195,9 @@ describe('ManageFundsScreen', () => {
 
     await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
     expect((Alert.alert as jest.Mock).mock.calls[0][1]).toContain(
-      'Changing the currency only moves where the opening balance is reported.' +
-        ' Everything already recorded keeps the currency it was entered in, so' +
-        ' this fund will report a separate figure for each.',
+      'Changing the currency restates this fund’s whole balance in the new' +
+        ' one, at the latest exchange rate you have saved. Where no saved rate' +
+        ' covers it, the fund reports its figures unconverted instead.',
     );
     expect(value.actions.updateFund).not.toHaveBeenCalled();
   });
@@ -312,23 +312,26 @@ describe('ManageFundsScreen', () => {
     expect(screen.queryByDisplayValue('Scratch')).toBeNull();
   });
 
-  it('shows each fund its running balance', () => {
+  it('labels a fund that follows the base currency, which its figure cannot name', () => {
     renderScreen({
       state: { funds: [makeFund({ id: 1, name: 'Travel' })] },
       selectors: {
         fundBalances: [
           {
             fundId: 1,
+            basis: 'converted',
             byCurrency: [{ currencyCode: 'USD', balance: 250.5 }],
           },
         ],
       },
     });
 
-    expect(screen.getByText(/250\.50/)).toBeOnTheScreen();
+    expect(
+      screen.getByText('Follows base currency · +250.50 USD'),
+    ).toBeOnTheScreen();
   });
 
-  it('reports a fund in its own currency rather than the base', () => {
+  it('leaves a fund with its own currency to be named by its figure alone', () => {
     renderScreen({
       state: {
         funds: [makeFund({ id: 1, name: 'Travel', currencyCode: 'EUR' })],
@@ -337,16 +340,17 @@ describe('ManageFundsScreen', () => {
         fundBalances: [
           {
             fundId: 1,
+            basis: 'converted',
             byCurrency: [{ currencyCode: 'EUR', balance: 460 }],
           },
         ],
       },
     });
 
-    expect(screen.getByText('EUR · +460.00 EUR')).toBeOnTheScreen();
+    expect(screen.getByText('+460.00 EUR')).toBeOnTheScreen();
   });
 
-  it('lists each currency a fund holds', () => {
+  it('marks an unconverted fund here too', () => {
     renderScreen({
       state: {
         funds: [makeFund({ id: 1, name: 'Travel', currencyCode: 'EUR' })],
@@ -355,6 +359,7 @@ describe('ManageFundsScreen', () => {
         fundBalances: [
           {
             fundId: 1,
+            basis: 'unconverted',
             byCurrency: [
               { currencyCode: 'EUR', balance: 0 },
               { currencyCode: 'USD', balance: -32.4 },
@@ -364,7 +369,9 @@ describe('ManageFundsScreen', () => {
       },
     });
 
-    expect(screen.getByText('EUR · 0.00 EUR · -32.40 USD')).toBeOnTheScreen();
+    expect(
+      screen.getByText('0.00 EUR · -32.40 USD  ⚠ unconverted'),
+    ).toBeOnTheScreen();
   });
 
   it('saves an unchanged fund without asking', async () => {

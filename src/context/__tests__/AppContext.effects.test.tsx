@@ -949,7 +949,7 @@ describe('transfers and fund balances', () => {
     expect(group.net.total).toBe(-10);
   });
 
-  it('takes what left out of the source fund and puts what arrived into the destination', async () => {
+  it('moves the same base amount out of the source fund and into the destination', async () => {
     mockDb.getAllSettings.mockResolvedValue([
       { key: 'base_currency', value: 'USD' },
     ]);
@@ -965,12 +965,10 @@ describe('transfers and fund balances', () => {
     expect(source?.byCurrency).toEqual([
       { currencyCode: 'USD', balance: -100 },
     ]);
-    // Neither fund holds a currency of its own, so both open in the base
-    // currency; the 117 that arrived was recorded in EUR and joins its own
-    // figure rather than the one the fund opened under.
+    // The destination is credited what the source gave up, so the 117 recorded
+    // as having arrived in EUR never reaches a balance.
     expect(destination?.byCurrency).toEqual([
-      { currencyCode: 'USD', balance: 0 },
-      { currencyCode: 'EUR', balance: 117 },
+      { currencyCode: 'USD', balance: 100 },
     ]);
   });
 
@@ -1028,6 +1026,51 @@ describe('transfers and fund balances', () => {
     expect(
       ctx.selectors.fundBalances.find(item => item.fundId === 2)?.byCurrency,
     ).toEqual([{ currencyCode: 'USD', balance: 20 }]);
+  });
+
+  it('restates a fund in its own currency when a newer rate is saved', async () => {
+    mockDb.getAllSettings.mockResolvedValue([
+      { key: 'base_currency', value: 'USD' },
+    ]);
+    mockDb.listFunds.mockResolvedValue([fund(1, { currencyCode: 'EUR' })]);
+    mockDb.listTransactions.mockResolvedValue([
+      { ...transaction, id: 1, type: 'income', baseAmount: 108 },
+    ]);
+    mockDb.listCurrencyFxRates.mockResolvedValue([
+      {
+        baseCurrencyCode: 'USD',
+        currencyCode: 'EUR',
+        fxRateToBase: 1.08,
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    await renderProvider();
+
+    expect(
+      ctx.selectors.fundBalances.find(item => item.fundId === 1)?.byCurrency,
+    ).toEqual([{ currencyCode: 'EUR', balance: 100 }]);
+
+    // Saving a transaction in EUR re-caches the pair. Its own base amount is
+    // zero, so the only thing that can move the fund's figure is the new rate.
+    const reRated = {
+      ...transaction,
+      id: 99,
+      amountNative: 0,
+      currencyCode: 'EUR',
+      fxRateToBase: 1.2,
+      baseAmount: 0,
+      fundId: 1,
+    };
+    mockDb.createTransaction.mockResolvedValue(reRated);
+
+    await act(async () => {
+      await ctx.actions.createTransaction(reRated);
+    });
+
+    expect(
+      ctx.selectors.fundBalances.find(item => item.fundId === 1)?.byCurrency,
+    ).toEqual([{ currencyCode: 'EUR', balance: 90 }]);
   });
 
   it('counts a fund filter against both sides of a transfer', async () => {

@@ -16,21 +16,27 @@ import CurrencyPickerDialog from '../components/CurrencyPickerDialog';
 import SelectField from '../components/SelectField';
 import { useTransactionData } from '../context/AppContext';
 import type { FundBalance } from '../context/AppContext';
-import { formatSignedMoney } from '../utils/formatting';
+import { formatFundBalance } from '../utils/fundBalances';
 import { isDefaultFund } from '../utils/funds';
 import { validateOpeningBalance } from '../utils/validation';
 import type { FundRecord } from '../database';
 
 const NO_CURRENCY_LABEL = 'Follows base currency';
 
-const describeBalance = (balance: FundBalance | undefined): string => {
-  if (!balance) {
-    return 'Empty';
-  }
-  return balance.byCurrency
-    .map(figure => formatSignedMoney(figure.balance, figure.currencyCode))
-    .join(' · ');
-};
+const describeBalance = (balance: FundBalance | undefined): string =>
+  balance ? formatFundBalance(balance) : 'Empty';
+
+/**
+ * A fund with its own currency has it named by every figure already, so the
+ * label is carried only by a fund that has none.
+ */
+const describeFund = (
+  fund: FundRecord,
+  balance: FundBalance | undefined,
+): string =>
+  fund.currencyCode
+    ? describeBalance(balance)
+    : `${NO_CURRENCY_LABEL} · ${describeBalance(balance)}`;
 
 const ManageFundsScreen: React.FC = () => {
   const {
@@ -177,7 +183,7 @@ const ManageFundsScreen: React.FC = () => {
     }
     if (existing.currencyCode !== currencyCode) {
       confirmations.push(
-        'Changing the currency only moves where the opening balance is reported. Everything already recorded keeps the currency it was entered in, so this fund will report a separate figure for each.',
+        'Changing the currency restates this fund’s whole balance in the new one, at the latest exchange rate you have saved. Where no saved rate covers it, the fund reports its figures unconverted instead.',
       );
     }
 
@@ -241,7 +247,6 @@ const ManageFundsScreen: React.FC = () => {
 
   const renderItem = useCallback(
     ({ item }: { item: FundRecord }) => {
-      const currencyLabel = item.currencyCode ?? NO_CURRENCY_LABEL;
       // The fallback fund is what every unassigned transaction and import lands
       // in, so it is never offered for deletion rather than refused on tap.
       const protectedFromDeletion = isDefaultFund(funds, item.id);
@@ -249,7 +254,7 @@ const ManageFundsScreen: React.FC = () => {
         <List.Item
           title={item.name}
           titleStyle={styles.listTitle}
-          description={`${currencyLabel} · ${describeBalance(balanceByFundId.get(item.id))}`}
+          description={describeFund(item, balanceByFundId.get(item.id))}
           descriptionStyle={styles.listDescription}
           right={() => (
             <View style={styles.actions}>

@@ -33,6 +33,7 @@ import {
   type DateRangePreset,
 } from './homeUtils';
 import { formatDateTimeBritish } from '../utils/date';
+import { formatFundBalance } from '../utils/fundBalances';
 import {
   formatDirectionalMoney,
   formatDisplayMoney,
@@ -333,36 +334,31 @@ const HomeScreen: React.FC = () => {
             navigation.navigate('AddTransaction', { transactionId: item.id })
           }
           accessibilityLabel={`Open ${item.type} ${title}`}
-          right={() => (
-            <View style={styles.amountContainer}>
-              <Text
-                style={[
-                  styles.listAmount,
-                  isIncome ? { color: incomeColor } : null,
-                  isTransfer ? { color: mutedColor } : null,
-                ]}
-              >
-                {isTransfer
-                  ? formatDisplayMoney(item.baseAmount, item.baseCurrencyCode)
-                  : formatDirectionalMoney(
-                      item.baseAmount,
-                      isIncome ? 'received' : 'spent',
-                      item.baseCurrencyCode,
-                    )}
-              </Text>
-            </View>
-          )}
+          right={() =>
+            // A transfer's base amount is what left the source, which says
+            // nothing about the row as a whole; both legs are already named in
+            // the subline.
+            isTransfer ? null : (
+              <View style={styles.amountContainer}>
+                <Text
+                  style={[
+                    styles.listAmount,
+                    isIncome ? { color: incomeColor } : null,
+                  ]}
+                >
+                  {formatDirectionalMoney(
+                    item.baseAmount,
+                    isIncome ? 'received' : 'spent',
+                    item.baseCurrencyCode,
+                  )}
+                </Text>
+              </View>
+            )
+          }
         />
       );
     },
-    [
-      categoriesMap,
-      fundsMap,
-      incomeColor,
-      mutedColor,
-      navigation,
-      suspectTransferIds,
-    ],
+    [categoriesMap, fundsMap, incomeColor, navigation, suspectTransferIds],
   );
 
   const keyExtractor = useCallback(
@@ -425,27 +421,23 @@ const HomeScreen: React.FC = () => {
         </Text>
         {fundBalances.map(balance => {
           const name = fundsMap.get(balance.fundId) ?? 'Unknown fund';
-          const figures = balance.byCurrency;
           return (
             <View
               key={balance.fundId}
               style={styles.summaryRow}
               accessible
-              accessibilityLabel={`${name} balance ${figures
-                .map(figure =>
-                  formatSignedMoney(figure.balance, figure.currencyCode),
-                )
-                .join(', ')}`}
+              accessibilityLabel={`${name} balance ${formatFundBalance(
+                balance,
+                {
+                  marker: 'text',
+                },
+              )}`}
             >
               <Text variant="bodyMedium" style={styles.summaryLabel}>
                 {name}
               </Text>
               <Text variant="bodyMedium" style={styles.summaryAmount}>
-                {figures
-                  .map(figure =>
-                    formatSignedMoney(figure.balance, figure.currencyCode),
-                  )
-                  .join(' · ')}
+                {formatFundBalance(balance)}
               </Text>
             </View>
           );

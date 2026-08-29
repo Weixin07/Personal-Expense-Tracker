@@ -11,7 +11,11 @@ import {
   filterSuggestions,
 } from '../../utils/suggestions';
 import { calculateFundBalances } from '../../utils/fundBalances';
-import type { FundRecord, TransactionRecord } from '../../database/types';
+import type {
+  CurrencyFxRateRecord,
+  FundRecord,
+  TransactionRecord,
+} from '../../database/types';
 
 describe('Performance: Large Dataset (10k expenses)', () => {
   const EXPENSE_COUNT = 10000;
@@ -21,12 +25,29 @@ describe('Performance: Large Dataset (10k expenses)', () => {
   const mockFunds: FundRecord[] = Array.from({ length: 5 }, (_, index) => ({
     id: index + 1,
     name: `Fund ${index + 1}`,
-    currencyCode: null,
+    // Two of the five are denominated away from the base currency, so the
+    // measurement covers the conversion branch and not only its short circuit.
+    currencyCode: index < 2 ? ['EUR', 'MYR'][index] : null,
     openingBalance: 0,
     notes: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
   }));
+
+  const mockRates: CurrencyFxRateRecord[] = [
+    {
+      baseCurrencyCode: 'USD',
+      currencyCode: 'EUR',
+      fxRateToBase: 1.08,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+    {
+      baseCurrencyCode: 'USD',
+      currencyCode: 'MYR',
+      fxRateToBase: 0.22,
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    },
+  ];
 
   beforeAll(() => {
     console.log(
@@ -159,7 +180,12 @@ describe('Performance: Large Dataset (10k expenses)', () => {
 
     it('should compute fund balances for 10k transactions in under 100ms', async () => {
       const { result, metrics } = await measurePerformance(() =>
-        calculateFundBalances(mockFunds, mockTransactions, 'USD'),
+        calculateFundBalances({
+          funds: mockFunds,
+          transactions: mockTransactions,
+          baseCurrency: 'USD',
+          cachedRates: mockRates,
+        }),
       );
 
       console.log(`Balance Time: ${formatDuration(metrics.duration)}`);

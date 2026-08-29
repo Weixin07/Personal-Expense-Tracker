@@ -67,7 +67,11 @@ import type { BiometricGateState, ExportQueueItem } from '../hooks';
 import { BiometricGateModal } from '../components/BiometricGateModal';
 
 export type { ExportQueueItem } from '../hooks';
-export type { FundBalance, FundBalanceFigure } from '../utils/fundBalances';
+export type {
+  FundBalance,
+  FundBalanceBasis,
+  FundBalanceFigure,
+} from '../utils/fundBalances';
 
 export type TransactionFilters = {
   /**
@@ -1249,12 +1253,18 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
   // `FundBalance`.
   const fundBalances = useMemo(
     () =>
-      calculateFundBalances(
-        state.funds,
-        state.transactions,
-        state.settings.baseCurrency,
-      ),
-    [state.funds, state.transactions, state.settings.baseCurrency],
+      calculateFundBalances({
+        funds: state.funds,
+        transactions: state.transactions,
+        baseCurrency: state.settings.baseCurrency,
+        cachedRates: state.fxRateCache,
+      }),
+    [
+      state.funds,
+      state.transactions,
+      state.settings.baseCurrency,
+      state.fxRateCache,
+    ],
   );
 
   const selectors = useMemo<TransactionDataSelectors>(
