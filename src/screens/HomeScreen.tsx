@@ -457,10 +457,15 @@ const HomeScreen: React.FC = () => {
       <Surface style={styles.summaryCard} elevation={1}>
         <Text variant="titleSmall">{dateRangeLabel}</Text>
         {summaryGroups.map(group => {
-          const spent = formatDirectionalMoney(group.spent.amount, 'spent');
+          const spent = formatDirectionalMoney(
+            group.spent.amount,
+            'spent',
+            group.currencyCode,
+          );
           const received = formatDirectionalMoney(
             group.received.amount,
             'received',
+            group.currencyCode,
           );
           const net = formatSignedMoney(group.net, group.currencyCode);
 

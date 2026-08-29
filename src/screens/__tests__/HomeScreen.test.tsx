@@ -297,9 +297,8 @@ describe('HomeScreen', () => {
       expect(screen.getByText('Spent')).toBeOnTheScreen();
       expect(screen.getByText('Received')).toBeOnTheScreen();
       expect(screen.getByText('Net')).toBeOnTheScreen();
-      expect(screen.getByText('-30.00')).toBeOnTheScreen();
-      expect(screen.getByText('+0.00')).toBeOnTheScreen();
-      expect(screen.getByText('-30.00 USD')).toBeOnTheScreen();
+      expect(screen.getByText('+0.00 USD')).toBeOnTheScreen();
+      expect(screen.getAllByText('-30.00 USD')).toHaveLength(2);
     });
 
     it('shows all three figures for an income-only ledger', () => {
@@ -315,9 +314,8 @@ describe('HomeScreen', () => {
       );
       renderWithProviders(<HomeScreen />);
 
-      expect(screen.getByText('-0.00')).toBeOnTheScreen();
-      expect(screen.getByText('+100.00')).toBeOnTheScreen();
-      expect(screen.getByText('+100.00 USD')).toBeOnTheScreen();
+      expect(screen.getByText('-0.00 USD')).toBeOnTheScreen();
+      expect(screen.getAllByText('+100.00 USD')).toHaveLength(2);
     });
 
     it('renders a break-even net unsigned', () => {
@@ -349,7 +347,7 @@ describe('HomeScreen', () => {
       );
       renderWithProviders(<HomeScreen />);
 
-      expect(screen.getByText('-1,234.56')).toBeOnTheScreen();
+      expect(screen.getByText('-1,234.56 MYR')).toBeOnTheScreen();
       expect(screen.getByText('3 txn')).toBeOnTheScreen();
       expect(screen.getByText('1 txn')).toBeOnTheScreen();
       expect(screen.getByText('-247.56 MYR')).toBeOnTheScreen();
@@ -376,8 +374,8 @@ describe('HomeScreen', () => {
 
       expect(screen.getByText('USD')).toBeOnTheScreen();
       expect(screen.getByText('No base currency recorded')).toBeOnTheScreen();
-      expect(screen.getByText('-5.00 USD')).toBeOnTheScreen();
-      // Spent and Net of the uncoded group, neither carrying a currency.
+      // Spent and Net of each group. The uncoded one has no currency to name.
+      expect(screen.getAllByText('-5.00 USD')).toHaveLength(2);
       expect(screen.getAllByText('-7.00')).toHaveLength(2);
       expect(screen.queryByText(/multiple base currencies/)).toBeNull();
     });
