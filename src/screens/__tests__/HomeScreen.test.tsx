@@ -270,10 +270,7 @@ describe('HomeScreen', () => {
         state: { transactions },
         selectors: {
           filteredTransactions: transactions,
-          totals: {
-            byBaseCurrency: entries,
-            mixedBase: entries.length > 1,
-          },
+          totals: entries,
         },
       });
 

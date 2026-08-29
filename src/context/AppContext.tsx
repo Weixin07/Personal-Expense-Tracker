@@ -121,6 +121,10 @@ export type TransactionDataState = CoreState & {
 };
 
 export type TotalsFigure = {
+  /**
+   * Unrounded, so a caller combining figures does not compound rounding.
+   * `total` is the display value.
+   */
   rawTotal: number;
   total: number;
   /**
@@ -143,10 +147,7 @@ export type TotalsByBaseCurrency = {
  * summing is meaningful — amounts captured against different base currencies
  * cannot be added together.
  */
-export type TransactionTotals = {
-  byBaseCurrency: TotalsByBaseCurrency[];
-  mixedBase: boolean;
-};
+export type TransactionTotals = TotalsByBaseCurrency[];
 
 export type TransactionDataSelectors = {
   filteredTransactions: TransactionRecord[];
@@ -613,22 +614,17 @@ const calculateTotals = (
     perBaseCurrency.set(baseKey, accumulator);
   });
 
-  const byBaseCurrency: TotalsByBaseCurrency[] = Array.from(
-    perBaseCurrency.entries(),
-  ).map(([baseCurrencyCode, accumulator]) => ({
-    baseCurrencyCode,
-    expense: toFigure(accumulator.expenseRaw, accumulator.expenseCount),
-    income: toFigure(accumulator.incomeRaw, accumulator.incomeCount),
-    net: toFigure(
-      accumulator.incomeRaw - accumulator.expenseRaw,
-      accumulator.expenseCount + accumulator.incomeCount,
-    ),
-  }));
-
-  return {
-    byBaseCurrency,
-    mixedBase: byBaseCurrency.length > 1,
-  };
+  return Array.from(perBaseCurrency.entries()).map(
+    ([baseCurrencyCode, accumulator]) => ({
+      baseCurrencyCode,
+      expense: toFigure(accumulator.expenseRaw, accumulator.expenseCount),
+      income: toFigure(accumulator.incomeRaw, accumulator.incomeCount),
+      net: toFigure(
+        accumulator.incomeRaw - accumulator.expenseRaw,
+        accumulator.expenseCount + accumulator.incomeCount,
+      ),
+    }),
+  );
 };
 
 /**

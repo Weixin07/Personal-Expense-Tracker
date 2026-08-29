@@ -82,10 +82,7 @@ export const makeContextSelectors = (
   overrides: Partial<TransactionDataSelectors> = {},
 ): TransactionDataSelectors => ({
   filteredTransactions: [],
-  totals: {
-    byBaseCurrency: [],
-    mixedBase: false,
-  },
+  totals: [],
   fundBalances: [],
   suspectTransferIds: new Set<number>(),
   hasActiveFilters: false,

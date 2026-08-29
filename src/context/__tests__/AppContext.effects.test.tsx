@@ -820,8 +820,7 @@ describe('totals', () => {
   it('reports no figures at all when nothing matches the filters', async () => {
     mockDb.listTransactions.mockResolvedValue([]);
     await renderProvider();
-    expect(ctx.selectors.totals.byBaseCurrency).toEqual([]);
-    expect(ctx.selectors.totals.mixedBase).toBe(false);
+    expect(ctx.selectors.totals).toEqual([]);
   });
 
   it('separates expense, income and net within one base currency', async () => {
@@ -831,13 +830,12 @@ describe('totals', () => {
     ]);
     await renderProvider();
 
-    const [entry] = ctx.selectors.totals.byBaseCurrency;
+    const [entry] = ctx.selectors.totals;
     expect(entry.expense.total).toBe(30);
     expect(entry.expense.count).toBe(1);
     expect(entry.income.total).toBe(100);
     expect(entry.income.count).toBe(1);
     expect(entry.net.total).toBe(70);
-    expect(ctx.selectors.totals.mixedBase).toBe(false);
   });
 
   it('counts rows separately from their sum so a zero total is not mistaken for no data', async () => {
@@ -847,7 +845,7 @@ describe('totals', () => {
     ]);
     await renderProvider();
 
-    const [entry] = ctx.selectors.totals.byBaseCurrency;
+    const [entry] = ctx.selectors.totals;
     expect(entry.net.total).toBe(0);
     expect(entry.net.count).toBe(2);
   });
@@ -879,14 +877,9 @@ describe('totals', () => {
     await renderProvider();
 
     const totals = ctx.selectors.totals;
-    expect(totals.mixedBase).toBe(true);
 
-    const usd = totals.byBaseCurrency.find(
-      row => row.baseCurrencyCode === 'USD',
-    );
-    const gbp = totals.byBaseCurrency.find(
-      row => row.baseCurrencyCode === 'GBP',
-    );
+    const usd = totals.find(row => row.baseCurrencyCode === 'USD');
+    const gbp = totals.find(row => row.baseCurrencyCode === 'GBP');
     expect(usd?.net.total).toBe(15);
     expect(gbp?.expense.total).toBe(8);
     expect(gbp?.income.count).toBe(0);
@@ -901,7 +894,7 @@ describe('totals', () => {
 
     act(() => ctx.actions.setFilters({ type: 'income' }));
     expect(ctx.selectors.filteredTransactions).toHaveLength(1);
-    expect(ctx.selectors.totals.byBaseCurrency[0].expense.count).toBe(0);
+    expect(ctx.selectors.totals[0].expense.count).toBe(0);
     expect(ctx.selectors.hasActiveFilters).toBe(true);
 
     act(() => ctx.actions.setFilters({ type: undefined }));
@@ -942,7 +935,7 @@ describe('transfers and fund balances', () => {
 
     await renderProvider();
 
-    const group = ctx.selectors.totals.byBaseCurrency[0];
+    const group = ctx.selectors.totals[0];
     expect(group.expense.total).toBe(10);
     expect(group.expense.count).toBe(1);
     expect(group.income.total).toBe(0);

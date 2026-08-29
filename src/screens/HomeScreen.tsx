@@ -157,14 +157,14 @@ const HomeScreen: React.FC = () => {
   // happened.
   const summaryGroups = useMemo(
     () =>
-      totals.byBaseCurrency.map(entry => ({
+      totals.map(entry => ({
         key: entry.baseCurrencyCode ?? NO_BASE_CURRENCY_KEY,
         currencyCode: entry.baseCurrencyCode,
         spent: { amount: entry.expense.total, count: entry.expense.count },
         received: { amount: entry.income.total, count: entry.income.count },
         net: entry.net.total,
       })),
-    [totals.byBaseCurrency],
+    [totals],
   );
 
   const pendingExports = useMemo(
