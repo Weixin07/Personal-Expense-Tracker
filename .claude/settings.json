@@ -1,0 +1,48 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm typecheck)",
+      "Bash(pnpm typecheck *)",
+      "Bash(pnpm test)",
+      "Bash(pnpm test *)",
+      "Bash(pnpm lint)",
+      "Bash(pnpm lint *)",
+      "Bash(pnpm test:coverage)",
+      "Bash(pnpm test:coverage *)",
+      "Bash(pnpm validate)",
+      "Bash(pnpm validate *)",
+      "Bash(pnpm comment-policy)",
+      "Bash(pnpm jest *)",
+      "Bash(npm run comment-policy)",
+      "Bash(npx jest *)",
+      "Bash(npx tsc --noEmit *)",
+      "Bash(npx eslint *)",
+      "Bash(npx prettier --check *)",
+      "Bash(node scripts/comment-policy.mjs)",
+      "Bash(node scripts/comment-policy-check.mjs)",
+      "PowerShell(npx jest *)",
+      "PowerShell(npx tsc --noEmit *)",
+      "PowerShell(npx eslint *)",
+      "PowerShell(npx prettier --check *)",
+      "PowerShell(node scripts/comment-policy.mjs)",
+      "PowerShell(Select-Object *)",
+      "PowerShell(Select-String *)",
+      "PowerShell(Measure-Object *)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/comment-policy.mjs --hook",
+            "statusMessage": "Checking comment policy",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

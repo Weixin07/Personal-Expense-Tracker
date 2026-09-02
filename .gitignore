@@ -85,4 +85,5 @@ yarn-error.log
 /doc-temp
 
 # Claude Code local settings
-.claude/
+.claude/*
+!.claude/settings.json
