@@ -3,7 +3,7 @@
 > **An offline-first, secure expense tracking application for Android built with React Native and TypeScript**
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
-[![React Native](https://img.shields.io/badge/React%20Native-0.82-61dafb.svg)](https://reactnative.dev/)
+[![React Native](https://img.shields.io/badge/React%20Native-0.83-61dafb.svg)](https://reactnative.dev/)
 [![Node](https://img.shields.io/badge/Node-24.11.1-green.svg)](https://nodejs.org/)
 [![pnpm](https://img.shields.io/badge/pnpm-9.12.1-f69220.svg)](https://pnpm.io/)
 [![License](https://img.shields.io/badge/License-Personal%20Use-red.svg)]()
@@ -100,7 +100,7 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 
 **Frontend (Mobile)**
 
-- **Framework**: React Native 0.82.1 (Bare CLI workflow)
+- **Framework**: React Native 0.83.10 (Bare CLI workflow)
 - **Language**: TypeScript 5.9.3 with strict mode
 - **UI Library**: React Native Paper 5.14.5 (Material Design 3)
 - **Navigation**: React Navigation 7 (Native Stack)
@@ -126,7 +126,7 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 
 #### Tables
 
-**`expenses`** (Primary entity)
+**`transactions`** (Primary entity)
 
 ```sql
 CREATE TABLE transactions (
@@ -903,10 +903,10 @@ This app prioritizes **local security** (device protection) over **network secur
 
 ```typescript
 // ❌ WRONG (ESLint error)
-db.executeSql(`SELECT * FROM expenses WHERE id = ${id}`);
+db.executeSql(`SELECT * FROM transactions WHERE id = ${id}`);
 
 // ✅ CORRECT
-db.executeSql('SELECT * FROM expenses WHERE id = ?', [id]);
+db.executeSql('SELECT * FROM transactions WHERE id = ?', [id]);
 ```
 
 #### 5. Secret Detection
@@ -1012,7 +1012,7 @@ pnpm install
 
 #### 4. Database Errors
 
-**Error:** `no such table: expenses`
+**Error:** `no such table: transactions`
 
 **Solution:**
 
