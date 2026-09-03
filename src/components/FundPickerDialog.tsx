@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { FlatList, StyleSheet } from 'react-native';
-import { Button, Dialog, List, Portal, Searchbar } from 'react-native-paper';
+import { Button, Dialog, List, Portal } from 'react-native-paper';
+import SearchField from './SearchField';
 import { EMPTY_CATEGORY_USAGE } from '../utils/suggestions';
 import type { CategoryUsage } from '../utils/suggestions';
 import type { FundRecord } from '../database';
@@ -84,12 +85,11 @@ const FundPickerDialog: React.FC<FundPickerDialogProps> = ({
       <Dialog visible={visible} onDismiss={handleDismiss}>
         <Dialog.Title accessibilityRole="header">{title}</Dialog.Title>
         <Dialog.Content>
-          <Searchbar
+          <SearchField
             placeholder="Search fund"
             value={query}
             onChangeText={setQuery}
             accessibilityLabel="Search fund"
-            style={styles.searchbar}
           />
           <FlatList
             data={filteredOptions}
@@ -124,7 +124,6 @@ const FundPickerDialog: React.FC<FundPickerDialogProps> = ({
 };
 
 const styles = StyleSheet.create({
-  searchbar: { marginBottom: 12 },
   list: { maxHeight: 300 },
 });
 

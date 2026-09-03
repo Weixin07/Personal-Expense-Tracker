@@ -6,6 +6,7 @@ export type {
   BiometricGateState,
   UseBiometricGateResult,
 } from './useBiometricGate';
+export { useDebouncedValue } from './useDebouncedValue';
 export { useExportSync } from './useExportSync';
 export type {
   ExportQueueItem,

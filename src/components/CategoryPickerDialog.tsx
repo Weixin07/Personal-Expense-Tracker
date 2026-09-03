@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { FlatList, StyleSheet } from 'react-native';
-import { Button, Dialog, List, Portal, Searchbar } from 'react-native-paper';
+import { Button, Dialog, List, Portal } from 'react-native-paper';
+import SearchField from './SearchField';
 import { CATEGORY_TYPE_LABELS } from '../constants/categoryTypeLabels';
 import { EMPTY_CATEGORY_USAGE } from '../utils/suggestions';
 import type { CategoryUsage } from '../utils/suggestions';
@@ -115,12 +116,11 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
       <Dialog visible={visible} onDismiss={handleDismiss}>
         <Dialog.Title accessibilityRole="header">Choose category</Dialog.Title>
         <Dialog.Content>
-          <Searchbar
+          <SearchField
             placeholder="Search category"
             value={query}
             onChangeText={setQuery}
             accessibilityLabel="Search category"
-            style={styles.searchbar}
           />
           <FlatList
             data={filteredOptions}
@@ -157,7 +157,6 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
 };
 
 const styles = StyleSheet.create({
-  searchbar: { marginBottom: 12 },
   list: { maxHeight: 300 },
 });
 

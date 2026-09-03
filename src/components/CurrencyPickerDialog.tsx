@@ -6,9 +6,9 @@ import {
   IconButton,
   List,
   Portal,
-  Searchbar,
   Text,
 } from 'react-native-paper';
+import SearchField from './SearchField';
 import {
   getCurrencyOptions,
   type CurrencyOption,
@@ -78,12 +78,11 @@ const CurrencyPickerDialog: React.FC<CurrencyPickerDialogProps> = ({
               {description}
             </Text>
           ) : null}
-          <Searchbar
+          <SearchField
             placeholder="Search currency"
             value={query}
             onChangeText={setQuery}
             accessibilityLabel="Search currency"
-            style={styles.searchbar}
           />
           <FlatList
             data={filteredOptions}
@@ -124,7 +123,6 @@ const CurrencyPickerDialog: React.FC<CurrencyPickerDialogProps> = ({
 
 const styles = StyleSheet.create({
   description: { marginBottom: 8 },
-  searchbar: { marginBottom: 12 },
   list: { maxHeight: 320 },
 });
 

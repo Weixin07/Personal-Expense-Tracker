@@ -50,7 +50,8 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 - **Base Currency Conversion**: Automatic conversion to your chosen base currency with preserved exchange rates
 - **Category Organization**: Flexible categorization with 23 default categories (customizable), each usable for expenses, income, or both
 - **Date Filtering**: Quick filters (Last 7/30 days, This month, All time) plus custom date ranges
-- **Income and Expenses**: Record money in as well as out. Home summarises the filtered period as Spent, Received and Net, signed and grouped per base currency, with a transaction count for each direction
+- **Free-Text Search**: Search the description, payee and notes of your transactions from Home. Searching narrows the list alongside whatever period, type, category and fund filters are already set rather than replacing them, and the Reset control clears it with the rest. Matching ignores capitals for ordinary letters, and looks for what you typed as a whole — spacing included
+- **Income and Expenses**: Record money in as well as out. Home summarises the filtered period as Spent, Received and Net, signed and grouped per base currency, with a transaction count for each direction. A search narrows these figures too, so the summary always describes the rows listed beneath it
 - **Suggested Fills**: Tapping the description or payee field offers values from your own history for the type of transaction you are recording — an expense is never offered a payee you only ever used on income or a transfer. Values are ranked by how much you use them recently rather than alphabetically, and typing narrows the list. The recent window is the last 12 months, widened to 24 for transfers because they are rare enough that a shorter window leaves nothing to rank. The category and fund pickers are ordered the same way
 - **Funds (Budget Pots)**: Set money aside in named pots — a travel budget, household savings — each denominated in one currency, with an opening balance. Every transaction belongs to one, and Home shows what is left in each as a single figure in that currency, over your whole history rather than the filtered period. A pot holding activity no saved rate can convert lists its figures separately, marked, rather than stating a total it cannot stand behind
 - **Transfers Between Funds**: Move money between pots without it counting as spending or income. A cross-currency transfer records both what left and what arrived, so the rate it used is preserved rather than recomputed. A transfer conserves value: the destination is credited what the source gave up, so the amount recorded as arriving describes the transfer without feeding either balance — a transfer that lost a fee on the way reports no loss. The rate a cross-currency transfer used is remembered, so the next transfer between the same two currencies arrives with the amount received already filled in — a rate whose two amounts imply parity is queried before saving and is not remembered, so a figure entered twice by mistake cannot become the default. A transfer may also carry a description and payee of its own, shown on the Home row beside the two fund names
@@ -731,6 +732,7 @@ PET/
 │   │   ├── CategoryPickerDialog.tsx
 │   │   ├── CurrencyPickerDialog.tsx
 │   │   ├── FundPickerDialog.tsx
+│   │   ├── SearchField.tsx     # Shared search input for lists and the ledger
 │   │   └── SuggestionList.tsx  # Frequency-ranked fills under a text field
 │   ├── constants/              # Static data
 │   │   ├── currencies.json     # ISO-4217 currency list
@@ -793,6 +795,8 @@ PET/
 │   │   ├── date.ts             # Date/time utilities (British format, HH:MM parsing)
 │   │   ├── math.ts             # Banker's rounding
 │   │   ├── suggestions.ts      # Frequency ranking for suggested fills
+│   │   ├── textSearch.ts       # LIKE escaping and its matching JS predicate
+│   │   ├── transactionFilters.ts # Filter composition over the loaded ledger
 │   │   └── __tests__/          # Utility tests
 │   └── App.tsx                 # Root component
 ├── .env                        # Environment variables (NOT IN VCS)

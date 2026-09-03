@@ -35,3 +35,6 @@ jobs:
 
       - name: Validate (lint, typecheck, test)
         run: pnpm validate
+
+      - name: Performance budgets
+        run: pnpm test:performance

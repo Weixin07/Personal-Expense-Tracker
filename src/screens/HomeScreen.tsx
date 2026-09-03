@@ -22,6 +22,8 @@ import {
 import CategoryPickerDialog from '../components/CategoryPickerDialog';
 import CurrencyPickerDialog from '../components/CurrencyPickerDialog';
 import FundPickerDialog from '../components/FundPickerDialog';
+import SearchField from '../components/SearchField';
+import { useDebouncedValue } from '../hooks';
 import { findCurrencyName } from '../constants/currencyOptions';
 import { useTransactionData } from '../context/AppContext';
 import type { RootStackParamList } from '../navigation/AppNavigator';
@@ -54,6 +56,10 @@ const TYPE_FILTERS: { value: TransactionType; label: string }[] = [
 ];
 
 const ITEM_HEIGHT = 72;
+// Long enough that a typed word costs one scan of the whole ledger rather than
+// one per character, short enough that the list does not visibly trail the
+// keyboard.
+const SEARCH_DEBOUNCE_MS = 250;
 const NO_BASE_CURRENCY_KEY = 'no-base-currency';
 const NO_BASE_CURRENCY_LABEL = 'No base currency recorded';
 const baseCurrencyDialogDescription =
@@ -92,7 +98,22 @@ const HomeScreen: React.FC = () => {
   const [fundDialogVisible, setFundDialogVisible] = useState(false);
   const [baseCurrencyDialogVisible, setBaseCurrencyDialogVisible] =
     useState(false);
+  const [searchInput, setSearchInput] = useState('');
   const defaultFiltersAppliedRef = useRef(false);
+  const committedQueryRef = useRef('');
+
+  const debouncedSearch = useDebouncedValue(searchInput, SEARCH_DEBOUNCE_MS);
+
+  // Compared against what was last committed rather than against the filter
+  // itself: the settled value outlives a reset by one debounce interval, so an
+  // effect watching the filter re-applies the text the reset just cleared.
+  useEffect(() => {
+    const settled = debouncedSearch.trim();
+    if (settled !== committedQueryRef.current) {
+      committedQueryRef.current = settled;
+      setFilters({ query: debouncedSearch });
+    }
+  }, [debouncedSearch, setFilters]);
 
   // Totals and conversions are meaningless without a base currency, so a launch
   // that finds none opens the picker and holds it open until one is chosen.
@@ -230,6 +251,8 @@ const HomeScreen: React.FC = () => {
 
   const handleResetFilters = useCallback(() => {
     const range = computePresetRange('last30Days');
+    setSearchInput('');
+    committedQueryRef.current = '';
     setFilters({
       startDate: range.startDate ?? undefined,
       endDate: range.endDate ?? undefined,
@@ -237,6 +260,7 @@ const HomeScreen: React.FC = () => {
       type: undefined,
       fundId: undefined,
       needsReview: undefined,
+      query: undefined,
     });
   }, [setFilters]);
 
@@ -611,6 +635,12 @@ const HomeScreen: React.FC = () => {
         </Button>
 
         <View style={styles.filtersSection}>
+          <SearchField
+            placeholder="Search transactions"
+            value={searchInput}
+            onChangeText={setSearchInput}
+            accessibilityLabel="Search transactions"
+          />
           <Text variant="labelLarge">Period</Text>
           <View style={styles.chipsRow}>
             {DATE_PRESETS.map(preset => (
@@ -710,6 +740,7 @@ const HomeScreen: React.FC = () => {
     handleClearNeedsReview,
     needsReviewFilter,
     reviewCard,
+    searchInput,
   ]);
 
   const listEmptyComponent = useMemo(

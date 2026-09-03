@@ -6,10 +6,12 @@ import {
   screen,
   fireEvent,
   waitFor,
+  act,
 } from '../../__tests__/test-utils/renderWithProviders';
 import type { CategoryRecord } from '../../database';
 import HomeScreen from '../HomeScreen';
 import { useTransactionData } from '../../context/AppContext';
+import type { TransactionFilters } from '../../context/AppContext';
 import type { TransactionRecord } from '../../database';
 import type { FundBalance } from '../../utils/fundBalances';
 
@@ -784,5 +786,175 @@ describe('fund balances', () => {
     );
 
     expect(setFilters).toHaveBeenCalledWith({ needsReview: undefined });
+  });
+});
+
+describe('HomeScreen free-text search', () => {
+  const render = (
+    overrides: Parameters<typeof makeContextValue>[0] = {},
+    setFilters: jest.Mock = jest.fn(),
+  ) => {
+    mockedUseExpenseData.mockReturnValue(
+      makeContextValue({
+        ...overrides,
+        actions: { setFilters, ...(overrides.actions ?? {}) },
+      }),
+    );
+    renderWithProviders(<HomeScreen />);
+    return setFilters;
+  };
+
+  const type = (text: string) => {
+    fireEvent.changeText(screen.getByLabelText('Search transactions'), text);
+  };
+
+  const settle = (ms: number) => {
+    act(() => {
+      jest.advanceTimersByTime(ms);
+    });
+  };
+
+  it('shows what is typed straight away', () => {
+    render();
+
+    type('cos');
+
+    expect(screen.getByLabelText('Search transactions').props.value).toBe(
+      'cos',
+    );
+  });
+
+  it('waits for the typing to settle before filtering', () => {
+    const setFilters = render();
+    setFilters.mockClear();
+
+    type('cos');
+    settle(240);
+    expect(setFilters).not.toHaveBeenCalled();
+
+    settle(10);
+    expect(setFilters).toHaveBeenCalledWith({ query: 'cos' });
+  });
+
+  it('commits once for a word rather than once per character', () => {
+    const setFilters = render();
+    setFilters.mockClear();
+
+    ['c', 'co', 'cos'].forEach(text => {
+      type(text);
+      settle(100);
+    });
+    settle(250);
+
+    expect(setFilters).toHaveBeenCalledTimes(1);
+    expect(setFilters).toHaveBeenCalledWith({ query: 'cos' });
+  });
+
+  it('does not commit on mount, when nothing has been typed', () => {
+    const setFilters = render();
+
+    settle(250);
+
+    expect(
+      setFilters.mock.calls.filter(([update]) => 'query' in update),
+    ).toHaveLength(0);
+  });
+
+  it('clears both the query and the box when the filters are reset', () => {
+    const setFilters = render({
+      state: { filters: { query: 'costa' } },
+      selectors: { hasActiveFilters: true },
+    });
+
+    type('costa');
+    fireEvent.press(screen.getByLabelText('Reset filters'));
+
+    expect(setFilters).toHaveBeenCalledWith(
+      expect.objectContaining({ query: undefined }),
+    );
+    expect(screen.getByLabelText('Search transactions').props.value).toBe('');
+  });
+
+  it('offers the reset affordance when only a search is active', () => {
+    render({
+      state: { filters: { query: 'costa' } },
+      selectors: { hasActiveFilters: true },
+    });
+
+    expect(screen.getByLabelText('Reset filters')).toBeOnTheScreen();
+  });
+});
+
+describe('HomeScreen search against filters that answer back', () => {
+  const normalize = (
+    current: TransactionFilters,
+    update: TransactionFilters,
+  ): TransactionFilters => {
+    const next: TransactionFilters = { ...current, ...update };
+    if (Object.prototype.hasOwnProperty.call(update, 'query')) {
+      const trimmed = next.query?.trim() ?? '';
+      if (trimmed) {
+        next.query = trimmed;
+      } else {
+        delete next.query;
+      }
+    }
+    return next;
+  };
+
+  const renderLive = () => {
+    const committed: (string | undefined)[] = [];
+    const useLiveContext = () => {
+      const [filters, setFiltersState] = React.useState<TransactionFilters>({});
+      const setFilters = React.useCallback((update: TransactionFilters) => {
+        if ('query' in update) {
+          committed.push(update.query);
+        }
+        setFiltersState(current => normalize(current, update));
+      }, []);
+      return makeContextValue({
+        state: { filters },
+        selectors: { hasActiveFilters: true },
+        actions: { setFilters },
+      });
+    };
+    mockedUseExpenseData.mockImplementation(useLiveContext);
+    renderWithProviders(<HomeScreen />);
+    return committed;
+  };
+
+  const settle = () => {
+    act(() => {
+      jest.advanceTimersByTime(250);
+    });
+  };
+
+  it('does not re-apply the query the reset just cleared', () => {
+    const committed = renderLive();
+
+    fireEvent.changeText(screen.getByLabelText('Search transactions'), 'costa');
+    settle();
+    expect(committed).toEqual(['costa']);
+
+    fireEvent.press(screen.getByLabelText('Reset filters'));
+    expect(committed).toEqual(['costa', undefined]);
+
+    settle();
+    expect(committed).toEqual(['costa', undefined]);
+    expect(screen.getByLabelText('Search transactions').props.value).toBe('');
+  });
+
+  it('commits a fresh search made after a reset', () => {
+    const committed = renderLive();
+
+    fireEvent.changeText(screen.getByLabelText('Search transactions'), 'costa');
+    settle();
+    fireEvent.press(screen.getByLabelText('Reset filters'));
+    settle();
+
+    fireEvent.changeText(screen.getByLabelText('Search transactions'), 'shell');
+    settle();
+
+    expect(committed).toEqual(['costa', undefined, 'shell']);
   });
 });

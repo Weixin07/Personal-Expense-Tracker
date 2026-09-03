@@ -1,5 +1,15 @@
 module.exports = {
   preset: 'react-native',
+  // A frame-scale budget needs a process of its own: parallel workers compete
+  // for cores, and even a serial run sharing a process with the other
+  // performance suites inherits their heap, either of which moves a tight loop
+  // past the frame it is asserting. That suite is excluded here and run alone
+  // by `jest.performance.config.js`; the others carry budgets loose enough not
+  // to care.
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    '<rootDir>/src/__tests__/performance/transactionSearch.test.ts',
+  ],
   setupFiles: [
     require.resolve('react-native/jest/setup.js'),
     '<rootDir>/jest.setup.js',
@@ -31,7 +41,7 @@ module.exports = {
   coverageThreshold: {
     global: { branches: 70, functions: 80, lines: 80, statements: 80 },
     './src/context/AppContext.tsx': {
-      branches: 84,
+      branches: 93,
       functions: 95,
       lines: 93,
       statements: 93,
@@ -61,10 +71,22 @@ module.exports = {
       statements: 94,
     },
     './src/components/FundPickerDialog.tsx': {
-      branches: 95,
+      branches: 100,
       functions: 92,
       lines: 93,
       statements: 93,
+    },
+    './src/utils/textSearch.ts': {
+      branches: 95,
+      functions: 95,
+      lines: 95,
+      statements: 95,
+    },
+    './src/utils/transactionFilters.ts': {
+      branches: 95,
+      functions: 95,
+      lines: 95,
+      statements: 95,
     },
     './src/utils/fxRates.ts': {
       branches: 95,

@@ -974,6 +974,94 @@ describe('transactionsRepository', () => {
 
       expect(result).toHaveLength(1);
     });
+
+    describe('free-text query', () => {
+      const emptyResult: ResultSet = {
+        insertId: undefined,
+        rowsAffected: 0,
+        rows: { length: 0, raw: () => [], item: () => null },
+      };
+
+      const sqlFor = async (
+        filters: Parameters<typeof listTransactions>[1],
+      ): Promise<{ sql: string; params: unknown[] }> => {
+        mockDb.executeSql.mockResolvedValueOnce([emptyResult]);
+        await listTransactions(mockDb, filters);
+        const [sql, params] = mockDb.executeSql.mock.calls[0] as [
+          string,
+          unknown[],
+        ];
+        return { sql, params };
+      };
+
+      it('matches the three text columns, guarding the nullable one', async () => {
+        const { sql } = await sqlFor({ query: 'costa' });
+
+        expect(sql).toContain(
+          "WHERE (description LIKE ? ESCAPE '\\' OR payee LIKE ? ESCAPE '\\'" +
+            " OR IFNULL(notes, '') LIKE ? ESCAPE '\\')",
+        );
+      });
+
+      it('binds the term instead of putting it in the statement', async () => {
+        const { sql, params } = await sqlFor({ query: 'costa' });
+
+        expect(sql).not.toContain('costa');
+        expect(params).toEqual(['%costa%', '%costa%', '%costa%']);
+      });
+
+      it('escapes wildcards so they are matched literally', async () => {
+        const { sql, params } = await sqlFor({ query: '50%_off' });
+
+        expect(sql).not.toContain('50%');
+        expect(params).toEqual([
+          '%50\\%\\_off%',
+          '%50\\%\\_off%',
+          '%50\\%\\_off%',
+        ]);
+      });
+
+      it('composes with every other filter rather than replacing them', async () => {
+        const { sql } = await sqlFor({
+          type: 'expense',
+          categoryId: 1,
+          fundId: 2,
+          startDate: '2025-01-10',
+          endDate: '2025-01-20',
+          query: 'costa',
+        });
+
+        expect(sql).toContain(
+          'WHERE type = ? AND category_id = ? AND (fund_id = ? OR counterpart_fund_id = ?)' +
+            ' AND date >= ? AND date <= ? AND (description LIKE ?',
+        );
+      });
+
+      it('keeps the query bindings ahead of limit and offset', async () => {
+        const { params } = await sqlFor({
+          type: 'expense',
+          query: 'costa',
+          limit: 10,
+          offset: 5,
+        });
+
+        expect(params).toEqual([
+          'expense',
+          '%costa%',
+          '%costa%',
+          '%costa%',
+          10,
+          5,
+        ]);
+      });
+
+      it('emits no query condition when none is given', async () => {
+        const { sql, params } = await sqlFor({ type: 'expense' });
+
+        expect(sql).not.toContain('LIKE');
+        expect(params).toEqual(['expense']);
+      });
+    });
   });
 
   describe('createTransactionsBulk', () => {

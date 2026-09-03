@@ -6,6 +6,12 @@ import type {
   NewTransactionRecord,
   UpdateTransactionRecord,
 } from '../types';
+import {
+  LIKE_ESCAPE_CHARACTER,
+  escapeLikePattern,
+} from '../../utils/textSearch';
+
+const LIKE_MATCH = `LIKE ? ESCAPE '${LIKE_ESCAPE_CHARACTER}'`;
 
 const TRANSACTION_COLUMNS = `
   id,
@@ -288,6 +294,15 @@ export const listTransactions = async (
     conditions.push('date <= ?');
     params.push(filters.endDate);
   }
+  if (filters.query) {
+    // `notes` is nullable, and `NULL LIKE ?` yields NULL rather than false, so
+    // an unguarded disjunct drops rows whose other two columns also fail.
+    conditions.push(
+      `(description ${LIKE_MATCH} OR payee ${LIKE_MATCH} OR IFNULL(notes, '') ${LIKE_MATCH})`,
+    );
+    const pattern = escapeLikePattern(filters.query);
+    params.push(pattern, pattern, pattern);
+  }
 
   const whereClause =
     conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -304,7 +319,7 @@ export const listTransactions = async (
   // SQLite orders NULL below every other value, so `time DESC` already places
   // untimed rows after timed ones within a date. An explicit NULLS LAST would
   // require SQLite 3.30 and change nothing.
-  const query = `SELECT ${TRANSACTION_COLUMNS} FROM transactions ${whereClause} ORDER BY date DESC, time DESC, id DESC${limitClause}`;
-  const [result] = await db.executeSql(query, params);
+  const sql = `SELECT ${TRANSACTION_COLUMNS} FROM transactions ${whereClause} ORDER BY date DESC, time DESC, id DESC${limitClause}`;
+  const [result] = await db.executeSql(sql, params);
   return mapResultSetToTransactions(result);
 };

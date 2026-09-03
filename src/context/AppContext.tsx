@@ -48,7 +48,6 @@ import type {
   AppSettingRecord,
   ExportQueueRecord,
   CurrencyFxRateRecord,
-  TransactionType,
 } from '../database';
 import { bankersRound } from '../utils/math';
 import { resolveTransferCurrency } from '../utils/funds';
@@ -58,6 +57,8 @@ import { isSuspectTransferRate, ratesForTransaction } from '../utils/fxRates';
 import { buildCategoryUsageCounts } from '../utils/suggestions';
 import type { CategoryUsageCounts } from '../utils/suggestions';
 import { toError, toErrorMessage } from '../utils/errors';
+import { applyFilters } from '../utils/transactionFilters';
+import type { TransactionFilters } from '../utils/transactionFilters';
 import {
   useBiometricGate,
   useExportSync,
@@ -72,28 +73,7 @@ export type {
   FundBalanceBasis,
   FundBalanceFigure,
 } from '../utils/fundBalances';
-
-export type TransactionFilters = {
-  /**
-   * Unlike `categoryId`, this has no null form: every transaction carries a
-   * direction, so there is no "untyped" set to filter for.
-   */
-  type?: TransactionType;
-  categoryId?: number | null;
-  /**
-   * Matches either side of a transfer, so money moved into the fund is part of
-   * what the filter shows.
-   */
-  fundId?: number;
-  /**
-   * Narrows to transfers whose recorded amounts imply a rate their currencies
-   * contradict. Has no false form: a filter that is not wanted is absent, which
-   * is what every other member here means by omission.
-   */
-  needsReview?: true;
-  startDate?: string;
-  endDate?: string;
-};
+export type { TransactionFilters } from '../utils/transactionFilters';
 
 export type TransactionDataSettings = {
   baseCurrency: string | null;
@@ -353,6 +333,14 @@ const normalizeFilters = (
   ) {
     delete next.endDate;
   }
+  if (Object.prototype.hasOwnProperty.call(update, 'query')) {
+    const trimmed = next.query?.trim() ?? '';
+    if (trimmed) {
+      next.query = trimmed;
+    } else {
+      delete next.query;
+    }
+  }
 
   return next;
 };
@@ -516,63 +504,6 @@ export const transactionDataReducer = (
   }
 };
 
-const applyFilters = (
-  transactions: TransactionRecord[],
-  filters: TransactionFilters,
-  suspectTransferIds: ReadonlySet<number>,
-): TransactionRecord[] => {
-  if (!transactions.length) {
-    return transactions;
-  }
-
-  const hasCategoryFilter = Object.prototype.hasOwnProperty.call(
-    filters,
-    'categoryId',
-  );
-  const { type, categoryId, fundId, needsReview, startDate, endDate } = filters;
-
-  return transactions.filter(transaction => {
-    if (type !== undefined && transaction.type !== type) {
-      return false;
-    }
-
-    if (needsReview && !suspectTransferIds.has(transaction.id)) {
-      return false;
-    }
-
-    if (
-      fundId !== undefined &&
-      transaction.fundId !== fundId &&
-      transaction.counterpartFundId !== fundId
-    ) {
-      return false;
-    }
-
-    if (hasCategoryFilter) {
-      if (categoryId == null) {
-        if (
-          transaction.categoryId !== null &&
-          transaction.categoryId !== undefined
-        ) {
-          return false;
-        }
-      } else if (transaction.categoryId !== categoryId) {
-        return false;
-      }
-    }
-
-    if (startDate && transaction.date < startDate) {
-      return false;
-    }
-
-    if (endDate && transaction.date > endDate) {
-      return false;
-    }
-
-    return true;
-  });
-};
-
 const toFigure = (rawTotal: number, count: number): TotalsFigure => ({
   rawTotal,
   total: bankersRound(rawTotal, 2),
@@ -688,6 +619,9 @@ const hasActiveFilters = (filters: TransactionFilters): boolean => {
     return true;
   }
   if (filters.startDate || filters.endDate) {
+    return true;
+  }
+  if (filters.query !== undefined) {
     return true;
   }
   return false;

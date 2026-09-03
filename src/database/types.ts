@@ -83,6 +83,12 @@ export type TransactionQueryFilters = {
   fundId?: number;
   startDate?: string;
   endDate?: string;
+  /**
+   * Free text matched anywhere in `description`, `payee` or `notes`, compared
+   * case-insensitively across ASCII letters only. Matched literally, whitespace
+   * included: the caller supplies an already-trimmed value.
+   */
+  query?: string;
   limit?: number;
   offset?: number;
 };

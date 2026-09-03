@@ -13,6 +13,17 @@ migration table, not here.
 
 ### Added
 
+- **Search your transactions.** Home has a search box that looks through the
+  description, payee and notes of every transaction. It works alongside the
+  filters you already have set rather than replacing them — search for "coffee"
+  with the Food category and last month selected, and you get coffee, in Food,
+  last month. Reset clears the search along with everything else.
+
+  **The period summary follows your search.** Spent, Received and Net describe
+  the rows you can see, so searching narrows them too. Your fund balances do
+  not move: those are what is actually left in each pot, over your whole
+  history, and no filter changes that.
+
 - **Transfers remember their exchange rate.** When you record a transfer between
   two funds in different currencies, the app now remembers what the destination
   currency was worth. The next transfer between those same two currencies

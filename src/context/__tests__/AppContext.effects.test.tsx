@@ -1291,3 +1291,220 @@ describe('fx rate cache', () => {
     expect(ctx.state.fxRateCache).toEqual([]);
   });
 });
+
+describe('free-text search', () => {
+  const coffee: TransactionRecord = {
+    ...transaction,
+    id: 1,
+    description: 'Morning coffee',
+    payee: 'Costa',
+    fundId: 1,
+  };
+  const fuel: TransactionRecord = {
+    ...transaction,
+    id: 2,
+    type: 'income',
+    description: 'Fuel refund',
+    payee: 'Shell',
+    notes: 'Coffee on the way',
+    categoryId: 5,
+    fundId: 2,
+    date: '2025-03-10',
+  };
+  const rent: TransactionRecord = {
+    ...transaction,
+    id: 3,
+    description: 'Rent',
+    payee: 'Landlord',
+    categoryId: null,
+    fundId: 1,
+  };
+
+  const matchedIds = () =>
+    ctx.selectors.filteredTransactions.map(record => record.id);
+
+  beforeEach(() => {
+    mockDb.listTransactions.mockResolvedValue([coffee, fuel, rent]);
+  });
+
+  it('matches description, payee and notes', async () => {
+    await renderProvider();
+
+    await act(async () => {
+      ctx.actions.setFilters({ query: 'coffee' });
+    });
+
+    expect(matchedIds()).toEqual([1, 2]);
+  });
+
+  it('counts as an active filter on its own', async () => {
+    await renderProvider();
+
+    expect(ctx.selectors.hasActiveFilters).toBe(false);
+
+    await act(async () => {
+      ctx.actions.setFilters({ query: 'coffee' });
+    });
+
+    expect(ctx.selectors.hasActiveFilters).toBe(true);
+  });
+
+  it('stores the query trimmed', async () => {
+    await renderProvider();
+
+    await act(async () => {
+      ctx.actions.setFilters({ query: '  coffee  ' });
+    });
+
+    expect(ctx.state.filters.query).toBe('coffee');
+    expect(matchedIds()).toEqual([1, 2]);
+  });
+
+  it('drops a blank query rather than counting it as a filter', async () => {
+    await renderProvider();
+
+    await act(async () => {
+      ctx.actions.setFilters({ query: '   ' });
+    });
+
+    expect(ctx.state.filters.query).toBeUndefined();
+    expect(ctx.selectors.hasActiveFilters).toBe(false);
+    expect(matchedIds()).toEqual([1, 2, 3]);
+  });
+
+  it('drops the query when it is cleared', async () => {
+    await renderProvider();
+
+    await act(async () => {
+      ctx.actions.setFilters({ query: 'coffee' });
+    });
+    await act(async () => {
+      ctx.actions.setFilters({ query: undefined });
+    });
+
+    expect(ctx.state.filters.query).toBeUndefined();
+    expect(ctx.selectors.hasActiveFilters).toBe(false);
+    expect(matchedIds()).toEqual([1, 2, 3]);
+  });
+
+  it('composes with a type filter', async () => {
+    await renderProvider();
+
+    await act(async () => {
+      ctx.actions.setFilters({ query: 'coffee', type: 'income' });
+    });
+
+    expect(matchedIds()).toEqual([2]);
+  });
+
+  it('composes with a category filter, including the no-category case', async () => {
+    await renderProvider();
+
+    await act(async () => {
+      ctx.actions.setFilters({ query: 'coffee', categoryId: 5 });
+    });
+    expect(matchedIds()).toEqual([2]);
+
+    await act(async () => {
+      ctx.actions.setFilters({ query: 'rent', categoryId: null });
+    });
+    expect(matchedIds()).toEqual([3]);
+  });
+
+  it('composes with a fund filter', async () => {
+    await renderProvider();
+
+    await act(async () => {
+      ctx.actions.setFilters({ query: 'coffee', fundId: 1 });
+    });
+
+    expect(matchedIds()).toEqual([1]);
+  });
+
+  it('composes with a fund filter met only by the receiving side', async () => {
+    const arriving: TransactionRecord = {
+      ...transaction,
+      id: 4,
+      type: 'transfer',
+      description: 'Coffee pot top-up',
+      payee: '',
+      fundId: 1,
+      counterpartFundId: 2,
+      counterpartAmount: 3.5,
+      counterpartCurrencyCode: 'USD',
+    };
+    mockDb.listTransactions.mockResolvedValue([coffee, fuel, rent, arriving]);
+
+    await renderProvider();
+
+    await act(async () => {
+      ctx.actions.setFilters({ query: 'top-up', fundId: 2 });
+    });
+    expect(matchedIds()).toEqual([4]);
+
+    await act(async () => {
+      ctx.actions.setFilters({ query: 'top-up', fundId: 3 });
+    });
+    expect(matchedIds()).toEqual([]);
+  });
+
+  it('composes with a date range', async () => {
+    await renderProvider();
+
+    await act(async () => {
+      ctx.actions.setFilters({
+        query: 'coffee',
+        startDate: '2025-01-01',
+        endDate: '2025-01-31',
+      });
+    });
+
+    expect(matchedIds()).toEqual([1]);
+  });
+
+  it('composes with the needs-review filter', async () => {
+    mockDb.listFunds.mockResolvedValue([
+      {
+        id: 1,
+        name: 'Fund 1',
+        currencyCode: null,
+        openingBalance: 0,
+        notes: null,
+        createdAt: '2025-01-01T00:00:00.000Z',
+        updatedAt: '2025-01-01T00:00:00.000Z',
+      },
+    ]);
+    mockDb.listTransactions.mockResolvedValue([coffee, rent]);
+
+    await renderProvider();
+
+    await act(async () => {
+      ctx.actions.setFilters({ query: 'coffee', needsReview: true });
+    });
+
+    expect(matchedIds()).toEqual([]);
+  });
+
+  it('narrows the period totals but leaves fund balances alone', async () => {
+    await renderProvider();
+
+    const balancesBefore = ctx.selectors.fundBalances;
+    const countedBefore = ctx.selectors.totals.reduce(
+      (total, entry) => total + entry.expense.count + entry.income.count,
+      0,
+    );
+
+    await act(async () => {
+      ctx.actions.setFilters({ query: 'rent' });
+    });
+
+    const countedAfter = ctx.selectors.totals.reduce(
+      (total, entry) => total + entry.expense.count + entry.income.count,
+      0,
+    );
+
+    expect(countedBefore).toBe(3);
+    expect(countedAfter).toBe(1);
+    expect(ctx.selectors.fundBalances).toEqual(balancesBefore);
+  });
+});
