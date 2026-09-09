@@ -4,6 +4,7 @@ import {
   createTransactionsBulk,
   updateTransaction,
   deleteTransaction,
+  setTransactionConfirmed,
   getTransactionById,
   listTransactions,
 } from '../transactionsRepository';
@@ -90,6 +91,7 @@ describe('transactionsRepository', () => {
         counterpart_amount: null,
         counterpart_currency_code: null,
         notes: 'Test notes',
+        is_confirmed: 1,
         created_at: '2025-01-15T10:00:00.000Z',
         updated_at: '2025-01-15T10:00:00.000Z',
       };
@@ -130,6 +132,7 @@ describe('transactionsRepository', () => {
           null,
           null,
           'Test notes',
+          1,
         ],
       );
 
@@ -150,6 +153,7 @@ describe('transactionsRepository', () => {
         counterpartAmount: null,
         counterpartCurrencyCode: null,
         notes: 'Test notes',
+        isConfirmed: true,
         createdAt: '2025-01-15T10:00:00.000Z',
         updatedAt: '2025-01-15T10:00:00.000Z',
       });
@@ -201,6 +205,7 @@ describe('transactionsRepository', () => {
         counterpart_amount: null,
         counterpart_currency_code: null,
         notes: null,
+        is_confirmed: 1,
         created_at: '2025-01-15T10:00:00.000Z',
         updated_at: '2025-01-15T10:00:00.000Z',
       };
@@ -240,6 +245,7 @@ describe('transactionsRepository', () => {
           null,
           null,
           null,
+          1,
         ],
       );
 
@@ -382,6 +388,7 @@ describe('transactionsRepository', () => {
         counterpart_amount: null,
         counterpart_currency_code: null,
         notes: 'Updated notes',
+        is_confirmed: 1,
         created_at: '2025-01-15T10:00:00.000Z',
         updated_at: '2025-01-16T10:00:00.000Z',
       };
@@ -442,6 +449,7 @@ describe('transactionsRepository', () => {
         counterpartAmount: null,
         counterpartCurrencyCode: null,
         notes: 'Updated notes',
+        isConfirmed: true,
         createdAt: '2025-01-15T10:00:00.000Z',
         updatedAt: '2025-01-16T10:00:00.000Z',
       });
@@ -531,6 +539,7 @@ describe('transactionsRepository', () => {
         counterpart_amount: null,
         counterpart_currency_code: null,
         notes: null,
+        is_confirmed: 1,
         created_at: '2025-01-15T10:00:00.000Z',
         updated_at: '2025-01-16T10:00:00.000Z',
       };
@@ -553,6 +562,231 @@ describe('transactionsRepository', () => {
 
       expect(result.categoryId).toBeNull();
       expect(result.notes).toBeNull();
+    });
+
+    // Guards the alignment rule on `toSharedColumnParams`.
+    it('never writes the confirmed flag, and binds one value per assignment', async () => {
+      const updatePayload: UpdateTransactionRecord = {
+        id: 42,
+        type: 'expense',
+        description: 'Updated expense',
+        payee: 'Acme Store',
+        amountNative: 200.75,
+        currencyCode: 'EUR',
+        fxRateToBase: 1.1,
+        baseAmount: 220.825,
+        baseCurrencyCode: 'USD',
+        date: '2025-01-16',
+        time: null,
+        categoryId: null,
+        fundId: 1,
+        counterpartFundId: null,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
+        notes: null,
+      };
+
+      const storedRow = {
+        id: 42,
+        type: 'expense',
+        description: 'Updated expense',
+        payee: 'Acme Store',
+        amount_native: 200.75,
+        currency_code: 'EUR',
+        fx_rate_to_base: 1.1,
+        base_amount: 220.825,
+        base_currency_code: 'USD',
+        date: '2025-01-16',
+        time: null,
+        category_id: null,
+        fund_id: 1,
+        counterpart_fund_id: null,
+        counterpart_amount: null,
+        counterpart_currency_code: null,
+        notes: null,
+        is_confirmed: 1,
+        created_at: '2025-01-15T10:00:00.000Z',
+        updated_at: '2025-01-16T10:00:00.000Z',
+      };
+
+      mockDb.executeSql
+        .mockResolvedValueOnce([
+          {
+            insertId: undefined,
+            rowsAffected: 1,
+            rows: { length: 0, raw: () => [], item: () => null },
+          } as ResultSet,
+        ])
+        .mockResolvedValueOnce([
+          {
+            insertId: undefined,
+            rowsAffected: 0,
+            rows: {
+              length: 1,
+              raw: () => [storedRow],
+              item: (index: number) => (index === 0 ? storedRow : null),
+            },
+          } as ResultSet,
+        ]);
+
+      const result = await updateTransaction(mockDb, updatePayload);
+
+      expect(result.isConfirmed).toBe(true);
+
+      const [sql, params] = mockDb.executeSql.mock.calls[0] as [
+        string,
+        unknown[],
+      ];
+      expect(sql).not.toContain('is_confirmed');
+      // Every `?` except the trailing WHERE binding is a SET assignment.
+      expect((sql.match(/\?/g) ?? []).length).toBe(params.length);
+    });
+
+    it('throws when the row cannot be read back after the update', async () => {
+      const updatePayload: UpdateTransactionRecord = {
+        id: 42,
+        type: 'expense',
+        description: 'Updated expense',
+        payee: 'Acme Store',
+        amountNative: 200.75,
+        currencyCode: 'EUR',
+        fxRateToBase: 1.1,
+        baseAmount: 220.825,
+        baseCurrencyCode: 'USD',
+        date: '2025-01-16',
+        time: null,
+        categoryId: null,
+        fundId: 1,
+        counterpartFundId: null,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
+        notes: null,
+      };
+
+      mockDb.executeSql
+        .mockResolvedValueOnce([
+          {
+            insertId: undefined,
+            rowsAffected: 1,
+            rows: { length: 0, raw: () => [], item: () => null },
+          } as ResultSet,
+        ])
+        .mockResolvedValueOnce([
+          {
+            insertId: undefined,
+            rowsAffected: 0,
+            rows: { length: 0, raw: () => [], item: () => null },
+          } as ResultSet,
+        ]);
+
+      await expect(updateTransaction(mockDb, updatePayload)).rejects.toThrow(
+        'Failed to load updated transaction',
+      );
+    });
+  });
+
+  describe('setTransactionConfirmed', () => {
+    const rowWith = (isConfirmed: number) => ({
+      id: 42,
+      type: 'expense',
+      description: 'Test expense',
+      payee: 'Acme Store',
+      amount_native: 100.5,
+      currency_code: 'USD',
+      fx_rate_to_base: 1,
+      base_amount: 100.5,
+      base_currency_code: 'USD',
+      date: '2025-01-15',
+      time: null,
+      category_id: null,
+      fund_id: 1,
+      counterpart_fund_id: null,
+      counterpart_amount: null,
+      counterpart_currency_code: null,
+      notes: null,
+      is_confirmed: isConfirmed,
+      created_at: '2025-01-15T10:00:00.000Z',
+      updated_at: '2025-01-15T10:00:00.000Z',
+    });
+
+    const selectResultFor = (isConfirmed: number): ResultSet => ({
+      insertId: undefined,
+      rowsAffected: 0,
+      rows: {
+        length: 1,
+        raw: () => [rowWith(isConfirmed)],
+        item: (index: number) => (index === 0 ? rowWith(isConfirmed) : null),
+      },
+    });
+
+    const updateResult: ResultSet = {
+      insertId: undefined,
+      rowsAffected: 1,
+      rows: { length: 0, raw: () => [], item: () => null },
+    };
+
+    it('stores the flag as an integer and returns the stored row', async () => {
+      mockDb.executeSql
+        .mockResolvedValueOnce([updateResult])
+        .mockResolvedValueOnce([selectResultFor(0)]);
+
+      const result = await setTransactionConfirmed(mockDb, 42, false);
+
+      expect(mockDb.executeSql).toHaveBeenCalledWith(
+        expect.stringContaining('UPDATE transactions SET'),
+        [0, 42],
+      );
+      expect(result.isConfirmed).toBe(false);
+    });
+
+    it('confirms a row the same way it unconfirms one', async () => {
+      mockDb.executeSql
+        .mockResolvedValueOnce([updateResult])
+        .mockResolvedValueOnce([selectResultFor(1)]);
+
+      const result = await setTransactionConfirmed(mockDb, 42, true);
+
+      expect(mockDb.executeSql).toHaveBeenCalledWith(
+        expect.anything(),
+        [1, 42],
+      );
+      expect(result.isConfirmed).toBe(true);
+    });
+
+    it('bumps updated_at alongside the flag', async () => {
+      mockDb.executeSql
+        .mockResolvedValueOnce([updateResult])
+        .mockResolvedValueOnce([selectResultFor(1)]);
+
+      await setTransactionConfirmed(mockDb, 42, true);
+
+      expect(mockDb.executeSql.mock.calls[0][0]).toContain('updated_at =');
+    });
+
+    it('throws when no transaction carries the id', async () => {
+      mockDb.executeSql.mockResolvedValueOnce([
+        { ...updateResult, rowsAffected: 0 },
+      ]);
+
+      await expect(setTransactionConfirmed(mockDb, 999, true)).rejects.toThrow(
+        'Transaction 999 not found',
+      );
+    });
+
+    it('throws when the row cannot be read back after the write', async () => {
+      mockDb.executeSql
+        .mockResolvedValueOnce([updateResult])
+        .mockResolvedValueOnce([
+          {
+            insertId: undefined,
+            rowsAffected: 0,
+            rows: { length: 0, raw: () => [], item: () => null },
+          } as ResultSet,
+        ]);
+
+      await expect(setTransactionConfirmed(mockDb, 42, true)).rejects.toThrow(
+        'Failed to load updated transaction',
+      );
     });
   });
 
@@ -615,6 +849,7 @@ describe('transactionsRepository', () => {
         counterpart_amount: null,
         counterpart_currency_code: null,
         notes: 'Test notes',
+        is_confirmed: 1,
         created_at: '2025-01-15T10:00:00.000Z',
         updated_at: '2025-01-15T10:00:00.000Z',
       };
@@ -655,6 +890,7 @@ describe('transactionsRepository', () => {
         counterpartAmount: null,
         counterpartCurrencyCode: null,
         notes: 'Test notes',
+        isConfirmed: true,
         createdAt: '2025-01-15T10:00:00.000Z',
         updatedAt: '2025-01-15T10:00:00.000Z',
       });
@@ -696,6 +932,7 @@ describe('transactionsRepository', () => {
           counterpart_amount: null,
           counterpart_currency_code: null,
           notes: null,
+          is_confirmed: 1,
           created_at: '2025-01-15T10:00:00.000Z',
           updated_at: '2025-01-15T10:00:00.000Z',
         },
@@ -713,6 +950,7 @@ describe('transactionsRepository', () => {
           counterpart_amount: null,
           counterpart_currency_code: null,
           notes: 'Test',
+          is_confirmed: 1,
           created_at: '2025-01-14T10:00:00.000Z',
           updated_at: '2025-01-14T10:00:00.000Z',
         },
@@ -774,6 +1012,7 @@ describe('transactionsRepository', () => {
         counterpart_amount: null,
         counterpart_currency_code: null,
         notes: null,
+        is_confirmed: 1,
         created_at: '',
         updated_at: '',
       };
@@ -813,6 +1052,7 @@ describe('transactionsRepository', () => {
         counterpart_amount: null,
         counterpart_currency_code: null,
         notes: null,
+        is_confirmed: 1,
         created_at: '2025-01-15T10:00:00.000Z',
         updated_at: '2025-01-15T10:00:00.000Z',
       };
@@ -855,6 +1095,7 @@ describe('transactionsRepository', () => {
         counterpart_amount: null,
         counterpart_currency_code: null,
         notes: null,
+        is_confirmed: 1,
         created_at: '2025-01-15T10:00:00.000Z',
         updated_at: '2025-01-15T10:00:00.000Z',
       };
@@ -900,6 +1141,7 @@ describe('transactionsRepository', () => {
           counterpart_amount: null,
           counterpart_currency_code: null,
           notes: 'Test',
+          is_confirmed: 1,
           created_at: '2025-01-14T10:00:00.000Z',
           updated_at: '2025-01-14T10:00:00.000Z',
         },
@@ -942,6 +1184,7 @@ describe('transactionsRepository', () => {
         counterpart_amount: null,
         counterpart_currency_code: null,
         notes: null,
+        is_confirmed: 1,
         created_at: '2025-01-15T10:00:00.000Z',
         updated_at: '2025-01-15T10:00:00.000Z',
       };
@@ -1062,6 +1305,51 @@ describe('transactionsRepository', () => {
         expect(params).toEqual(['expense']);
       });
     });
+
+    describe('confirmed filter', () => {
+      const noRows: ResultSet = {
+        insertId: undefined,
+        rowsAffected: 0,
+        rows: { length: 0, raw: () => [], item: () => null },
+      };
+
+      const sqlFor = async (
+        filters: Parameters<typeof listTransactions>[1],
+      ): Promise<{ sql: string; params: unknown[] }> => {
+        mockDb.executeSql.mockResolvedValueOnce([noRows]);
+        await listTransactions(mockDb, filters);
+        return mockDb.executeSql.mock.calls[0] as unknown as {
+          sql: string;
+          params: unknown[];
+        };
+      };
+
+      it('narrows to unconfirmed rows when asked for false', async () => {
+        const [sql, params] = (await sqlFor({
+          isConfirmed: false,
+        })) as unknown as [string, unknown[]];
+
+        expect(sql).toContain('is_confirmed = ?');
+        expect(params).toEqual([0]);
+      });
+
+      it('narrows to confirmed rows when asked for true', async () => {
+        const [, params] = (await sqlFor({
+          isConfirmed: true,
+        })) as unknown as [string, unknown[]];
+
+        expect(params).toEqual([1]);
+      });
+
+      it('emits no condition when the filter is absent', async () => {
+        const [sql] = (await sqlFor({ type: 'expense' })) as unknown as [
+          string,
+          unknown[],
+        ];
+
+        expect(sql).not.toContain('is_confirmed = ?');
+      });
+    });
   });
 
   describe('createTransactionsBulk', () => {
@@ -1096,10 +1384,10 @@ describe('transactionsRepository', () => {
       expect(sql).toContain('INSERT INTO transactions');
       expect(
         sql.match(
-          /\(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/g,
+          /\(\?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?, \?\)/g,
         ),
       ).toHaveLength(2);
-      expect(params).toHaveLength(32);
+      expect(params).toHaveLength(34);
       expect(params[0]).toBe('expense');
       expect(params[1]).toBe('A');
       expect(params[9]).toBeNull();

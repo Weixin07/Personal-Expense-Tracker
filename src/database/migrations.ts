@@ -13,6 +13,17 @@ export type Migration = {
 
 const MIGRATIONS: readonly Migration[] = [
   {
+    version: 12,
+    name: 'transaction-confirmed-flag',
+    statements: [
+      // The default applies to every existing row as the column is added, so a
+      // ledger recorded before the flag existed reads back confirmed.
+      {
+        sql: `ALTER TABLE transactions ADD COLUMN is_confirmed INTEGER NOT NULL DEFAULT 1 CHECK (is_confirmed IN (0,1));`,
+      },
+    ],
+  },
+  {
     version: 11,
     name: 'transfer-counterpart-currency-required',
     statements: [

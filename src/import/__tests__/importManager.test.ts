@@ -381,6 +381,7 @@ describe('previewImport', () => {
           counterpartAmount: null,
           counterpartCurrencyCode: null,
           notes: null,
+          isConfirmed: true,
           createdAt: '',
           updatedAt: '',
         },
@@ -533,6 +534,7 @@ describe('previewImport', () => {
             counterpartAmount: null,
             counterpartCurrencyCode: null,
             notes: null,
+            isConfirmed: true,
             createdAt: '',
             updatedAt: '',
           },
@@ -1574,6 +1576,7 @@ describe('previewImport duplicate detection with times', () => {
     counterpartAmount: null,
     counterpartCurrencyCode: null,
     notes: null,
+    isConfirmed: true,
     createdAt: '',
     updatedAt: '',
   });

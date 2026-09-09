@@ -71,6 +71,10 @@ describe('ImportScreen', () => {
       expect(screen.getByText('Review import')).toBeOnTheScreen(),
     );
     expect(screen.getByText('1 of 1 rows ready to import.')).toBeOnTheScreen();
+    // The CSV carries no confirmed state.
+    expect(
+      screen.getByText(/Imported rows arrive unconfirmed/),
+    ).toBeOnTheScreen();
 
     fireEvent.press(screen.getByLabelText('Confirm import'));
 
@@ -240,6 +244,7 @@ describe('ImportScreen', () => {
       counterpartAmount: null,
       counterpartCurrencyCode: null,
       notes: null,
+      isConfirmed: true,
       createdAt: '',
       updatedAt: '',
     };

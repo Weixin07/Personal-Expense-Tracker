@@ -228,6 +228,7 @@ export const generateMockTransactions = (
       counterpartAmount: i % 20 === 0 ? parseFloat(amount.toFixed(2)) : null,
       counterpartCurrencyCode: i % 20 === 0 ? 'USD' : null,
       notes: Math.random() > 0.5 ? `Note for transaction ${i + 1}` : null,
+      isConfirmed: true,
       createdAt: date.toISOString(),
       updatedAt: date.toISOString(),
     });

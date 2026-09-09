@@ -25,6 +25,7 @@ const makeTransaction = (
   counterpartAmount: null,
   counterpartCurrencyCode: null,
   notes: null,
+  isConfirmed: true,
   createdAt: '2025-01-10T00:00:00.000Z',
   updatedAt: '2025-01-10T00:00:00.000Z',
   ...overrides,
@@ -176,12 +177,12 @@ describe('transactionDataReducer', () => {
       expect(next.filters).not.toHaveProperty('endDate');
     });
 
-    it('filters/set deletes needsReview when explicitly undefined', () => {
+    it('filters/set deletes needsAttention when explicitly undefined', () => {
       const next = transactionDataReducer(
-        { ...initialState, filters: { needsReview: true, fundId: 2 } },
-        { type: 'filters/set', payload: { needsReview: undefined } },
+        { ...initialState, filters: { needsAttention: true, fundId: 2 } },
+        { type: 'filters/set', payload: { needsAttention: undefined } },
       );
-      expect(next.filters).not.toHaveProperty('needsReview');
+      expect(next.filters).not.toHaveProperty('needsAttention');
       expect(next.filters.fundId).toBe(2);
     });
 

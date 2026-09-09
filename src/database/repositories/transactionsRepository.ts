@@ -31,6 +31,7 @@ const TRANSACTION_COLUMNS = `
   counterpart_amount,
   counterpart_currency_code,
   notes,
+  is_confirmed,
   created_at,
   updated_at
 `;
@@ -53,6 +54,7 @@ type RawTransactionRow = {
   counterpart_amount: number | null;
   counterpart_currency_code: string | null;
   notes: string | null;
+  is_confirmed: number;
   created_at: string;
   updated_at: string;
 };
@@ -75,6 +77,7 @@ const toTransactionRecord = (row: RawTransactionRow): TransactionRecord => ({
   counterpartAmount: row.counterpart_amount ?? null,
   counterpartCurrencyCode: row.counterpart_currency_code ?? null,
   notes: row.notes,
+  isConfirmed: row.is_confirmed !== 0,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
 });
@@ -109,9 +112,10 @@ export const createTransaction = async (
       counterpart_fund_id,
       counterpart_amount,
       counterpart_currency_code,
-      notes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    toBulkInsertParams(payload),
+      notes,
+      is_confirmed
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    toInsertParams(payload),
   );
 
   const insertResult = resultSet[0];
@@ -127,7 +131,7 @@ export const createTransaction = async (
   return transaction;
 };
 
-const BULK_INSERT_COLUMN_COUNT = 16;
+const BULK_INSERT_COLUMN_COUNT = 17;
 // SQLite caps host parameters per statement (SQLITE_MAX_VARIABLE_NUMBER, 999 on
 // older builds). Rows per INSERT are derived from the column count so the cap
 // cannot be breached by adding a column.
@@ -136,7 +140,13 @@ const BULK_INSERT_MAX_ROWS = Math.floor(
   SQLITE_MAX_HOST_PARAMS / BULK_INSERT_COLUMN_COUNT,
 );
 
-const toBulkInsertParams = (
+/**
+ * The columns an insert and an update both write, in the order both statements
+ * name them. A value appended to one statement and not the other writes every
+ * column after it one place out. `is_confirmed` is absent under the rule on
+ * `UpdateTransactionRecord`.
+ */
+const toSharedColumnParams = (
   payload: NewTransactionRecord,
 ): Array<string | number | null> => [
   payload.type,
@@ -157,6 +167,13 @@ const toBulkInsertParams = (
   payload.notes ?? null,
 ];
 
+const toInsertParams = (
+  payload: NewTransactionRecord,
+): Array<string | number | null> => [
+  ...toSharedColumnParams(payload),
+  payload.isConfirmed === false ? 0 : 1,
+];
+
 export const createTransactionsBulk = async (
   db: SQLiteDatabase,
   payloads: readonly NewTransactionRecord[],
@@ -170,7 +187,7 @@ export const createTransactionsBulk = async (
   for (let start = 0; start < payloads.length; start += BULK_INSERT_MAX_ROWS) {
     const batch = payloads.slice(start, start + BULK_INSERT_MAX_ROWS);
     const placeholders = Array(batch.length).fill(rowPlaceholder).join(', ');
-    const params = batch.flatMap(toBulkInsertParams);
+    const params = batch.flatMap(toInsertParams);
     await db.executeSql(
       // eslint-disable-next-line no-restricted-syntax -- placeholder groups are a trusted constant; every row value is parameterized
       `INSERT INTO transactions (
@@ -189,7 +206,8 @@ export const createTransactionsBulk = async (
         counterpart_fund_id,
         counterpart_amount,
         counterpart_currency_code,
-        notes
+        notes,
+        is_confirmed
       ) VALUES ${placeholders}`,
       params,
     );
@@ -223,7 +241,39 @@ export const updateTransaction = async (
       notes = ?,
       updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     WHERE id = ?`,
-    [...toBulkInsertParams(fields), id],
+    // The SET list above and these parameters must stay in step, under the rule
+    // on `toSharedColumnParams`.
+    [...toSharedColumnParams(fields), id],
+  );
+
+  if (resultSet[0].rowsAffected === 0) {
+    throw new Error(`Transaction ${id} not found`);
+  }
+
+  const transaction = await getTransactionById(db, id);
+  if (!transaction) {
+    throw new Error('Failed to load updated transaction');
+  }
+
+  return transaction;
+};
+
+/**
+ * Sets the confirmed flag and returns the stored row. Takes the value rather
+ * than toggling, so a repeated call lands the same state. Throws when no
+ * transaction carries `id`.
+ */
+export const setTransactionConfirmed = async (
+  db: SQLiteDatabase,
+  id: number,
+  isConfirmed: boolean,
+): Promise<TransactionRecord> => {
+  const resultSet = await db.executeSql(
+    `UPDATE transactions SET
+      is_confirmed = ?,
+      updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    WHERE id = ?`,
+    [isConfirmed ? 1 : 0, id],
   );
 
   if (resultSet[0].rowsAffected === 0) {
@@ -293,6 +343,10 @@ export const listTransactions = async (
   if (filters.endDate) {
     conditions.push('date <= ?');
     params.push(filters.endDate);
+  }
+  if (typeof filters.isConfirmed === 'boolean') {
+    conditions.push('is_confirmed = ?');
+    params.push(filters.isConfirmed ? 1 : 0);
   }
   if (filters.query) {
     // `notes` is nullable, and `NULL LIKE ?` yields NULL rather than false, so

@@ -335,6 +335,8 @@ Several migrations in the current schema make that consequential:
 
 | **11** | `transactions` rebuilt so a transfer must carry `counterpart_currency_code`; existing transfers are backfilled | Reads still work — the column set is unchanged from v10. **Transfer writes fail**: an older build omits the currency on a transfer, which the CHECK now refuses. Expenses and income are unaffected, so this breaks narrowly and loudly. |
 
+| **12** | `transactions` gains `is_confirmed INTEGER NOT NULL DEFAULT 1`; every existing row is confirmed by the default | **Nothing harmful — the mildest entry in this table.** Reads still work; the v11 column set is a subset. Writes still work: an older insert omits `is_confirmed` and the default records the row as confirmed, which is also the right answer for a row entered by hand. |
+
 Practical rules:
 
 - Do not distribute a build containing a new migration to anyone you may need to roll
@@ -348,6 +350,10 @@ Practical rules:
 - After upgrading across v9, confirm pre-upgrade rows still list (they carry no time) and
   that a CSV exported by the _previous_ version — which has no `time` column — still
   imports, leaving every row without a time.
+- After upgrading across v12, confirm pre-upgrade rows read back **confirmed** and that
+  none of them appears under Home's **Needs attention** filter. The migration adds a
+  column rather than rebuilding the table, so it carries none of the row-loss risk that
+  earns v10 and v11 their numbered checks below.
 
 A device that commits one migration and fails the next recovers on its own: the failure
 propagates out of `openDatabase`, the app shows its normal load-error state, and only

@@ -32,6 +32,7 @@ jest.mock('../../database', () => ({
   createTransaction: jest.fn(),
   updateTransaction: jest.fn(),
   deleteTransaction: jest.fn(),
+  setTransactionConfirmed: jest.fn(),
   listCategories: jest.fn(),
   createCategory: jest.fn(),
   updateCategory: jest.fn(),
@@ -90,6 +91,7 @@ const transaction: TransactionRecord = {
   counterpartAmount: null,
   counterpartCurrencyCode: null,
   notes: null,
+  isConfirmed: true,
   createdAt: '2025-01-10T00:00:00.000Z',
   updatedAt: '2025-01-10T00:00:00.000Z',
 };
@@ -1130,6 +1132,80 @@ describe('transfers and fund balances', () => {
     expect([...ctx.selectors.suspectTransferIds]).toEqual([51]);
   });
 
+  it('collects the rows the user has not confirmed', async () => {
+    mockDb.listFunds.mockResolvedValue([fund(1), fund(2)]);
+    mockDb.listTransactions.mockResolvedValue([
+      { ...transaction, id: 1, isConfirmed: false },
+      { ...transaction, id: 2, isConfirmed: true },
+      { ...transaction, id: 3, isConfirmed: false },
+    ]);
+
+    await renderProvider();
+
+    expect([...ctx.selectors.unconfirmedIds]).toEqual([1, 3]);
+  });
+
+  it('counts unconfirmed rows over the whole history, not the filtered view', async () => {
+    mockDb.listFunds.mockResolvedValue([fund(1), fund(2)]);
+    mockDb.listTransactions.mockResolvedValue([
+      { ...transaction, id: 1, isConfirmed: false, date: '2025-01-10' },
+      { ...transaction, id: 2, isConfirmed: false, date: '2030-01-10' },
+    ]);
+
+    await renderProvider();
+    act(() => {
+      ctx.actions.setFilters({ startDate: '2029-01-01' });
+    });
+
+    expect(ctx.selectors.filteredTransactions).toHaveLength(1);
+    expect(ctx.selectors.unconfirmedIds.size).toBe(2);
+  });
+
+  it('stores the confirmed flag without touching the rate cache', async () => {
+    mockDb.listFunds.mockResolvedValue([fund(1), fund(2)]);
+    mockDb.listTransactions.mockResolvedValue([
+      { ...transaction, id: 1, isConfirmed: false },
+    ]);
+    await renderProvider();
+    mockDb.upsertCurrencyFxRate.mockClear();
+    mockDb.setTransactionConfirmed.mockResolvedValue({
+      ...transaction,
+      id: 1,
+      isConfirmed: true,
+    });
+
+    await act(async () => {
+      await ctx.actions.setTransactionConfirmed(1, true);
+    });
+
+    expect(mockDb.setTransactionConfirmed).toHaveBeenCalledWith(
+      expect.anything(),
+      1,
+      true,
+    );
+    expect(ctx.selectors.unconfirmedIds.size).toBe(0);
+    expect(mockDb.upsertCurrencyFxRate).not.toHaveBeenCalled();
+  });
+
+  it('surfaces an error when the confirmed flag cannot be stored', async () => {
+    mockDb.listFunds.mockResolvedValue([fund(1), fund(2)]);
+    mockDb.listTransactions.mockResolvedValue([
+      { ...transaction, id: 1, isConfirmed: false },
+    ]);
+    await renderProvider();
+    mockDb.setTransactionConfirmed.mockRejectedValueOnce(
+      new Error('confirm failed'),
+    );
+
+    await act(async () => {
+      await expect(
+        ctx.actions.setTransactionConfirmed(1, true),
+      ).rejects.toThrow('confirm failed');
+    });
+
+    expect(ctx.state.error).toBe('confirm failed');
+  });
+
   it('narrows to suspect transfers and reports the filter as active', async () => {
     mockDb.listFunds.mockResolvedValue([fund(1), fund(2)]);
     mockDb.listTransactions.mockResolvedValue([
@@ -1140,7 +1216,7 @@ describe('transfers and fund balances', () => {
     await renderProvider();
 
     await act(async () => {
-      ctx.actions.setFilters({ needsReview: true });
+      ctx.actions.setFilters({ needsAttention: true });
     });
 
     expect(ctx.selectors.filteredTransactions).toHaveLength(1);
@@ -1148,7 +1224,7 @@ describe('transfers and fund balances', () => {
     expect(ctx.selectors.hasActiveFilters).toBe(true);
 
     await act(async () => {
-      ctx.actions.setFilters({ needsReview: undefined });
+      ctx.actions.setFilters({ needsAttention: undefined });
     });
 
     expect(ctx.selectors.filteredTransactions).toHaveLength(2);
@@ -1479,7 +1555,7 @@ describe('free-text search', () => {
     await renderProvider();
 
     await act(async () => {
-      ctx.actions.setFilters({ query: 'coffee', needsReview: true });
+      ctx.actions.setFilters({ query: 'coffee', needsAttention: true });
     });
 
     expect(matchedIds()).toEqual([]);

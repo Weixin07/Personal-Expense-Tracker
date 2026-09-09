@@ -35,6 +35,7 @@ const transactions: TransactionRecord[] = [
     counterpartAmount: null,
     counterpartCurrencyCode: null,
     notes: 'line1\nline2',
+    isConfirmed: true,
     createdAt: '',
     updatedAt: '',
   },
@@ -56,6 +57,7 @@ const transactions: TransactionRecord[] = [
     counterpartAmount: null,
     counterpartCurrencyCode: null,
     notes: null,
+    isConfirmed: true,
     createdAt: '',
     updatedAt: '',
   },
@@ -77,6 +79,7 @@ const transactions: TransactionRecord[] = [
     counterpartAmount: null,
     counterpartCurrencyCode: null,
     notes: null,
+    isConfirmed: true,
     createdAt: '',
     updatedAt: '',
   },
@@ -236,6 +239,41 @@ describe('export -> import round trip', () => {
       .calls[0][1];
     expect(inserted).toHaveLength(3);
     expect(inserted[0].categoryId).toBe(1);
+  });
+
+  it('lands every imported row unconfirmed, whatever the file carried', async () => {
+    const mockDb = {};
+    (database.withDatabase as jest.Mock).mockImplementation(cb => cb(mockDb));
+    (database.withTransaction as jest.Mock).mockImplementation((_db, work) =>
+      work(mockDb),
+    );
+    (database.getCategoryByName as jest.Mock).mockResolvedValue(categories[0]);
+    (database.createTransactionsBulk as jest.Mock).mockResolvedValue(3);
+    (database.upsertCurrencyFxRate as jest.Mock).mockResolvedValue(undefined);
+
+    // The rows are exported from confirmed transactions, so this also covers
+    // the round trip losing a flag the CSV has no column for.
+    const { content } = buildTransactionsCsv({ transactions, categories });
+    const mapping = autoDetectMapping(parseCsv(content).header);
+    const preview = previewImport(content, mapping, 'iso', {
+      baseCurrency: 'USD',
+      defaultCurrency: null,
+      currencyChoices: {},
+      negativeMeans: 'income',
+      numberFormat: 'auto',
+      fxRateCache: [],
+      existingTransactions: [],
+      existingCategories: categories,
+      existingFunds: [],
+      defaultFundId: 1,
+    });
+
+    await commitImport(preview);
+
+    const inserted = (database.createTransactionsBulk as jest.Mock).mock
+      .calls[0][1] as { isConfirmed: boolean }[];
+    expect(inserted).toHaveLength(3);
+    expect(inserted.every(record => record.isConfirmed === false)).toBe(true);
   });
 });
 
@@ -637,6 +675,7 @@ describe('export -> import round trip for a transfer', () => {
     counterpartAmount: 117,
     counterpartCurrencyCode: 'EUR',
     notes: null,
+    isConfirmed: true,
     createdAt: '',
     updatedAt: '',
   };
@@ -744,6 +783,7 @@ describe('an app-produced backup carrying a cross-currency transfer', () => {
     counterpartAmount: 195,
     counterpartCurrencyCode: 'EUR',
     notes: null,
+    isConfirmed: true,
     createdAt: '',
     updatedAt: '',
   };

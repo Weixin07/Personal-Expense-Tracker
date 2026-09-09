@@ -1231,6 +1231,9 @@ export const commitImport = async (
             : null,
           fundId: resolvedFunds?.fundId ?? defaultFundId,
           counterpartFundId: resolvedFunds?.counterpart ?? null,
+          // Arriving unconfirmed is a property of having been imported, not of
+          // anything the file said: no column supplies this.
+          isConfirmed: false,
         };
         return {
           record,

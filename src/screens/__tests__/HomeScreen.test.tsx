@@ -46,6 +46,7 @@ const makeTransaction = (
   counterpartAmount: null,
   counterpartCurrencyCode: null,
   notes: null,
+  isConfirmed: true,
   createdAt: '2025-01-10T00:00:00.000Z',
   updatedAt: '2025-01-10T00:00:00.000Z',
   ...overrides,
@@ -742,27 +743,122 @@ describe('fund balances', () => {
   it('counts the transfers needing review', () => {
     render({ selectors: { suspectTransferIds: new Set([6, 7]) } });
 
-    expect(screen.getByText('2 transfers need review')).toBeOnTheScreen();
+    expect(screen.getByText(/2 transfers need review/)).toBeOnTheScreen();
   });
 
-  it('says nothing when no transfer needs review', () => {
+  it('marks an unconfirmed row and leaves a confirmed one alone', () => {
+    render({
+      selectors: {
+        filteredTransactions: [
+          makeTransaction({ id: 8, isConfirmed: false, payee: 'Shop' }),
+        ],
+      },
+    });
+
+    expect(screen.getByText(/○ Unconfirmed/)).toBeOnTheScreen();
+
+    screen.unmount();
+    render({
+      selectors: {
+        filteredTransactions: [makeTransaction({ id: 9, payee: 'Shop' })],
+      },
+    });
+
+    expect(screen.queryByText(/○ Unconfirmed/)).toBeNull();
+  });
+
+  it('carries both badges on a row that is suspect and unconfirmed', () => {
+    render({
+      selectors: {
+        filteredTransactions: [
+          { ...crossCurrencyTransfer, isConfirmed: false },
+        ],
+        suspectTransferIds: new Set([6]),
+      },
+    });
+
+    expect(screen.getByText(/⚠ 1:1.*○ Unconfirmed/)).toBeOnTheScreen();
+  });
+
+  it('names both causes separately in the notice', () => {
+    render({
+      selectors: {
+        suspectTransferIds: new Set([6, 7]),
+        unconfirmedIds: new Set([8, 9, 10]),
+      },
+    });
+
+    expect(
+      screen.getByText('2 transfers need review · 3 rows unconfirmed'),
+    ).toBeOnTheScreen();
+  });
+
+  it('raises the notice for unconfirmed rows with no suspect transfer', () => {
+    render({ selectors: { unconfirmedIds: new Set([8]) } });
+
+    expect(screen.getByText('1 row unconfirmed')).toBeOnTheScreen();
+    expect(screen.queryByText(/currencies differ/)).toBeNull();
+  });
+
+  it('confirms a row from its own control without opening it', () => {
+    const setTransactionConfirmed = jest.fn().mockResolvedValue(undefined);
+    render({
+      selectors: {
+        filteredTransactions: [
+          makeTransaction({ id: 8, isConfirmed: false, payee: 'Shop' }),
+        ],
+      },
+      actions: { setTransactionConfirmed },
+    });
+
+    fireEvent.press(screen.getByLabelText('Mark Shop confirmed'));
+
+    expect(setTransactionConfirmed).toHaveBeenCalledWith(8, true);
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('offers to undo a confirmation it already carries', () => {
+    const setTransactionConfirmed = jest.fn().mockResolvedValue(undefined);
+    render({
+      selectors: {
+        filteredTransactions: [makeTransaction({ id: 9, payee: 'Shop' })],
+      },
+      actions: { setTransactionConfirmed },
+    });
+
+    fireEvent.press(screen.getByLabelText('Mark Shop unconfirmed'));
+
+    expect(setTransactionConfirmed).toHaveBeenCalledWith(9, false);
+  });
+
+  it('says nothing when nothing needs attention', () => {
     render();
 
     expect(screen.queryByText(/need review/)).toBeNull();
+    expect(screen.queryByText(/unconfirmed/)).toBeNull();
   });
 
-  it('narrows to the transfers needing review', () => {
+  it('shows the chip even when nothing needs attention', () => {
+    const setFilters = jest.fn();
+    render({ actions: { setFilters } });
+
+    fireEvent.press(screen.getByLabelText('Filter by rows needing attention'));
+
+    expect(setFilters).toHaveBeenCalledWith({ needsAttention: true });
+  });
+
+  it('narrows to the rows needing attention', () => {
     const setFilters = jest.fn();
     render({
       selectors: { suspectTransferIds: new Set([6]) },
       actions: { setFilters },
     });
 
-    fireEvent.press(
-      screen.getByLabelText('Review transfers needing attention'),
-    );
+    expect(screen.getByText('1 transfer needs review')).toBeOnTheScreen();
 
-    expect(setFilters).toHaveBeenCalledWith({ needsReview: true });
+    fireEvent.press(screen.getByLabelText('Review rows needing attention'));
+
+    expect(setFilters).toHaveBeenCalledWith({ needsAttention: true });
   });
 
   it('hides the notice once it is dismissed', () => {
@@ -773,19 +869,17 @@ describe('fund balances', () => {
     expect(screen.queryByText(/need review/)).toBeNull();
   });
 
-  it('offers a chip that clears the review filter', () => {
+  it('offers a chip that clears the needs-attention filter', () => {
     const setFilters = jest.fn();
     render({
-      state: { filters: { needsReview: true } },
+      state: { filters: { needsAttention: true } },
       actions: { setFilters },
     });
 
-    expect(screen.getByText('Needs review')).toBeOnTheScreen();
-    fireEvent.press(
-      screen.getByLabelText('Filter by transfers needing review'),
-    );
+    expect(screen.getByText('Needs attention')).toBeOnTheScreen();
+    fireEvent.press(screen.getByLabelText('Filter by rows needing attention'));
 
-    expect(setFilters).toHaveBeenCalledWith({ needsReview: undefined });
+    expect(setFilters).toHaveBeenCalledWith({ needsAttention: undefined });
   });
 });
 

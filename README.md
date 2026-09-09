@@ -134,6 +134,7 @@ CREATE TABLE transactions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   type TEXT NOT NULL DEFAULT 'expense' CHECK (type IN ('expense','income','transfer')),
   description TEXT NOT NULL,
+  payee TEXT NOT NULL DEFAULT 'Unknown',
   amount_native REAL NOT NULL CHECK (amount_native > 0),
   currency_code TEXT NOT NULL CHECK (LENGTH(currency_code) = 3),
   fx_rate_to_base REAL NOT NULL CHECK (fx_rate_to_base > 0),
@@ -147,6 +148,7 @@ CREATE TABLE transactions (
   counterpart_amount REAL NULL,  -- what arrived, in counterpart_currency_code
   counterpart_currency_code TEXT NULL,  -- what counterpart_amount is denominated in; required on a transfer
   notes TEXT NULL,
+  is_confirmed INTEGER NOT NULL DEFAULT 1 CHECK (is_confirmed IN (0,1)),  -- 1 = the user has checked this row; imports arrive 0
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
   CHECK (  -- the three counterpart columns are present together, and only on a transfer
@@ -187,6 +189,13 @@ reported per base currency when historical data spans more than one.
 
 `amount_native` is always a positive magnitude — direction is carried by
 `type`, never by the sign of the amount.
+
+`is_confirmed` records whether you have checked a row against reality. It is
+separate from whether the app _suspects_ a row: that is recomputed from the
+amounts each time, this is stored because only you can set it. Rows you enter
+are confirmed; imported rows arrive unconfirmed, giving an import its own review
+queue. The flag is not one of the 17 CSV columns, so a row exported and imported
+again comes back unconfirmed.
 
 **`categories`** (Transaction classification)
 
@@ -742,7 +751,7 @@ PET/
 │   │   └── AppContext.tsx      # Global app state (expenses, categories, settings)
 │   ├── database/               # SQLite layer
 │   │   ├── database.ts         # Database initialization, connection
-│   │   ├── migrations.ts       # Schema migrations (v1-v11)
+│   │   ├── migrations.ts       # Schema migrations (v1-v12)
 │   │   ├── snapshot.ts         # Pre-migration database copy (WAL-checkpointed)
 │   │   ├── seeding.ts          # Default data seeding
 │   │   ├── repositories/       # Data access layer

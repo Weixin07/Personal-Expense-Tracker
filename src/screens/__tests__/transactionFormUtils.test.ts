@@ -226,6 +226,7 @@ describe('transactionFormUtils', () => {
         counterpartAmount: null,
         counterpartCurrencyCode: null,
         notes: 'Receipt #123',
+        isConfirmed: true,
         createdAt: '',
         updatedAt: '',
       };
@@ -259,6 +260,7 @@ describe('transactionFormUtils', () => {
       counterpartAmount: null,
       counterpartCurrencyCode: null,
       notes: null,
+      isConfirmed: true,
       createdAt: '',
       updatedAt: '',
     };
@@ -519,6 +521,7 @@ describe('transactionFormUtils', () => {
         counterpartAmount: null,
         counterpartCurrencyCode: null,
         notes: null,
+        isConfirmed: true,
         createdAt: '',
         updatedAt: '',
       };
@@ -552,6 +555,7 @@ describe('transactionFormUtils', () => {
         counterpartAmount: null,
         counterpartCurrencyCode: null,
         notes: null,
+        isConfirmed: true,
         createdAt: '',
         updatedAt: '',
       };

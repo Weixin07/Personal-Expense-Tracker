@@ -210,12 +210,12 @@ describe('migration v10 against a real SQLite engine', () => {
     });
   });
 
-  it('reports the schema at version 11', () => {
+  it('reports the schema at version 12', () => {
     const [{ version }] = raw
       .prepare('SELECT MAX(version) AS version FROM schema_migrations')
       .all() as { version: number }[];
 
-    expect(version).toBe(11);
+    expect(version).toBe(12);
   });
 });
 
@@ -447,6 +447,168 @@ describe('migration v11 against a real SQLite engine', () => {
       .all() as { sql: string }[];
 
     expect(sql).toContain('WHERE counterpart_fund_id IS NOT NULL');
+  });
+});
+
+/**
+ * The schema as it stood at v11, whose `transactions` carries no confirmed
+ * flag. Source it from the v11 migration's own rebuild, not from the README,
+ * whose schema reproduction lags.
+ */
+const seedV11 = (db: DatabaseSync): void => {
+  db.exec(`CREATE TABLE categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL CHECK (LENGTH(name) > 0) UNIQUE,
+    type TEXT NOT NULL DEFAULT 'both' CHECK (type IN ('expense','income','both')),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  );`);
+  db.exec(`CREATE TABLE funds (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE CHECK (LENGTH(name) > 0),
+    currency_code TEXT NULL CHECK (currency_code IS NULL OR LENGTH(currency_code) = 3),
+    opening_balance REAL NOT NULL DEFAULT 0,
+    notes TEXT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  );`);
+  db.exec(`CREATE TABLE transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL DEFAULT 'expense' CHECK (type IN ('expense','income','transfer')),
+    description TEXT NOT NULL,
+    payee TEXT NOT NULL DEFAULT 'Unknown',
+    amount_native REAL NOT NULL CHECK (amount_native > 0),
+    currency_code TEXT NOT NULL CHECK (LENGTH(currency_code) = 3),
+    fx_rate_to_base REAL NOT NULL CHECK (fx_rate_to_base > 0),
+    base_amount REAL NOT NULL CHECK (base_amount >= 0),
+    base_currency_code TEXT NULL,
+    date TEXT NOT NULL CHECK (LENGTH(date) = 10),
+    time TEXT NULL CHECK (time IS NULL OR LENGTH(time) = 5),
+    category_id INTEGER NULL,
+    fund_id INTEGER NOT NULL,
+    counterpart_fund_id INTEGER NULL,
+    counterpart_amount REAL NULL CHECK (counterpart_amount IS NULL OR counterpart_amount > 0),
+    counterpart_currency_code TEXT NULL CHECK (counterpart_currency_code IS NULL OR LENGTH(counterpart_currency_code) = 3),
+    notes TEXT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    CHECK (
+      (type = 'transfer'
+        AND counterpart_fund_id IS NOT NULL
+        AND counterpart_amount IS NOT NULL
+        AND counterpart_currency_code IS NOT NULL
+        AND counterpart_fund_id <> fund_id)
+      OR
+      (type <> 'transfer'
+        AND counterpart_fund_id IS NULL
+        AND counterpart_amount IS NULL
+        AND counterpart_currency_code IS NULL)
+    ),
+    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+    FOREIGN KEY (fund_id) REFERENCES funds(id) ON DELETE RESTRICT,
+    FOREIGN KEY (counterpart_fund_id) REFERENCES funds(id) ON DELETE RESTRICT
+  );`);
+  db.exec(`CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT);`);
+  db.exec(`CREATE TABLE schema_migrations (
+    version INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  );`);
+  for (let version = 1; version <= 11; version += 1) {
+    db.prepare(
+      'INSERT INTO schema_migrations (version, name) VALUES (?, ?)',
+    ).run(version, `v${version}`);
+  }
+
+  db.exec(`INSERT INTO categories (name, type) VALUES ('Food', 'both');`);
+  db.exec(`INSERT INTO funds (name, currency_code) VALUES
+    ('General', NULL), ('Travel', 'EUR');`);
+  db.exec(`INSERT INTO transactions
+    (type, description, payee, amount_native, currency_code, fx_rate_to_base,
+     base_amount, base_currency_code, date, time, category_id, fund_id,
+     counterpart_fund_id, counterpart_amount, counterpart_currency_code, notes)
+    VALUES
+    ('expense','Coffee','Cafe',3.5,'MYR',1,3.5,'MYR','2025-01-10','08:30',1,1,NULL,NULL,NULL,'note'),
+    ('income','Salary','Work',1000,'MYR',1,1000,'MYR','2025-01-01',NULL,NULL,1,NULL,NULL,NULL,NULL),
+    ('transfer','','',100,'MYR',1,100,'MYR','2025-02-03',NULL,NULL,1,2,20,'EUR',NULL);`);
+};
+
+describe('migration v12 against a real SQLite engine', () => {
+  let raw: DatabaseSync;
+
+  beforeEach(async () => {
+    raw = new DatabaseSync(':memory:');
+    raw.exec('PRAGMA foreign_keys = ON');
+    seedV11(raw);
+    await runMigrations(adapt(raw));
+  });
+
+  afterEach(() => {
+    raw.close();
+  });
+
+  it('leaves every row recorded before the flag existed confirmed', () => {
+    const rows = raw
+      .prepare('SELECT id, is_confirmed FROM transactions ORDER BY id')
+      .all() as { id: number; is_confirmed: number }[];
+
+    expect(rows).toEqual([
+      { id: 1, is_confirmed: 1 },
+      { id: 2, is_confirmed: 1 },
+      { id: 3, is_confirmed: 1 },
+    ]);
+  });
+
+  it('carries every other value across untouched', () => {
+    const row = raw
+      .prepare('SELECT * FROM transactions WHERE id = 1')
+      .get() as Record<string, unknown>;
+
+    expect(row).toMatchObject({
+      type: 'expense',
+      description: 'Coffee',
+      payee: 'Cafe',
+      amount_native: 3.5,
+      currency_code: 'MYR',
+      base_amount: 3.5,
+      date: '2025-01-10',
+      time: '08:30',
+      category_id: 1,
+      fund_id: 1,
+      notes: 'note',
+    });
+  });
+
+  it('stores a row written as unconfirmed', () => {
+    raw.exec(`INSERT INTO transactions
+      (type, description, payee, amount_native, currency_code, fx_rate_to_base,
+       base_amount, base_currency_code, date, category_id, fund_id, is_confirmed)
+      VALUES ('expense','Imported','Shop',9,'MYR',1,9,'MYR','2025-03-01',1,1,0);`);
+
+    const row = raw
+      .prepare(
+        "SELECT is_confirmed FROM transactions WHERE description = 'Imported'",
+      )
+      .get() as { is_confirmed: number };
+
+    expect(row.is_confirmed).toBe(0);
+  });
+
+  it('refuses a value that is neither confirmed nor unconfirmed', () => {
+    expect(() =>
+      raw.exec(`INSERT INTO transactions
+        (type, description, payee, amount_native, currency_code, fx_rate_to_base,
+         base_amount, base_currency_code, date, category_id, fund_id, is_confirmed)
+        VALUES ('expense','Bad','Shop',9,'MYR',1,9,'MYR','2025-03-01',1,1,7);`),
+    ).toThrow(/CHECK constraint failed/);
+  });
+
+  it('reports the schema at version 12', () => {
+    const [{ version }] = raw
+      .prepare('SELECT MAX(version) AS version FROM schema_migrations')
+      .all() as { version: number }[];
+
+    expect(version).toBe(12);
   });
 });
 

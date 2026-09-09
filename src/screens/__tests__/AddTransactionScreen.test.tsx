@@ -41,6 +41,7 @@ const makeTransaction = (
   counterpartAmount: null,
   counterpartCurrencyCode: null,
   notes: null,
+  isConfirmed: true,
   createdAt: '2025-01-10T00:00:00.000Z',
   updatedAt: '2025-01-10T00:00:00.000Z',
   ...overrides,

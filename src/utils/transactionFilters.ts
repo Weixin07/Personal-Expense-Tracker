@@ -14,11 +14,13 @@ export type TransactionFilters = {
    */
   fundId?: number;
   /**
-   * Narrows to transfers whose recorded amounts imply a rate their currencies
-   * contradict. Has no false form: a filter that is not wanted is absent, which
-   * is what every other member here means by omission.
+   * Narrows to rows the ledger cannot vouch for, from either of two independent
+   * causes: a transfer whose recorded amounts imply a rate its currencies
+   * contradict, or a row the user has not confirmed. Has no false form: a
+   * filter that is not wanted is absent, which is what every other member here
+   * means by omission.
    */
-  needsReview?: true;
+  needsAttention?: true;
   startDate?: string;
   endDate?: string;
   /**
@@ -31,8 +33,8 @@ export type TransactionFilters = {
 
 /**
  * The transactions matching every member of `filters` at once; an absent member
- * narrows nothing. `suspectTransferIds` supplies the review filter's membership,
- * since whether a transfer needs review is derived rather than stored.
+ * narrows nothing. `suspectTransferIds` supplies the derived half of the
+ * needs-attention filter; the stored half rides on the transaction itself.
  */
 export const applyFilters = (
   transactions: TransactionRecord[],
@@ -47,15 +49,26 @@ export const applyFilters = (
     filters,
     'categoryId',
   );
-  const { type, categoryId, fundId, needsReview, startDate, endDate, query } =
-    filters;
+  const {
+    type,
+    categoryId,
+    fundId,
+    needsAttention,
+    startDate,
+    endDate,
+    query,
+  } = filters;
 
   return transactions.filter(transaction => {
     if (type !== undefined && transaction.type !== type) {
       return false;
     }
 
-    if (needsReview && !suspectTransferIds.has(transaction.id)) {
+    if (
+      needsAttention &&
+      transaction.isConfirmed &&
+      !suspectTransferIds.has(transaction.id)
+    ) {
       return false;
     }
 

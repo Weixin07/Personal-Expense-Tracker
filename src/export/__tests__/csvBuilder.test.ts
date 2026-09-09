@@ -21,6 +21,7 @@ describe('buildTransactionsCsv', () => {
     counterpartAmount: null,
     counterpartCurrencyCode: null,
     notes: 'Morning brew',
+    isConfirmed: true,
     createdAt: '',
     updatedAt: '',
   };
@@ -186,6 +187,7 @@ describe('fund and transfer columns', () => {
     counterpartAmount: null,
     counterpartCurrencyCode: null,
     notes: null,
+    isConfirmed: true,
     createdAt: '',
     updatedAt: '',
   };

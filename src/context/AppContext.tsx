@@ -21,6 +21,7 @@ import {
   createTransaction as dbCreateTransaction,
   updateTransaction as dbUpdateTransaction,
   deleteTransaction as dbDeleteTransaction,
+  setTransactionConfirmed as dbSetTransactionConfirmed,
   listCategories as dbListCategories,
   createCategory as dbCreateCategory,
   updateCategory as dbUpdateCategory,
@@ -140,6 +141,11 @@ export type TransactionDataSelectors = {
    * a period rather than the state of the ledger.
    */
   suspectTransferIds: ReadonlySet<number>;
+  /**
+   * Rows the user has not confirmed. Spans the whole history rather than the
+   * filtered view, for the same reason `suspectTransferIds` does.
+   */
+  unconfirmedIds: ReadonlySet<number>;
   hasActiveFilters: boolean;
   /**
    * Counted over the whole history rather than the filtered view: a picker
@@ -158,6 +164,11 @@ export type TransactionDataActions = {
     payload: UpdateTransactionRecord,
   ) => Promise<TransactionRecord>;
   deleteTransaction: (id: number) => Promise<void>;
+  /**
+   * Takes the value rather than toggling, so a repeated call lands the same
+   * state.
+   */
+  setTransactionConfirmed: (id: number, isConfirmed: boolean) => Promise<void>;
   createCategory: (payload: NewCategoryRecord) => Promise<CategoryRecord>;
   updateCategory: (payload: UpdateCategoryRecord) => Promise<CategoryRecord>;
   deleteCategory: (id: number) => Promise<void>;
@@ -316,10 +327,10 @@ const normalizeFilters = (
     delete next.fundId;
   }
   if (
-    Object.prototype.hasOwnProperty.call(update, 'needsReview') &&
-    update.needsReview === undefined
+    Object.prototype.hasOwnProperty.call(update, 'needsAttention') &&
+    update.needsAttention === undefined
   ) {
-    delete next.needsReview;
+    delete next.needsAttention;
   }
   if (
     Object.prototype.hasOwnProperty.call(update, 'startDate') &&
@@ -615,7 +626,7 @@ const hasActiveFilters = (filters: TransactionFilters): boolean => {
   if (filters.fundId !== undefined) {
     return true;
   }
-  if (filters.needsReview !== undefined) {
+  if (filters.needsAttention !== undefined) {
     return true;
   }
   if (filters.startDate || filters.endDate) {
@@ -817,6 +828,26 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     try {
       await withDatabase(db => dbDeleteTransaction(db, id));
       dispatch({ type: 'transaction/delete', payload: id });
+    } catch (error) {
+      dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
+      throw toError(error);
+    } finally {
+      dispatch({ type: 'operation/end' });
+    }
+  }, []);
+
+  const setTransactionConfirmed = useCallback<
+    TransactionDataActions['setTransactionConfirmed']
+  >(async (id, isConfirmed) => {
+    dispatch({ type: 'operation/start' });
+    try {
+      // No rate is derived here, unlike the create and update paths: no amount,
+      // currency or rate moved, and seeding one would put a rate nobody
+      // observed into the cache the form prefills from.
+      const transaction = await withDatabase(db =>
+        dbSetTransactionConfirmed(db, id, isConfirmed),
+      );
+      dispatch({ type: 'transaction/update', payload: transaction });
     } catch (error) {
       dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
       throw toError(error);
@@ -1164,6 +1195,17 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     [state.transactions, state.funds, state.settings.baseCurrency],
   );
 
+  // Independent of `filters`, under the rule on `unconfirmedIds`.
+  const unconfirmedIds = useMemo(() => {
+    const unconfirmed = new Set<number>();
+    state.transactions.forEach(transaction => {
+      if (!transaction.isConfirmed) {
+        unconfirmed.add(transaction.id);
+      }
+    });
+    return unconfirmed;
+  }, [state.transactions]);
+
   const filteredTransactions = useMemo(
     () => applyFilters(state.transactions, state.filters, suspectTransferIds),
     [state.transactions, state.filters, suspectTransferIds],
@@ -1203,6 +1245,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       totals,
       fundBalances,
       suspectTransferIds,
+      unconfirmedIds,
       hasActiveFilters: hasActiveFilters(state.filters),
       categoryUsageCounts,
     }),
@@ -1211,6 +1254,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       totals,
       fundBalances,
       suspectTransferIds,
+      unconfirmedIds,
       state.filters,
       categoryUsageCounts,
     ],
@@ -1222,6 +1266,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       createTransaction,
       updateTransaction,
       deleteTransaction,
+      setTransactionConfirmed,
       createCategory,
       updateCategory,
       deleteCategory,
@@ -1248,6 +1293,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       createTransaction,
       updateTransaction,
       deleteTransaction,
+      setTransactionConfirmed,
       createCategory,
       updateCategory,
       deleteCategory,

@@ -39,6 +39,7 @@ describe('CSV Export Integration Tests', () => {
       counterpartAmount: null,
       counterpartCurrencyCode: null,
       notes: 'Tesco shopping',
+      isConfirmed: true,
       createdAt: '2025-01-15T10:00:00.000Z',
       updatedAt: '2025-01-15T10:00:00.000Z',
     },
@@ -60,6 +61,7 @@ describe('CSV Export Integration Tests', () => {
       counterpartAmount: null,
       counterpartCurrencyCode: null,
       notes: null,
+      isConfirmed: true,
       createdAt: '2025-01-20T08:30:00.000Z',
       updatedAt: '2025-01-20T08:30:00.000Z',
     },
@@ -81,6 +83,7 @@ describe('CSV Export Integration Tests', () => {
       counterpartAmount: null,
       counterpartCurrencyCode: null,
       notes: 'Line 1\nLine 2',
+      isConfirmed: true,
       createdAt: '2025-01-22T14:00:00.000Z',
       updatedAt: '2025-01-22T14:00:00.000Z',
     },
@@ -145,7 +148,10 @@ describe('CSV Export Integration Tests', () => {
 
       expect(lines[1]).toContain('Groceries');
       expect(lines[2]).toContain('Transport');
-      expect(lines[3]).toContain(''); // No category
+
+      const categoryColumn = TRANSACTION_CSV_COLUMNS.indexOf('category');
+      const uncategorised = lines[3].split(',');
+      expect(uncategorised[categoryColumn]).toBe('');
     });
 
     it('should handle null notes as empty string', () => {
@@ -182,6 +188,7 @@ describe('CSV Export Integration Tests', () => {
           counterpartAmount: null,
           counterpartCurrencyCode: null,
           notes: null,
+          isConfirmed: true,
           createdAt: '2025-01-01T00:00:00.000Z',
           updatedAt: '2025-01-01T00:00:00.000Z',
         }),
@@ -235,6 +242,7 @@ describe('CSV Export Integration Tests', () => {
         counterpartAmount: null,
         counterpartCurrencyCode: null,
         notes: null,
+        isConfirmed: true,
         createdAt: '2025-01-01T00:00:00.000Z',
         updatedAt: '2025-01-01T00:00:00.000Z',
       };

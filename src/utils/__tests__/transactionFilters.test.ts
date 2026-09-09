@@ -20,6 +20,7 @@ const record = (overrides: Partial<TransactionRecord>): TransactionRecord => ({
   counterpartAmount: null,
   counterpartCurrencyCode: null,
   notes: null,
+  isConfirmed: true,
   createdAt: '2025-01-15T00:00:00.000Z',
   updatedAt: '2025-01-15T00:00:00.000Z',
   ...overrides,
@@ -98,8 +99,38 @@ describe('applyFilters', () => {
   });
 
   it('narrows to the transfers a caller reports as needing review', () => {
-    expect(idsFor({ needsReview: true }, new Set([4]))).toEqual([4]);
-    expect(idsFor({ needsReview: true })).toEqual([]);
+    expect(idsFor({ needsAttention: true }, new Set([4]))).toEqual([4]);
+    expect(idsFor({ needsAttention: true })).toEqual([]);
+  });
+
+  describe('needs-attention over its two independent causes', () => {
+    const suspectOnly = record({ id: 10, isConfirmed: true });
+    const unconfirmedOnly = record({ id: 11, isConfirmed: false });
+    const both = record({ id: 12, isConfirmed: false });
+    const neither = record({ id: 13, isConfirmed: true });
+    const mixed = [suspectOnly, unconfirmedOnly, both, neither];
+    const suspects: ReadonlySet<number> = new Set([10, 12]);
+
+    const attended = (): number[] =>
+      applyFilters(mixed, { needsAttention: true }, suspects).map(
+        entry => entry.id,
+      );
+
+    it('keeps a suspect transfer the user has confirmed', () => {
+      expect(attended()).toContain(10);
+    });
+
+    it('keeps an unconfirmed row nothing suspects', () => {
+      expect(attended()).toContain(11);
+    });
+
+    it('keeps a row carrying both causes exactly once', () => {
+      expect(attended().filter(id => id === 12)).toEqual([12]);
+    });
+
+    it('drops a row carrying neither', () => {
+      expect(attended()).not.toContain(13);
+    });
   });
 
   it('matches a query against description, payee and notes alike', () => {
@@ -134,7 +165,7 @@ describe('applyFilters', () => {
     expect(idsFor({ query: 'coffee', fundId: 2 })).toEqual([2, 4]);
     expect(idsFor({ query: 'coffee', endDate: '2025-01-31' })).toEqual([1, 4]);
     expect(
-      idsFor({ query: 'coffee', needsReview: true }, new Set([4])),
+      idsFor({ query: 'coffee', needsAttention: true }, new Set([4])),
     ).toEqual([4]);
   });
 });

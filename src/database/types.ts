@@ -62,18 +62,35 @@ export type TransactionRecord = {
    */
   counterpartCurrencyCode: string | null;
   notes: string | null;
+  /**
+   * Whether the user has checked this row against reality. Distinct from
+   * whether the app suspects it: that is recomputed from the amounts, this is
+   * stored. Never derived from one another.
+   */
+  isConfirmed: boolean;
   createdAt: string;
   updatedAt: string;
 };
 
+/**
+ * Omitting `isConfirmed` records a confirmed row, which is what a transaction
+ * the user typed is. Pass `false` only for a row that reached the ledger
+ * without the user seeing it.
+ */
 export type NewTransactionRecord = Omit<
   TransactionRecord,
-  'id' | 'createdAt' | 'updatedAt'
->;
+  'id' | 'createdAt' | 'updatedAt' | 'isConfirmed'
+> & {
+  isConfirmed?: boolean;
+};
 
+/**
+ * `isConfirmed` is absent rather than optional: an edit must not be able to
+ * change it, so the only writer is `setTransactionConfirmed`.
+ */
 export type UpdateTransactionRecord = Omit<
   TransactionRecord,
-  'createdAt' | 'updatedAt'
+  'createdAt' | 'updatedAt' | 'isConfirmed'
 >;
 
 export type TransactionQueryFilters = {
@@ -89,6 +106,11 @@ export type TransactionQueryFilters = {
    * included: the caller supplies an already-trimmed value.
    */
   query?: string;
+  /**
+   * Matches the stored flag alone. Whether a transfer looks suspect is derived
+   * in JavaScript and cannot be expressed here.
+   */
+  isConfirmed?: boolean;
   limit?: number;
   offset?: number;
 };

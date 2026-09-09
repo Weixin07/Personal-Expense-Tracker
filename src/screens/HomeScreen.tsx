@@ -84,15 +84,17 @@ const HomeScreen: React.FC = () => {
       totals,
       fundBalances,
       suspectTransferIds,
+      unconfirmedIds,
       hasActiveFilters,
       categoryUsageCounts,
     },
-    actions: { refresh, setFilters, setBaseCurrency },
+    actions: { refresh, setFilters, setBaseCurrency, setTransactionConfirmed },
   } = useTransactionData();
 
   const [refreshing, setRefreshing] = useState(false);
-  // Not persisted: the condition clears itself once the transfers are corrected,
-  // and a data-integrity warning must not be dismissible for good.
+  // Not persisted: the condition clears itself once the transfers are corrected
+  // and the imported rows are ticked off, and neither a data-integrity warning
+  // nor an unreviewed import queue should be dismissible for good.
   const [reviewBannerDismissed, setReviewBannerDismissed] = useState(false);
   const [categoryDialogVisible, setCategoryDialogVisible] = useState(false);
   const [fundDialogVisible, setFundDialogVisible] = useState(false);
@@ -152,7 +154,7 @@ const HomeScreen: React.FC = () => {
   const categoryFilterId = filters.categoryId ?? null;
   const fundFilterId = filters.fundId ?? null;
   const typeFilter = filters.type ?? null;
-  const needsReviewFilter = filters.needsReview ?? false;
+  const needsAttentionFilter = filters.needsAttention ?? false;
   const incomeColor = theme.dark ? INCOME_COLOR_DARK : INCOME_COLOR_LIGHT;
   const negativeColor = theme.dark ? NEGATIVE_COLOR_DARK : NEGATIVE_COLOR_LIGHT;
   const mutedColor = theme.colors.onSurfaceVariant;
@@ -236,9 +238,13 @@ const HomeScreen: React.FC = () => {
     setFilters({ fundId: undefined });
   }, [setFilters]);
 
-  const handleClearNeedsReview = useCallback(() => {
-    setFilters({ needsReview: undefined });
+  const handleClearNeedsAttention = useCallback(() => {
+    setFilters({ needsAttention: undefined });
   }, [setFilters]);
+
+  const handleToggleNeedsAttention = useCallback(() => {
+    setFilters({ needsAttention: needsAttentionFilter ? undefined : true });
+  }, [needsAttentionFilter, setFilters]);
 
   // Selecting the active direction clears it, so the pair behaves as one
   // three-state control without needing a separate clear affordance.
@@ -259,7 +265,7 @@ const HomeScreen: React.FC = () => {
       categoryId: undefined,
       type: undefined,
       fundId: undefined,
-      needsReview: undefined,
+      needsAttention: undefined,
       query: undefined,
     });
   }, [setFilters]);
@@ -348,6 +354,9 @@ const HomeScreen: React.FC = () => {
       if (suspectTransferIds.has(item.id)) {
         descriptionParts.push('⚠ 1:1');
       }
+      if (!item.isConfirmed) {
+        descriptionParts.push('○ Unconfirmed');
+      }
       return (
         <List.Item
           style={styles.listItem}
@@ -358,31 +367,52 @@ const HomeScreen: React.FC = () => {
             navigation.navigate('AddTransaction', { transactionId: item.id })
           }
           accessibilityLabel={`Open ${item.type} ${title}`}
-          right={() =>
-            // A transfer's base amount is what left the source, which says
-            // nothing about the row as a whole; both legs are already named in
-            // the subline.
-            isTransfer ? null : (
-              <View style={styles.amountContainer}>
-                <Text
-                  style={[
-                    styles.listAmount,
-                    isIncome ? { color: incomeColor } : null,
-                  ]}
-                >
-                  {formatDirectionalMoney(
-                    item.baseAmount,
-                    isIncome ? 'received' : 'spent',
-                    item.baseCurrencyCode,
-                  )}
-                </Text>
-              </View>
-            )
-          }
+          right={() => (
+            <View style={styles.rowRight}>
+              {/* A transfer's base amount is what left the source, which says
+                  nothing about the row as a whole; both legs are already named
+                  in the subline. */}
+              {isTransfer ? null : (
+                <View style={styles.amountContainer}>
+                  <Text
+                    style={[
+                      styles.listAmount,
+                      isIncome ? { color: incomeColor } : null,
+                    ]}
+                  >
+                    {formatDirectionalMoney(
+                      item.baseAmount,
+                      isIncome ? 'received' : 'spent',
+                      item.baseCurrencyCode,
+                    )}
+                  </Text>
+                </View>
+              )}
+              <IconButton
+                icon={
+                  item.isConfirmed ? 'check-circle' : 'check-circle-outline'
+                }
+                size={20}
+                onPress={() =>
+                  void setTransactionConfirmed(item.id, !item.isConfirmed)
+                }
+                accessibilityLabel={`Mark ${title} ${
+                  item.isConfirmed ? 'unconfirmed' : 'confirmed'
+                }`}
+              />
+            </View>
+          )}
         />
       );
     },
-    [categoriesMap, fundsMap, incomeColor, navigation, suspectTransferIds],
+    [
+      categoriesMap,
+      fundsMap,
+      incomeColor,
+      navigation,
+      setTransactionConfirmed,
+      suspectTransferIds,
+    ],
   );
 
   const keyExtractor = useCallback(
@@ -400,24 +430,43 @@ const HomeScreen: React.FC = () => {
   );
 
   const reviewCard = useMemo(() => {
-    if (reviewBannerDismissed || suspectTransferIds.size === 0) {
+    const suspectCount = suspectTransferIds.size;
+    const unconfirmedCount = unconfirmedIds.size;
+    if (reviewBannerDismissed || suspectCount + unconfirmedCount === 0) {
       return null;
     }
 
-    const count = suspectTransferIds.size;
+    const headings: string[] = [];
+    if (suspectCount) {
+      headings.push(
+        `${suspectCount} transfer${suspectCount === 1 ? ' needs' : 's need'} review`,
+      );
+    }
+    if (unconfirmedCount) {
+      headings.push(
+        `${unconfirmedCount} row${unconfirmedCount === 1 ? '' : 's'} unconfirmed`,
+      );
+    }
+
     return (
       <Surface style={styles.summaryCard} elevation={1}>
-        <Text variant="titleSmall">
-          {count} transfer{count === 1 ? '' : 's'} need review
-        </Text>
-        <Text variant="bodySmall" style={{ color: mutedColor }}>
-          The amount received matches the amount sent, but the currencies
-          differ.
-        </Text>
+        <Text variant="titleSmall">{headings.join(' · ')}</Text>
+        {suspectCount ? (
+          <Text variant="bodySmall" style={{ color: mutedColor }}>
+            The amount received matches the amount sent, but the currencies
+            differ.
+          </Text>
+        ) : null}
+        {unconfirmedCount ? (
+          <Text variant="bodySmall" style={{ color: mutedColor }}>
+            Imported rows arrive unconfirmed. Tick one off once you have checked
+            it.
+          </Text>
+        ) : null}
         <View style={styles.reviewActions}>
           <Button
-            onPress={() => setFilters({ needsReview: true })}
-            accessibilityLabel="Review transfers needing attention"
+            onPress={() => setFilters({ needsAttention: true })}
+            accessibilityLabel="Review rows needing attention"
           >
             Review
           </Button>
@@ -430,7 +479,13 @@ const HomeScreen: React.FC = () => {
         </View>
       </Surface>
     );
-  }, [mutedColor, reviewBannerDismissed, setFilters, suspectTransferIds]);
+  }, [
+    mutedColor,
+    reviewBannerDismissed,
+    setFilters,
+    suspectTransferIds,
+    unconfirmedIds,
+  ]);
 
   const balancesCard = useMemo(() => {
     if (!fundBalances.length) {
@@ -690,16 +745,16 @@ const HomeScreen: React.FC = () => {
                 ? `Fund: ${fundsMap.get(fundFilterId) ?? 'Unknown'}`
                 : 'Fund'}
             </Chip>
-            {needsReviewFilter ? (
-              <Chip
-                selected
-                onPress={handleClearNeedsReview}
-                onClose={handleClearNeedsReview}
-                accessibilityLabel="Filter by transfers needing review"
-              >
-                Needs review
-              </Chip>
-            ) : null}
+            <Chip
+              selected={needsAttentionFilter}
+              onPress={handleToggleNeedsAttention}
+              onClose={
+                needsAttentionFilter ? handleClearNeedsAttention : undefined
+              }
+              accessibilityLabel="Filter by rows needing attention"
+            >
+              Needs attention
+            </Chip>
             {hasActiveFilters ? (
               <Chip
                 onPress={handleResetFilters}
@@ -737,8 +792,9 @@ const HomeScreen: React.FC = () => {
     fundFilterId,
     fundsMap,
     handleClearFund,
-    handleClearNeedsReview,
-    needsReviewFilter,
+    handleClearNeedsAttention,
+    handleToggleNeedsAttention,
+    needsAttentionFilter,
     reviewCard,
     searchInput,
   ]);
@@ -889,6 +945,10 @@ const styles = StyleSheet.create({
   listItem: {
     paddingHorizontal: 16,
     minHeight: ITEM_HEIGHT,
+  },
+  rowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   amountContainer: {
     minWidth: 96,

@@ -13,6 +13,23 @@ migration table, not here.
 
 ### Added
 
+- **Tick off the rows you have checked.** Every transaction now carries a
+  confirmed mark, and each row on Home has a control to set or clear it. Rows
+  you enter yourself start confirmed. **Rows you import start unconfirmed**, so
+  an import gives you a review queue: work down it, ticking rows off as you
+  check them against your statement.
+
+  The old "Needs review" filter is now **"Needs attention"**, and covers both
+  things worth a second look — transfers whose two amounts imply an exchange
+  rate their currencies contradict, and rows you have not confirmed. The chip
+  is always available, and each row says which of the two applies: `⚠ 1:1` for
+  the suspect rate, `○ Unconfirmed` for the tick you have not given yet.
+
+  **The confirmed mark does not travel in a CSV.** The export is a portable
+  interchange file of 17 fixed columns, not a complete backup, so rows you
+  export and import again come back unconfirmed. The import review says so
+  before you commit.
+
 - **Search your transactions.** Home has a search box that looks through the
   description, payee and notes of every transaction. It works alongside the
   filters you already have set rather than replacing them — search for "coffee"

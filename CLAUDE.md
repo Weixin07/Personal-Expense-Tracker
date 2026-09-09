@@ -32,7 +32,7 @@ Default to NO comment. Add one only when it passes both tests. The lists below a
 ## LIMITS — the tests above govern what a comment may say; these govern how much
 
 1. **One block, one contract.** A doc block over 14 lines, or one needing paragraph breaks to stay readable, has left the unit's boundary and started narrating its internals (see ALLOW 1). Cut it back to the contract, or split the unit it documents.
-2. **State a rule once.** When a type already carries a rule, code applying that rule points at the type instead of repeating it. Two copies drift apart, and the copy a reader finds first is not reliably the current one.
+2. **State a rule once.** When a type already carries a rule, code applying that rule points at the type instead of repeating it. Two copies drift apart, and the copy a reader finds first is not reliably the current one. Write the pointer as "under the rule on `X`", naming the symbol that carries it, so every deliberate cross-reference is greppable.
 3. **Volume is a signal.** Every comment passing the two core tests individually does not make their density right. A file or diff that is several percent comments is describing code that should have been clearer.
 
 ## How to Apply

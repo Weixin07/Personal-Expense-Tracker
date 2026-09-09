@@ -948,6 +948,11 @@ const ImportScreen: React.FC = () => {
               {formatExpenseCount(readyRows.length - incomeReady)} and{' '}
               {formatIncomeCount(incomeReady)}.
             </Text>
+            <Text variant="bodySmall" style={styles.muted}>
+              Imported rows arrive unconfirmed and are listed under Needs
+              attention on Home. A CSV carries no confirmed state, so rows you
+              exported and are importing again come back unconfirmed too.
+            </Text>
 
             {preview.mixedCurrencyWithoutBase || hasUnappliedRates ? (
               <View style={styles.section}>
