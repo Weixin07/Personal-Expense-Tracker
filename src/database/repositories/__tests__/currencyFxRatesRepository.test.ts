@@ -26,10 +26,12 @@ describe('currencyFxRatesRepository', () => {
       await upsertCurrencyFxRate(mockDb, 'USD', 'EUR', 1.1);
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
-        expect.stringContaining(
-          'ON CONFLICT(base_currency_code, currency_code) DO UPDATE SET',
-        ),
+        expect.stringContaining('INSERT OR REPLACE INTO currency_fx_rates'),
         ['USD', 'EUR', 1.1],
+      );
+      expect(mockDb.executeSql).not.toHaveBeenCalledWith(
+        expect.stringContaining('ON CONFLICT'),
+        expect.anything(),
       );
     });
   });

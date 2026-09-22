@@ -6,10 +6,12 @@ export const setSetting = async (
   key: string,
   value: string | null,
 ): Promise<void> => {
+  // Not an UPSERT: `ON CONFLICT ... DO UPDATE` needs SQLite 3.24, and API 28 —
+  // the minSdkVersion — ships 3.22, where it is a syntax error. Safe here only
+  // because both columns are supplied and nothing references this table.
   await db.executeSql(
-    `INSERT INTO app_settings (key, value)
-      VALUES (?, ?)
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    `INSERT OR REPLACE INTO app_settings (key, value)
+      VALUES (?, ?)`,
     [key, value],
   );
 };

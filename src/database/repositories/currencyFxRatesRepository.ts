@@ -21,16 +21,15 @@ export const upsertCurrencyFxRate = async (
   currencyCode: string,
   fxRateToBase: number,
 ): Promise<void> => {
+  // Not an UPSERT, under the rule on `setSetting`. Every column is supplied
+  // below, so the row REPLACE writes is complete.
   await db.executeSql(
-    `INSERT INTO currency_fx_rates (
+    `INSERT OR REPLACE INTO currency_fx_rates (
         base_currency_code,
         currency_code,
         fx_rate_to_base,
         updated_at
-      ) VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-      ON CONFLICT(base_currency_code, currency_code) DO UPDATE SET
-        fx_rate_to_base = excluded.fx_rate_to_base,
-        updated_at = excluded.updated_at`,
+      ) VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
     [baseCurrencyCode, currencyCode, fxRateToBase],
   );
 };

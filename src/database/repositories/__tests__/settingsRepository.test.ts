@@ -32,7 +32,7 @@ describe('settingsRepository', () => {
       await setSetting(mockDb, 'theme', 'dark');
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO app_settings'),
+        expect.stringContaining('INSERT OR REPLACE INTO app_settings'),
         ['theme', 'dark'],
       );
     });
@@ -53,10 +53,12 @@ describe('settingsRepository', () => {
       await setSetting(mockDb, 'theme', 'light');
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
-        expect.stringContaining(
-          'ON CONFLICT(key) DO UPDATE SET value = excluded.value',
-        ),
+        expect.stringContaining('INSERT OR REPLACE INTO app_settings'),
         ['theme', 'light'],
+      );
+      expect(mockDb.executeSql).not.toHaveBeenCalledWith(
+        expect.stringContaining('ON CONFLICT'),
+        expect.anything(),
       );
     });
 
@@ -76,7 +78,7 @@ describe('settingsRepository', () => {
       await setSetting(mockDb, 'optional_key', null);
 
       expect(mockDb.executeSql).toHaveBeenCalledWith(
-        expect.stringContaining('INSERT INTO app_settings'),
+        expect.stringContaining('INSERT OR REPLACE INTO app_settings'),
         ['optional_key', null],
       );
     });
