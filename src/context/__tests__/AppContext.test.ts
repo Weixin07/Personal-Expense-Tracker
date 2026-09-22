@@ -61,6 +61,7 @@ describe('transactionDataReducer', () => {
           baseCurrency: 'USD',
           biometricGateEnabled: true,
           biometricCredentialVersion: 2,
+          autoLockMinutes: 5,
           driveFolderId: 'folder-1',
           exportDirectoryUri: 'content://dir',
         },
@@ -272,6 +273,23 @@ describe('transactionDataReducer', () => {
         payload: 2,
       });
       expect(next.settings.biometricCredentialVersion).toBe(2);
+    });
+
+    it('settings/set-auto-lock updates only autoLockMinutes', () => {
+      const next = transactionDataReducer(initialState, {
+        type: 'settings/set-auto-lock',
+        payload: 15,
+      });
+      expect(next.settings.autoLockMinutes).toBe(15);
+      expect(next.settings.biometricGateEnabled).toBe(false);
+    });
+
+    it('settings/set-auto-lock carries Never as null', () => {
+      const next = transactionDataReducer(initialState, {
+        type: 'settings/set-auto-lock',
+        payload: null,
+      });
+      expect(next.settings.autoLockMinutes).toBeNull();
     });
 
     it('settings/set-drive-folder updates only driveFolderId', () => {

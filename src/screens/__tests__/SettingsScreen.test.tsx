@@ -10,6 +10,7 @@ import {
 import SettingsScreen from '../SettingsScreen';
 import { useTransactionData } from '../../context/AppContext';
 import type { ExportQueueItem } from '../../context/AppContext';
+import { PIN_MAX_LENGTH, PIN_MIN_LENGTH } from '../../utils/validation';
 
 const mockNavigate = jest.fn();
 jest.mock('@react-navigation/native', () => ({
@@ -67,18 +68,264 @@ describe('SettingsScreen', () => {
     expect(mockNavigate).toHaveBeenCalledWith('Import');
   });
 
-  it('toggles the biometric gate', () => {
+  it('toggles the biometric gate when a PIN already exists', async () => {
     const setBiometricGateEnabled = jest.fn();
     mockedUseExpenseData.mockReturnValue(
-      makeContextValue({ actions: { setBiometricGateEnabled } }),
+      makeContextValue({
+        actions: {
+          setBiometricGateEnabled,
+          appPinUsable: jest.fn().mockResolvedValue(true),
+        },
+      }),
     );
     renderWithProviders(<SettingsScreen />);
+    await waitFor(() =>
+      expect(screen.getByLabelText('Change app PIN')).toBeOnTheScreen(),
+    );
     fireEvent(
       screen.getByLabelText('Toggle biometric lock'),
       'valueChange',
       true,
     );
     expect(setBiometricGateEnabled).toHaveBeenCalledWith(true);
+  });
+
+  const renderWithGateOn = (setBiometricGateEnabled: jest.Mock) => {
+    mockedUseExpenseData.mockReturnValue(
+      makeContextValue({
+        state: { settings: { biometricGateEnabled: true } },
+        actions: {
+          setBiometricGateEnabled,
+          appPinUsable: jest.fn().mockResolvedValue(true),
+        },
+      }),
+    );
+    renderWithProviders(<SettingsScreen />);
+  };
+
+  const pressAlertButton = (alertSpy: jest.SpyInstance, text: string) => {
+    const buttons = alertSpy.mock.calls[alertSpy.mock.calls.length - 1][2] as {
+      text: string;
+      onPress?: () => void;
+    }[];
+    buttons.find(button => button.text === text)?.onPress?.();
+  };
+
+  it('warns that turning the lock off removes the PIN, then turns it off', async () => {
+    const setBiometricGateEnabled = jest.fn().mockResolvedValue(undefined);
+    const alertSpy = jest.spyOn(Alert, 'alert');
+    renderWithGateOn(setBiometricGateEnabled);
+    await waitFor(() =>
+      expect(screen.getByLabelText('Change app PIN')).toBeOnTheScreen(),
+    );
+    fireEvent(
+      screen.getByLabelText('Toggle biometric lock'),
+      'valueChange',
+      false,
+    );
+    expect(alertSpy).toHaveBeenCalledWith(
+      'Turn off the app lock?',
+      expect.stringContaining('PIN will be removed'),
+      expect.any(Array),
+    );
+    expect(setBiometricGateEnabled).not.toHaveBeenCalled();
+    pressAlertButton(alertSpy, 'Turn off');
+    expect(setBiometricGateEnabled).toHaveBeenCalledWith(false);
+  });
+
+  it('leaves the lock on when turning it off is cancelled', async () => {
+    const setBiometricGateEnabled = jest.fn();
+    const alertSpy = jest.spyOn(Alert, 'alert');
+    renderWithGateOn(setBiometricGateEnabled);
+    await waitFor(() =>
+      expect(screen.getByLabelText('Change app PIN')).toBeOnTheScreen(),
+    );
+    fireEvent(
+      screen.getByLabelText('Toggle biometric lock'),
+      'valueChange',
+      false,
+    );
+    pressAlertButton(alertSpy, 'Cancel');
+    expect(setBiometricGateEnabled).not.toHaveBeenCalled();
+  });
+
+  // Under the rule on `TransactionDataActions.setBiometricGateEnabled`.
+  it('asks for a PIN before enabling the gate when none is set', async () => {
+    const setBiometricGateEnabled = jest.fn();
+    mockedUseExpenseData.mockReturnValue(
+      makeContextValue({
+        actions: {
+          setBiometricGateEnabled,
+          appPinUsable: jest.fn().mockResolvedValue(false),
+        },
+      }),
+    );
+    renderWithProviders(<SettingsScreen />);
+    await waitFor(() =>
+      expect(screen.getByLabelText('Set app PIN')).toBeOnTheScreen(),
+    );
+    fireEvent(
+      screen.getByLabelText('Toggle biometric lock'),
+      'valueChange',
+      true,
+    );
+    await waitFor(() =>
+      expect(screen.getByText('Set app PIN')).toBeOnTheScreen(),
+    );
+    expect(setBiometricGateEnabled).not.toHaveBeenCalled();
+  });
+
+  it('enrols a PIN and then turns the gate on', async () => {
+    const setAppPin = jest.fn().mockResolvedValue(undefined);
+    const setBiometricGateEnabled = jest.fn().mockResolvedValue(undefined);
+    mockedUseExpenseData.mockReturnValue(
+      makeContextValue({
+        actions: {
+          setAppPin,
+          setBiometricGateEnabled,
+          appPinUsable: jest.fn().mockResolvedValue(false),
+        },
+      }),
+    );
+    renderWithProviders(<SettingsScreen />);
+    fireEvent.press(await screen.findByLabelText('Set app PIN'));
+    fireEvent.changeText(await screen.findByLabelText('New PIN'), '846207');
+    fireEvent.changeText(screen.getByLabelText('Confirm new PIN'), '846207');
+    fireEvent.press(screen.getByLabelText('Save'));
+    await waitFor(() => expect(setAppPin).toHaveBeenCalledWith('846207'));
+    await waitFor(() =>
+      expect(setBiometricGateEnabled).toHaveBeenCalledWith(true),
+    );
+  });
+
+  it('still reports the PIN as set when turning the gate on fails', async () => {
+    mockedUseExpenseData.mockReturnValue(
+      makeContextValue({
+        actions: {
+          setAppPin: jest.fn().mockResolvedValue(undefined),
+          setBiometricGateEnabled: jest
+            .fn()
+            .mockRejectedValue(new Error('Keystore refused the credential.')),
+          appPinUsable: jest
+            .fn()
+            .mockResolvedValueOnce(false)
+            .mockResolvedValue(true),
+        },
+      }),
+    );
+    renderWithProviders(<SettingsScreen />);
+    fireEvent.press(await screen.findByLabelText('Set app PIN'));
+    fireEvent.changeText(await screen.findByLabelText('New PIN'), '846207');
+    fireEvent.changeText(screen.getByLabelText('Confirm new PIN'), '846207');
+    fireEvent.press(screen.getByLabelText('Save'));
+    await waitFor(() =>
+      expect(
+        screen.getByText('Keystore refused the credential.'),
+      ).toBeOnTheScreen(),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText('Change app PIN')).toBeOnTheScreen(),
+    );
+  });
+
+  it('states the PIN length from the rule validatePin enforces', async () => {
+    mockedUseExpenseData.mockReturnValue(
+      makeContextValue({
+        actions: { appPinUsable: jest.fn().mockResolvedValue(false) },
+      }),
+    );
+    renderWithProviders(<SettingsScreen />);
+    fireEvent.press(await screen.findByLabelText('Set app PIN'));
+    expect(
+      await screen.findByText(
+        `${PIN_MIN_LENGTH} to ${PIN_MAX_LENGTH} digits. Avoid runs and repeats.`,
+      ),
+    ).toBeOnTheScreen();
+  });
+
+  it('changes a PIN through the current one', async () => {
+    const changeAppPin = jest.fn().mockResolvedValue(true);
+    mockedUseExpenseData.mockReturnValue(
+      makeContextValue({
+        actions: {
+          changeAppPin,
+          appPinUsable: jest.fn().mockResolvedValue(true),
+        },
+      }),
+    );
+    renderWithProviders(<SettingsScreen />);
+    fireEvent.press(await screen.findByLabelText('Change app PIN'));
+    fireEvent.changeText(await screen.findByLabelText('Current PIN'), '846207');
+    fireEvent.changeText(screen.getByLabelText('New PIN'), '735019');
+    fireEvent.changeText(screen.getByLabelText('Confirm new PIN'), '735019');
+    fireEvent.press(screen.getByLabelText('Save'));
+    await waitFor(() =>
+      expect(changeAppPin).toHaveBeenCalledWith('846207', '735019'),
+    );
+  });
+
+  it('reports a rejected current PIN without echoing it', async () => {
+    const changeAppPin = jest.fn().mockResolvedValue(false);
+    mockedUseExpenseData.mockReturnValue(
+      makeContextValue({
+        actions: {
+          changeAppPin,
+          appPinUsable: jest.fn().mockResolvedValue(true),
+        },
+      }),
+    );
+    renderWithProviders(<SettingsScreen />);
+    fireEvent.press(await screen.findByLabelText('Change app PIN'));
+    fireEvent.changeText(await screen.findByLabelText('Current PIN'), '111213');
+    fireEvent.changeText(screen.getByLabelText('New PIN'), '735019');
+    fireEvent.changeText(screen.getByLabelText('Confirm new PIN'), '735019');
+    fireEvent.press(screen.getByLabelText('Save'));
+    await waitFor(() =>
+      expect(
+        screen.getByText('Current PIN is incorrect, or too many attempts.'),
+      ).toBeOnTheScreen(),
+    );
+    expect(screen.queryByText('111213')).toBeNull();
+  });
+
+  it('opens the auto-lock picker and saves a preset', async () => {
+    const setAutoLockMinutes = jest.fn().mockResolvedValue(undefined);
+    mockedUseExpenseData.mockReturnValue(
+      makeContextValue({ actions: { setAutoLockMinutes } }),
+    );
+    renderWithProviders(<SettingsScreen />);
+    fireEvent.press(screen.getByLabelText('Change auto-lock timing'));
+    await waitFor(() =>
+      expect(screen.getByLabelText('After 15 minutes')).toBeOnTheScreen(),
+    );
+    fireEvent.press(screen.getByLabelText('After 15 minutes'));
+    await waitFor(() => expect(setAutoLockMinutes).toHaveBeenCalledWith(15));
+  });
+
+  it('shows the current auto-lock preset', () => {
+    mockedUseExpenseData.mockReturnValue(
+      makeContextValue({ state: { settings: { autoLockMinutes: null } } }),
+    );
+    renderWithProviders(<SettingsScreen />);
+    expect(screen.getByText('Never')).toBeOnTheScreen();
+  });
+
+  // The upgrade prompt belongs to the gate modal, which covers every route to
+  // this screen; a second copy here would be unreachable and free to drift.
+  it('leaves the upgrade prompt to the gate modal', async () => {
+    mockedUseExpenseData.mockReturnValue(
+      makeContextValue({
+        state: {
+          pinSetupRequired: true,
+          settings: { biometricGateEnabled: true },
+        },
+      }),
+    );
+    renderWithProviders(<SettingsScreen />);
+    await waitFor(() =>
+      expect(screen.getByLabelText('Set app PIN')).toBeOnTheScreen(),
+    );
+    expect(screen.queryByText('Turn the lock off')).toBeNull();
   });
 
   it('opens the base-currency dialog', () => {

@@ -15,6 +15,21 @@ const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 const MAX_FUTURE_DAYS = 3;
 
+export const PIN_MIN_LENGTH = 6;
+export const PIN_MAX_LENGTH = 12;
+
+const DIGITS_ONLY_PATTERN = /^\d+$/;
+
+const WELL_KNOWN_PINS = new Set([
+  '123456',
+  '654321',
+  '696969',
+  '159753',
+  '147258',
+  '112233',
+  '778899',
+]);
+
 const currencyCodes: Set<string> = new Set(
   Object.keys(currencies as Record<string, unknown>)
     .filter(code => /^[A-Z]{3}$/.test(code))
@@ -254,6 +269,78 @@ export const validateIsoDateWithinFutureWindow = (
   // sort chronologically.
   if (date > localIsoDateOffset(now, { days: MAX_FUTURE_DAYS })) {
     return invalid('Date cannot be more than 3 days in the future.');
+  }
+
+  return valid();
+};
+
+const isMonotonicRun = (pin: string): boolean => {
+  const step = Number(pin[1]) - Number(pin[0]);
+  if (step !== 1 && step !== -1) {
+    return false;
+  }
+  for (let index = 2; index < pin.length; index += 1) {
+    if (Number(pin[index]) - Number(pin[index - 1]) !== step) {
+      return false;
+    }
+  }
+  return true;
+};
+
+const isSingleDigitRepeated = (pin: string): boolean => new Set(pin).size === 1;
+
+const isRepeatedBlock = (pin: string): boolean => {
+  for (let period = 2; period <= Math.floor(pin.length / 2); period += 1) {
+    if (pin.length % period !== 0) {
+      continue;
+    }
+    const unit = pin.slice(0, period);
+    if (unit.repeat(pin.length / period) === pin) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/**
+ * The single home of the app PIN's shape. Messages name the rule broken and
+ * never echo the input, because they are rendered into the unlock modal.
+ */
+export const validatePin = (
+  pin: string | null | undefined,
+): ValidationResult => {
+  const candidate = pin ?? '';
+
+  if (!candidate) {
+    return invalid('PIN is required.');
+  }
+
+  if (!DIGITS_ONLY_PATTERN.test(candidate)) {
+    return invalid('PIN must contain digits only.');
+  }
+
+  if (candidate.length < PIN_MIN_LENGTH) {
+    return invalid(`PIN must be at least ${PIN_MIN_LENGTH} digits.`);
+  }
+
+  if (candidate.length > PIN_MAX_LENGTH) {
+    return invalid(`PIN must be at most ${PIN_MAX_LENGTH} digits.`);
+  }
+
+  if (isSingleDigitRepeated(candidate)) {
+    return invalid('PIN cannot be the same digit repeated.');
+  }
+
+  if (isMonotonicRun(candidate)) {
+    return invalid('PIN cannot be a run of consecutive digits.');
+  }
+
+  if (isRepeatedBlock(candidate)) {
+    return invalid('PIN cannot be a short pattern repeated.');
+  }
+
+  if (WELL_KNOWN_PINS.has(candidate)) {
+    return invalid('PIN is too easily guessed. Choose another.');
   }
 
   return valid();

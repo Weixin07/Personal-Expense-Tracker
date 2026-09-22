@@ -35,7 +35,7 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 
 - **Offline-First**: Full functionality without internet; network only needed for Google Drive export
 - **Privacy-Focused**: All data stored locally on device with SQLite; no cloud sync or tracking
-- **Security-Hardened**: OAuth 2.0 with PKCE, biometric authentication, encrypted token storage
+- **Security-Hardened**: OAuth 2.0 with PKCE, biometric authentication with a PIN fallback, encrypted token storage
 - **Type-Safe**: Comprehensive TypeScript coverage with strict compilation
 - **Production-Ready**: ESLint security rules, parameterized SQL queries, no dynamic code loading
 
@@ -79,7 +79,7 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 
 ### 🔒 Security & Privacy
 
-- **Biometric App Lock**: Optional biometric/PIN gate on app relaunch and after 5 minutes of inactivity
+- **App Lock**: Optional biometric gate with an app-PIN fallback, on relaunch and after a configurable idle period (Immediately / 1 / 5 / 15 / 30 minutes / Never, defaulting to 5)
 - **Secure Token Storage**: Android Keystore for OAuth tokens with device-encrypted storage
 - **No Telemetry**: Zero analytics, crash reporting, or tracking in v1
 - **Parameterized SQL**: All database queries use parameter binding (ESLint-enforced)
@@ -252,7 +252,9 @@ CREATE TABLE app_settings (
 ```
 
 - `base_currency` - User's preferred currency (e.g., "USD", "GBP")
-- `biometric_gate_enabled` - Boolean flag for biometric lock
+- `biometric_gate_enabled` - Boolean flag for the app lock (biometrics and PIN together)
+- `auto_lock_minutes` - Background idle before locking: `0`, `1`, `5`, `15`, `30`, or `never` (absent means 5)
+- `app_pin_version` - Marks an install as having been offered a PIN. **The PIN itself is never stored here** — it lives in Keystore
 - `drive_folder_id` - Google Drive backup folder ID
 - `export_directory_uri` - Android SAF directory URI for local CSV exports
 
@@ -649,7 +651,7 @@ pnpm test --testNamePattern="should format CSV"
 
 ### Performance Tests
 
-A performance suite validates large-dataset behaviour (10k expenses), CSV export speed, and biometric-timeout accuracy. Run it with:
+A performance suite validates large-dataset behaviour (10k expenses), CSV export speed, and auto-lock timeout accuracy at every preset. Run it with:
 
 ```bash
 pnpm test src/__tests__/performance/
@@ -735,6 +737,7 @@ PET/
 │   │   └── src/main/
 │   │       ├── AndroidManifest.xml
 │   │       └── java/com/expensetracker/
+│   │           └── pincrypto/  # AppPinCrypto TurboModule (PBKDF2, SecureRandom)
 │   └── build.gradle            # Project-level Gradle config (SDK versions)
 ├── src/
 │   ├── components/             # Reusable UI components
@@ -790,6 +793,12 @@ PET/
 │   ├── security/               # Authentication and storage
 │   │   ├── googleAuth.ts       # OAuth 2.0 with PKCE
 │   │   ├── storageAccess.ts    # Android SAF (Scoped Storage)
+│   │   ├── NativeAppPinCrypto.ts # TurboModule spec: PBKDF2 + CSPRNG
+│   │   ├── pinHash.ts          # PIN record: derive, constant-time verify, encode
+│   │   ├── pinCredential.ts    # PIN storage in Keystore
+│   │   ├── pinCalibration.ts   # Per-device iteration count
+│   │   ├── lockoutPolicy.ts    # Throttle curve and lockout (pure)
+│   │   ├── lockoutStore.ts     # Attempt counter, persisted in Keystore
 │   │   └── __tests__/          # Security tests
 │   ├── theme/                  # Material Design theming
 │   │   └── index.ts            # Light/dark theme definitions
@@ -842,11 +851,34 @@ This app prioritizes **local security** (device protection) over **network secur
 
 **Threat Vectors:**
 
-1. **Physical device access** → Mitigated by biometric lock + Android device encryption
+1. **Physical device access** → Mitigated by the app lock (app PIN, plus biometrics where one is enrolled) + Android device encryption
 2. **APK reverse engineering** → Mitigated by no embedded secrets (OAuth PKCE, environment vars); R8 obfuscation of release builds raises the bar but is defence-in-depth, not a boundary
 3. **SQL injection** → Mitigated by parameterized queries (ESLint-enforced)
 4. **Token theft** → Mitigated by Android Keystore (hardware-backed encryption)
 5. **Man-in-the-middle** → Mitigated by HTTPS-only APIs, certificate pinning (future enhancement)
+
+**The biometric factor is only real where a biometric is enrolled.** With none enrolled,
+`react-native-keychain` stores the gate credential under a no-auth cipher and returns it without
+prompting, so the lock would open itself. A device passcode does not change this — the library's
+storage choice looks at enrolled biometrics alone. The app therefore checks
+`getSupportedBiometryType()` before creating that credential **and** before trusting one, and
+falls back to the PIN when it reports none. **The app PIN is the factor that is always enforced.**
+
+**What the app lock does not protect.** The lock guards the **UI**, not the database file. The
+SQLite file is not encrypted at rest, so a rooted device or a forensic extraction reads it
+whatever the lock is set to. Full-database encryption was considered and declined; the lock's
+job is to stop someone picking up an unlocked phone, not to survive an attacker with the
+storage in hand.
+
+**A forgotten PIN cannot be recovered.** With the app lock on, a PIN is required, and there is
+no reset path by design — the app has no account, no server, and nothing to prove identity
+against. If you forget the PIN **and** biometrics no longer work (unenrolled, or the hardware
+fails), the only way back into the app is to reinstall it, **which deletes the database along
+with the Keystore entries**. Export a CSV you can re-import if that risk matters to you.
+
+**The lockout wait is wall-clock.** Moving the device clock forward shortens it. This is
+accepted: an offline app has no trusted time source, and the alternative — a monotonic clock —
+resets on the process restart the counter exists to survive.
 
 ### Security Features
 
@@ -891,12 +923,26 @@ This app prioritizes **local security** (device protection) over **network secur
 
 **Flow:**
 
-1. User enables biometric lock in Settings
+1. User enables the app lock in Settings. **An app PIN is required first** — the lock has no
+   unlock path without one when biometrics fail or were never enrolled
 2. App tracks foreground/background state
-3. App locks on relaunch (after settings hydrate), and after 5 minutes in background
-4. The lock is enforced even if settings fail to load, whenever a biometric credential exists (fail-closed)
-5. User must authenticate with biometric/PIN to unlock
-6. Modal blocks UI until authentication succeeds
+3. App locks on relaunch (after settings hydrate), and after the configured idle period
+4. The lock is enforced even if settings fail to load, whenever **either** credential exists (fail-closed)
+5. User authenticates with a biometric, the device credential, or the app PIN
+6. Modal blocks UI until authentication succeeds — so where the lock is on but no PIN is set, the
+   modal offers enrolment instead of an unlock it could never accept
+
+**Where the biometric credential cannot be created or cannot authenticate** — no secure
+hardware, no screen lock set, or no biometric enrolled — the lock still switches on once a PIN
+exists, and the unlock screen opens straight on the PIN field. Biometric enrolment is best-effort at that point, never a
+precondition: requiring it would deny the lock to exactly the devices the PIN fallback was
+added for.
+
+**Auto-lock presets:** Immediately / 1 / 5 / 15 / 30 minutes / Never, stored in
+`app_settings.auto_lock_minutes` and defaulting to 5. They govern **background idle only** —
+the app still locks on a cold start under every preset, `Never` included. An unreadable or
+unrecognised stored value falls back to 5 rather than to `Never`: a garbage read of a security
+control fails toward the stricter behaviour.
 
 **Implementation:** `src/context/AppContext.tsx` (Modal-in-Provider) + `src/hooks/useBiometricGate.ts` (cold-start hydration latch + AppState listener + Keychain via `react-native-keychain`)
 
@@ -905,7 +951,68 @@ This app prioritizes **local security** (device protection) over **network secur
 - Service name: `expense-tracker-biometric-gate`
 - Access control: `BIOMETRY_CURRENT_SET_OR_DEVICE_PASSCODE` (invalidates the biometric path on new enrollment, while allowing the device passcode as a fallback so re-enrollment cannot hard-lock the user)
 
-#### 4. Parameterized SQL Queries
+#### 4. App PIN
+
+The fallback for when biometrics fail, are unenrolled, or the device has no passcode set at all
+— the last of which the biometric credential above cannot cover, since it cannot even be
+created without one.
+
+**Policy:** 6–12 digits, rejecting runs (`123456`), repeated digits (`111111`), short repeated
+patterns (`121212`) and a short list of well-known choices. The rule lives in one place,
+`validatePin` in `src/utils/validation.ts`.
+
+**Storage:**
+
+- Service name: `expense-tracker-app-pin` (distinct from both the biometric gate and Drive auth)
+- Stored value: `{ v, algorithm, iterations, saltB64, hashB64 }` — a PBKDF2-HMAC-SHA256 hash
+  over a 16-byte random salt, 256-bit output. **The PIN is never stored, and never reaches
+  `app_settings`**; a test asserts both that no settings row holds it and that the security
+  layer never calls `setSetting` at all.
+- Access control: **none**, and accessibility is `AFTER_FIRST_UNLOCK` rather than a
+  `WHEN_PASSCODE_SET…` variant. **Both differ from the biometric entry deliberately**: gating
+  the fallback behind biometrics would make it useless in the one case it exists for, and
+  requiring a device passcode would make it uncreatable on the passcode-less device it is meant
+  to serve. Do not unify the two option sets.
+- Storage type: `AES_GCM_NO_AUTH`, with no `securityLevel` requested — hardware-backed Keystore
+  is what actually protects a 6-digit PIN, since a 10⁶ keyspace is small enough that the KDF
+  alone would not, and this storage type is hardware-backed wherever the device has a TEE.
+  Demanding `SECURE_HARDWARE` outright is **not** the same thing: it fails key generation
+  rather than degrading, which would leave the PIN unsettable on the low-end hardware this
+  fallback exists to serve. The KDF is defence-in-depth for an extracted blob.
+
+**Iteration count is calibrated per device** at enrolment against a ~250 ms budget and clamped
+to 100,000–1,000,000, so an old phone stays usable and a fast one is not left under-provisioned.
+The count is stored in the record, so raising the parameters later does not lock anyone out.
+Calibration runs on enrolment and PIN change only — never on unlock, which stays a pure verify.
+
+**Throttling and lockout:** three free attempts, then an escalating wait (30s, 1m, 2m, 5m, 10m,
+15m), then a 30-minute lockout at the tenth failure that clears on its own. Only an attempt
+against a PIN that actually exists counts — with none stored there is nothing to be guessing, so
+a rising counter would cost the owner a lockout and an attacker nothing. From the first
+throttle onward the unlock screen shows how many attempts remain, including between waits, so
+the jump from a 30-second pause to a 30-minute lockout is never a surprise. The counter lives in
+its own Keystore entry so a force-quit does not reset it. **Only PIN failures count** — the
+biometric prompt fires automatically on every lock, so dismissing it is the normal route to the
+PIN, and Android throttles biometrics itself. The lockout blocks the PIN path only; biometrics
+keep working. **Changing a PIN requires the current one, throttled identically**, so Settings
+cannot be used as an unthrottled guessing oracle.
+
+**Implementation:** `src/security/pinHash.ts`, `pinCredential.ts`, `pinCalibration.ts`,
+`lockoutPolicy.ts`, `lockoutStore.ts`, over a first-party TurboModule
+(`src/security/NativeAppPinCrypto.ts` + `android/app/src/main/java/com/expensetracker/pincrypto/`)
+that wraps the platform `SecretKeyFactory` and `SecureRandom`.
+
+**Upgrading an existing install:** a user who had the lock on before the PIN existed is asked to
+set one, once, **as soon as biometrics have unlocked the app**. The unlock modal covers every
+route to Settings, so the prompt is hosted there, but it never replaces the biometric check:
+offering it — or its decline — before unlocking would let anyone holding the phone switch the lock
+off. Only where no factor exists at all (no usable biometric and no stored PIN) is it offered at
+the lock itself, since there is nothing to bypass. **Declining turns the app lock off** and says
+so, rather than leaving the lock on with no way past it. A stored PIN that cannot be read is not
+treated as missing: the app stays locked behind biometrics, or stays locked outright where none
+are available.
+
+#### 5. Parameterized SQL Queries
 
 **Enforcement:**
 
@@ -922,7 +1029,7 @@ db.executeSql(`SELECT * FROM transactions WHERE id = ${id}`);
 db.executeSql('SELECT * FROM transactions WHERE id = ?', [id]);
 ```
 
-#### 5. Secret Detection
+#### 6. Secret Detection
 
 **ESLint Plugin:** `eslint-plugin-no-secrets`
 
@@ -930,7 +1037,7 @@ db.executeSql('SELECT * FROM transactions WHERE id = ?', [id]);
 - Tolerance: 4 (flags strings with >4 shannon entropy)
 - Fails CI build on detection
 
-#### 6. No Dynamic Code Loading
+#### 7. No Dynamic Code Loading
 
 **ESLint Rules:**
 

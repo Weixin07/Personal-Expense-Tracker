@@ -3,6 +3,14 @@
   "version": "0.0.1",
   "private": true,
   "packageManager": "pnpm@9.12.1",
+  "codegenConfig": {
+    "name": "AppPinCryptoSpec",
+    "type": "modules",
+    "jsSrcsDir": "src/security",
+    "android": {
+      "javaPackageName": "com.expensetracker.pincrypto"
+    }
+  },
   "engines": {
     "node": ">=24 <25"
   },

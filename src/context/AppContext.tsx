@@ -67,6 +67,13 @@ import {
 } from '../hooks';
 import type { BiometricGateState, ExportQueueItem } from '../hooks';
 import { BiometricGateModal } from '../components/BiometricGateModal';
+import {
+  autoLockMinutesFromToken,
+  autoLockMinutesToToken,
+  DEFAULT_AUTO_LOCK_MINUTES,
+} from '../constants/autoLockPresets';
+import { pinCredentialExists } from '../security/pinCredential';
+import { AppLockError } from '../security/appLockError';
 
 export type { ExportQueueItem } from '../hooks';
 export type {
@@ -80,6 +87,8 @@ export type TransactionDataSettings = {
   baseCurrency: string | null;
   biometricGateEnabled: boolean;
   biometricCredentialVersion: number;
+  /** Minutes of background idle before the gate locks; `null` is Never. */
+  autoLockMinutes: number | null;
   driveFolderId: string | null;
   exportDirectoryUri: string | null;
 };
@@ -99,6 +108,8 @@ type CoreState = {
 export type TransactionDataState = CoreState & {
   exportQueue: ExportQueueItem[];
   biometric: BiometricGateState;
+  /** The gate is on but holds no PIN — an install predating the PIN fallback. */
+  pinSetupRequired: boolean;
 };
 
 export type TotalsFigure = {
@@ -177,7 +188,13 @@ export type TransactionDataActions = {
   /** Rejected by the database while any transaction still references the fund. */
   deleteFund: (id: number) => Promise<void>;
   setBaseCurrency: (currencyCode: string | null) => Promise<void>;
+  /**
+   * @throws AppLockError of kind `pin-required` when enabling with no usable
+   * PIN. The gate has no unlock path without one, so the caller must set a PIN
+   * first.
+   */
   setBiometricGateEnabled: (enabled: boolean) => Promise<void>;
+  setAutoLockMinutes: (minutes: number | null) => Promise<void>;
   setDriveFolderId: (folderId: string | null) => Promise<void>;
   setExportDirectoryUri: (directoryUri: string | null) => Promise<void>;
   setFilters: (filters: TransactionFilters) => void;
@@ -200,6 +217,22 @@ export type TransactionDataActions = {
     options?: CommitImportOptions,
   ) => Promise<ImportSummary>;
   unlockWithBiometrics: () => Promise<boolean>;
+  unlockWithPin: (pin: string) => Promise<boolean>;
+  /** Enrolment. Rejects a PIN failing `validatePin`. */
+  setAppPin: (pin: string) => Promise<void>;
+  /**
+   * Rotation. Verifies `currentPin` under the same throttle the unlock modal
+   * uses, so this cannot become an unthrottled guessing oracle.
+   */
+  changeAppPin: (currentPin: string, nextPin: string) => Promise<boolean>;
+  appPinUsable: () => Promise<boolean>;
+  /**
+   * Sets the PIN an existing gate-on install was missing, unlocks through it,
+   * then records the upgrade.
+   */
+  completePinSetup: (pin: string) => Promise<void>;
+  /** Turns the gate off, because it has no unlock path without a PIN. */
+  declinePinSetup: () => Promise<void>;
 };
 
 export type TransactionDataContextValue = {
@@ -240,16 +273,26 @@ export type TransactionDataAction =
   | { type: 'settings/set-base-currency'; payload: string | null }
   | { type: 'settings/set-biometric'; payload: boolean }
   | { type: 'settings/set-cred-version'; payload: number }
+  | { type: 'settings/set-auto-lock'; payload: number | null }
   | { type: 'settings/set-drive-folder'; payload: string | null }
   | { type: 'settings/set-export-directory'; payload: string | null };
 
 const BASE_CURRENCY_KEY = 'base_currency';
 const BIOMETRIC_GATE_KEY = 'biometric_gate_enabled';
 const BIOMETRIC_CRED_VERSION_KEY = 'biometric_cred_version';
+const AUTO_LOCK_MINUTES_KEY = 'auto_lock_minutes';
+const APP_PIN_VERSION_KEY = 'app_pin_version';
 const DRIVE_FOLDER_ID_KEY = 'drive_folder_id';
 const EXPORT_DIRECTORY_URI_KEY = 'export_directory_uri';
 
 const BIOMETRIC_CRED_VERSION = 2;
+
+/**
+ * Marks an install as having been offered a PIN. Nothing reads it to decide
+ * whether to prompt — the gate being switched off on a decline is what stops
+ * the re-prompt — so it exists only for a later upgrade to key off.
+ */
+const APP_PIN_VERSION = 1;
 
 export const initialState: CoreState = {
   transactions: [],
@@ -259,6 +302,7 @@ export const initialState: CoreState = {
     baseCurrency: null,
     biometricGateEnabled: false,
     biometricCredentialVersion: 0,
+    autoLockMinutes: DEFAULT_AUTO_LOCK_MINUTES,
     driveFolderId: null,
     exportDirectoryUri: null,
   },
@@ -293,10 +337,15 @@ const parseSettings = (
         ?.value ?? '',
       10,
     ) || 0;
+  const autoLockMinutes = autoLockMinutesFromToken(
+    records.find(setting => setting.key === AUTO_LOCK_MINUTES_KEY)?.value ??
+      null,
+  );
   return {
     baseCurrency,
     biometricGateEnabled,
     biometricCredentialVersion,
+    autoLockMinutes,
     driveFolderId,
     exportDirectoryUri,
   };
@@ -494,6 +543,14 @@ export const transactionDataReducer = (
           biometricCredentialVersion: action.payload,
         },
       };
+    case 'settings/set-auto-lock':
+      return {
+        ...state,
+        settings: {
+          ...state.settings,
+          autoLockMinutes: action.payload,
+        },
+      };
     case 'settings/set-drive-folder':
       return {
         ...state,
@@ -687,9 +744,16 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       });
       setLoadedQueueRecords(snapshot.exportQueueRecords);
     } catch (error) {
+      // Either credential is enough to conclude the gate was on: a device with
+      // no passcode can hold a PIN but no biometric entry, and probing only the
+      // latter would leave exactly that user ungated here.
       let biometricGateEnabled: boolean;
       try {
-        biometricGateEnabled = await biometricCredentialExists();
+        const [hasBiometric, hasPin] = await Promise.all([
+          biometricCredentialExists(),
+          pinCredentialExists(),
+        ]);
+        biometricGateEnabled = hasBiometric || hasPin;
       } catch {
         biometricGateEnabled = true;
       }
@@ -707,14 +771,25 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
   const {
     isLocked: biometricIsLocked,
     lastError: biometricLastError,
+    lockout: biometricLockout,
     unlockWithBiometrics,
+    unlockWithPin,
+    setAppPin,
+    changeAppPin,
+    appPinUsable,
+    biometricsAvailable,
+    pinUsable,
+    pinStored,
+    backgroundNonce: biometricBackgroundNonce,
     clearError: clearBiometricError,
     ensureCredential: ensureBiometricCredential,
     clearCredential: clearBiometricCredential,
+    clearPin: clearAppPin,
     applyEnabledState: applyBiometricEnabledState,
   } = useBiometricGate({
     enabled: state.settings.biometricGateEnabled,
     isInitialised: state.isInitialised,
+    autoLockMinutes: state.settings.autoLockMinutes,
   });
 
   useEffect(() => {
@@ -752,6 +827,16 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     state.settings.biometricCredentialVersion,
     ensureBiometricCredential,
   ]);
+
+  // `null` is the window before the probe lands; prompting then would flash an
+  // enrolment dialog at a user who already has a PIN.
+  const pinSetupRequired =
+    state.isInitialised &&
+    state.error === null &&
+    state.settings.biometricGateEnabled &&
+    pinUsable === false &&
+    (!biometricIsLocked ||
+      (biometricsAvailable === false && pinStored === false));
 
   const createTransaction = useCallback<
     TransactionDataActions['createTransaction']
@@ -1007,9 +1092,22 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       dispatch({ type: 'operation/start' });
       try {
         if (enabled) {
-          await ensureBiometricCredential();
+          if (!(await appPinUsable())) {
+            throw new AppLockError(
+              'pin-required',
+              'Set a PIN before turning the app lock on.',
+            );
+          }
+          try {
+            await ensureBiometricCredential();
+          } catch {
+            // A device with no TEE or no screen lock cannot hold the biometric
+            // credential at all. The PIN verified above is a complete unlock
+            // path on its own, so the gate still goes on.
+          }
         } else {
           await clearBiometricCredential();
+          await clearAppPin();
           applyBiometricEnabledState(false);
         }
         await withDatabase(db =>
@@ -1038,11 +1136,59 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       }
     },
     [
+      appPinUsable,
       applyBiometricEnabledState,
+      clearAppPin,
       clearBiometricCredential,
       ensureBiometricCredential,
     ],
   );
+
+  const declinePinSetup = useCallback<
+    TransactionDataActions['declinePinSetup']
+  >(async () => {
+    await setBiometricGateEnabled(false);
+    await withDatabase(db =>
+      dbSetSetting(db, APP_PIN_VERSION_KEY, String(APP_PIN_VERSION)),
+    );
+  }, [setBiometricGateEnabled]);
+
+  const completePinSetup = useCallback<
+    TransactionDataActions['completePinSetup']
+  >(
+    async pin => {
+      await setAppPin(pin);
+      // Unlocking through the normal verify rather than clearing the lock
+      // directly, so a Keystore write that silently failed surfaces here
+      // instead of at the next launch.
+      await unlockWithPin(pin);
+      await withDatabase(db =>
+        dbSetSetting(db, APP_PIN_VERSION_KEY, String(APP_PIN_VERSION)),
+      );
+    },
+    [setAppPin, unlockWithPin],
+  );
+
+  const setAutoLockMinutes = useCallback<
+    TransactionDataActions['setAutoLockMinutes']
+  >(async minutes => {
+    dispatch({ type: 'operation/start' });
+    try {
+      await withDatabase(db =>
+        dbSetSetting(
+          db,
+          AUTO_LOCK_MINUTES_KEY,
+          autoLockMinutesToToken(minutes),
+        ),
+      );
+      dispatch({ type: 'settings/set-auto-lock', payload: minutes });
+    } catch (error) {
+      dispatch({ type: 'operation/error', payload: toErrorMessage(error) });
+      throw toError(error);
+    } finally {
+      dispatch({ type: 'operation/end' });
+    }
+  }, []);
 
   const setDriveFolderId = useCallback<
     TransactionDataActions['setDriveFolderId']
@@ -1287,6 +1433,13 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       uploadQueuedExports,
       importTransactions,
       unlockWithBiometrics,
+      unlockWithPin,
+      setAppPin,
+      changeAppPin,
+      appPinUsable,
+      completePinSetup,
+      declinePinSetup,
+      setAutoLockMinutes,
     }),
     [
       refresh,
@@ -1314,6 +1467,13 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       uploadQueuedExports,
       importTransactions,
       unlockWithBiometrics,
+      unlockWithPin,
+      setAppPin,
+      changeAppPin,
+      appPinUsable,
+      completePinSetup,
+      declinePinSetup,
+      setAutoLockMinutes,
     ],
   );
 
@@ -1324,9 +1484,22 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       biometric: {
         isLocked: biometricIsLocked,
         lastError: biometricLastError,
+        lockout: biometricLockout,
+        biometricsAvailable,
+        pinUsable,
       },
+      pinSetupRequired,
     }),
-    [state, exportQueue, biometricIsLocked, biometricLastError],
+    [
+      state,
+      exportQueue,
+      biometricIsLocked,
+      biometricLastError,
+      biometricLockout,
+      biometricsAvailable,
+      pinUsable,
+      pinSetupRequired,
+    ],
   );
 
   const value = useMemo<TransactionDataContextValue>(
@@ -1341,10 +1514,19 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
   return (
     <TransactionDataContext.Provider value={value}>
       {children}
-      {state.settings.biometricGateEnabled && biometricIsLocked ? (
+      {state.settings.biometricGateEnabled &&
+      (biometricIsLocked || pinSetupRequired) ? (
         <BiometricGateModal
+          key={biometricBackgroundNonce}
           lastError={biometricLastError}
+          lockout={biometricLockout}
+          biometricsAvailable={biometricsAvailable}
+          pinUsable={pinUsable}
+          pinSetupRequired={pinSetupRequired}
           onRetry={() => void unlockWithBiometrics()}
+          onSubmitPin={unlockWithPin}
+          onSetUpPin={completePinSetup}
+          onDeclineSetup={declinePinSetup}
         />
       ) : null}
     </TransactionDataContext.Provider>

@@ -13,6 +13,45 @@ migration table, not here.
 
 ### Added
 
+- **A PIN for the app lock, and you choose when it locks.** The lock could only ever be opened
+  with a fingerprint or your device passcode, which left no way in if biometrics stopped working
+  — or on a phone with no screen lock set, where the app lock could not be switched on at all.
+  There is now an **app PIN** as well, six to twelve digits, offered on the unlock screen
+  whenever biometrics fail.
+
+  **If you already use the app lock, you will be asked to set a PIN once**, right after you unlock
+  with your fingerprint or face the next time you open the app. You can decline, but **declining switches the app lock off** —
+  it has no way to let you back in without one. You can turn it on again from Settings whenever
+  you set a PIN.
+
+  **Nothing changes about when the app locks unless you want it to.** It still locks after five
+  minutes in the background, and still locks whenever you open it fresh. **Auto-lock** in
+  Settings now offers Immediately, 1, 5, 15 or 30 minutes, or Never. Bear in mind that
+  "Immediately" means any time the app goes to the background, including while you pick a file
+  or sign in to Google — you will be asked to unlock when you come back. **"Never" still locks
+  when you open the app from scratch**; it only stops the idle timer.
+
+  The PIN also works on phones the old lock could never protect — ones with no screen lock set,
+  and older or cheaper hardware where the fingerprint credential cannot be created. On those the
+  lock now switches on with just a PIN, and the unlock screen asks for it directly instead of
+  offering a fingerprint prompt that cannot work.
+
+  **If you have no fingerprint or face unlock set up, the app now asks for your PIN where it
+  previously let you straight back in.** That was a bug: on those phones the lock was opening
+  itself without checking anything, so it looked like it was working while protecting nothing.
+  It now genuinely holds. Set up a fingerprint if you would rather unlock with one.
+
+  Get an existing PIN wrong four times and the next attempt waits, with the wait growing each time;
+  ten wrong and it stops accepting the PIN for half an hour. The wait survives force-quitting
+  the app, and clears itself when the time is up — a fingerprint still works throughout, and
+  cancelling the fingerprint prompt to type your PIN never counts against you. Changing your PIN
+  in Settings needs the current one.
+
+  **There is no way to recover a forgotten PIN.** If you forget it and biometrics no longer
+  work, the only way back in is to reinstall the app, **which deletes your data**. Keep a CSV
+  export if that matters to you. And as before, the lock protects the app, not the file: someone
+  with the phone unlocked and root access can still read the database.
+
 - **Tick off the rows you have checked.** Every transaction now carries a
   confirmed mark, and each row on Home has a control to set or clear it. Rows
   you enter yourself start confirmed. **Rows you import start unconfirmed**, so

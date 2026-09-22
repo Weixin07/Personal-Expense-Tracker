@@ -90,6 +90,18 @@ jest.mock('react-native-keychain', () => ({
     SECURE_SOFTWARE: 'SECURE_SOFTWARE',
     SECURE_HARDWARE: 'SECURE_HARDWARE',
   },
+  STORAGE_TYPE: {
+    FB: 'FacebookConceal',
+    AES: 'KeystoreAES',
+    AES_CBC: 'KeystoreAESCBC',
+    AES_GCM_NO_AUTH: 'KeystoreAESGCM_NoAuth', // eslint-disable-line no-secrets/no-secrets
+    AES_GCM: 'KeystoreAESGCM',
+    RSA: 'KeystoreRSAECB',
+  },
+  SECURITY_RULES: {
+    NONE: 'none',
+    AUTOMATIC_UPGRADE: 'automaticUpgradeToMoreSecuredStorage',
+  },
   setGenericPassword: jest.fn(() => Promise.resolve(true)),
   getGenericPassword: jest.fn(() => Promise.resolve(false)),
   resetGenericPassword: jest.fn(() => Promise.resolve(true)),
@@ -98,7 +110,10 @@ jest.mock('react-native-keychain', () => ({
   setInternetCredentials: jest.fn(() => Promise.resolve()),
   getInternetCredentials: jest.fn(() => Promise.resolve(false)),
   resetInternetCredentials: jest.fn(() => Promise.resolve()),
-  getSupportedBiometryType: jest.fn(() => Promise.resolve(null)),
+  // A normally-configured device. The gate treats `null` as "no enrolled
+  // biometric", where the library stores the credential with no authentication
+  // requirement — suites covering that case override this per test.
+  getSupportedBiometryType: jest.fn(() => Promise.resolve('Fingerprint')),
 }));
 
 // Mock react-native-fs
@@ -191,3 +206,39 @@ global.console = {
   warn: jest.fn(),
   error: jest.fn(),
 };
+
+// Deterministic so hash assertions are stable, but derived from its inputs so a
+// test asserting "the record does not contain the PIN" cannot pass against a
+// constant.
+jest.mock('./src/security/NativeAppPinCrypto', () => {
+  let randomCounter = 0;
+  const fnv1a = value => {
+    let hash = 0x811c9dc5;
+    for (let index = 0; index < value.length; index += 1) {
+      hash ^= value.charCodeAt(index);
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+    return hash.toString(16).padStart(8, '0');
+  };
+  return {
+    __esModule: true,
+    default: {
+      randomBytesBase64: jest.fn(byteCount => {
+        randomCounter += 1;
+        return Promise.resolve(
+          Buffer.from(`salt-${randomCounter}`.repeat(byteCount))
+            .toString('base64')
+            .slice(0, 24),
+        );
+      }),
+      pbkdf2Sha256Base64: jest.fn(
+        (password, saltBase64, iterations, keyLengthBits) =>
+          Promise.resolve(
+            Buffer.from(
+              `${fnv1a(password)}:${fnv1a(saltBase64)}:${iterations}:${keyLengthBits}`,
+            ).toString('base64'),
+          ),
+      ),
+    },
+  };
+});

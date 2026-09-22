@@ -299,12 +299,74 @@ biometric, SAF export, and the offline queue. Also confirm icons and themed UI r
    consent → export → confirm a CSV appears in the "Expense Tracker Backups" folder.
 7. **Offline queue** — disable network, add an expense, queue an export; re-enable network
    and confirm it auto-uploads.
-8. **Biometric lock** (if supported) — enable it, background the app 5+ minutes, confirm
-   the unlock prompt. Then fully kill the app and relaunch; confirm the unlock prompt appears
-   on cold start, and that the device-credential (PIN/passcode) fallback unlocks if biometrics fail.
-   Re-enroll a biometric (add a fingerprint/face), relaunch, and confirm the device-passcode
-   path still unlocks (the credential must not hard-lock). Finally, with the gate enabled,
-   simulate a settings-read failure and confirm the app still locks (fail-closed).
+8. **Biometric lock** (if supported) — enable it (this now requires setting an app PIN first),
+   background the app past the configured auto-lock time, confirm the unlock prompt. Then fully
+   kill the app and relaunch; confirm the unlock prompt appears on cold start, and that the
+   device-credential (PIN/passcode) fallback unlocks if biometrics fail. Re-enroll a biometric
+   (add a fingerprint/face), relaunch, and confirm the device-passcode path still unlocks (the
+   credential must not hard-lock). Finally, with the gate enabled, simulate a settings-read
+   failure and confirm the app still locks (fail-closed).
+
+9. **Auto-lock presets** — for each of Immediately / 1 / 5 / 15 / 30, background the app for
+   just under and just over the setting and confirm the lock fires only past it. Set **Never**
+   and confirm idle never locks, **then kill and relaunch and confirm it still locks on cold
+   start** — the presets govern background idle only.
+
+10. **App PIN, throttling and lockout** — these paths run against real Keystore hardware and
+    are only mocked in Jest, so they must be exercised on a device:
+    - Enter three wrong PINs, then a fourth, and confirm a **visible, growing** wait appears.
+    - Continue to ten and confirm the lockout, with a clearly longer wait than the throttle.
+    - **Force-quit during the lockout and relaunch** — the wait must still be in force, not reset.
+    - Confirm biometrics still unlock while the PIN is locked out.
+    - Wait out the lockout and confirm it clears on its own.
+    - In Settings → App PIN, enter a wrong current PIN repeatedly and confirm it is throttled
+      **the same way as the unlock modal** — this path must not be an unthrottled guessing oracle.
+    - Confirm dismissing the biometric prompt does **not** consume a PIN attempt.
+    - Time an unlock and confirm the PIN check stays comfortably under a second.
+
+11. **Upgrade path for an existing install** — install a build predating the PIN, enable the
+    biometric lock, then upgrade. Confirm the biometric prompt comes **first**, and that
+    cancelling it leaves the app locked with **no** set-a-PIN prompt and **no** "Turn the lock
+    off" button on screen — either one before authentication is a bypass. Once biometrics unlock,
+    confirm the set-a-PIN prompt appears **before anything else is reachable**, and that
+    **declining it turns the app lock off** rather than leaving it on with no way in. Confirm too
+    that no "Use PIN instead" is offered at the lock — there is no PIN to type — and that entering
+    into a PIN field, if a regression puts one back, does not consume attempts.
+
+12. **Hardware without a usable biometric** — on a device or emulator with **no biometric
+    enrolled** (a PIN-only screen lock counts, as does no screen lock at all), confirm the lock
+    **still switches on** once a PIN is set, that the unlock screen **opens on the PIN field**
+    rather than prompting for biometrics, and that no "authentication cancelled" message appears.
+    This is the case the PIN fallback exists for, so a regression here removes the feature for
+    exactly the users who need it.
+
+    **The load-bearing check: the lock must not open itself.** Background the app past the
+    auto-lock time and confirm it stays locked until the PIN is entered. With no biometric
+    enrolled, `react-native-keychain` stores the gate credential under a no-auth cipher and hands
+    it back unchallenged, so a regression here shows up as the unlock screen appearing and then
+    vanishing on its own — which reads as the lock working. Watch for
+    `Selected storage: KeystoreAESGCM_NoAuth` in logcat alongside a successful unlock with no
+    prompt; that combination is the bug. Then enrol a fingerprint and confirm the prompt returns.
+
+### Reference device for the PIN check
+
+Step 10's timing check needs the slowest hardware the app supports, since the key derivation
+count is calibrated per device at enrolment and the floor is the part no user device exercises.
+Use an **API 28 Google Play x86_64 emulator image** (not AOSP — see the Play-services note
+below), installed from a `pnpm build:android:release:all` APK, which is the all-ABI build that
+covers x86 emulators.
+
+**What the emulator can and cannot check.** It validates the parts that are pure computation
+and storage: the derived key, the calibrated iteration count against the 250 ms budget, and the
+lockout counter surviving a restart. Measured on an API 28 x86_64 image, calibration settled at
+roughly 110,000 iterations for a ~255 ms derive — just above the 100,000 floor, which is the
+evidence that floor was set sensibly.
+
+It **cannot** stand in for steps 8-11's on-screen flow. Emulator Keystore is software-only, so
+the biometric credential — which requires `SECURE_HARDWARE` — cannot be created there, and any
+step that starts "unlock with biometrics" is unreachable. The lock itself still switches on
+PIN-only, so the PIN, throttle and lockout screens can be driven on an emulator; the biometric
+half of each step still needs a physical device.
 
 To capture logs if something misbehaves:
 
@@ -382,6 +444,16 @@ older engine — `ALTER TABLE ... RENAME TO` in particular changed semantics in
 3.25. Install a v9 build, record several transactions including one in a
 non-base currency, upgrade to v10, and confirm every transaction is still listed
 and assigned to the **General** fund.
+
+The same version gap constrains ordinary queries, not just migrations: **UPSERT
+(`INSERT ... ON CONFLICT ... DO UPDATE`) arrived in SQLite 3.24 and is a syntax
+error on API 28.** `settingsRepository.setSetting` and
+`currencyFxRatesRepository.upsertCurrencyFxRate` therefore use `INSERT OR
+REPLACE`, which is valid on 3.22 and safe for both tables because each supplies
+every column and neither is referenced by a foreign key. Jest mocks SQLite and a
+modern emulator image accepts both spellings, so **nothing in `pnpm validate`
+catches a regression here** — it surfaces only as a failed write on an API 28/29
+device. Do not "modernise" either statement back to an UPSERT.
 
 **3. Migration v11 rebuilds `transactions` a second time, and its backfill must
 not yield NULL.** The migration adds a CHECK requiring every transfer to carry
@@ -463,6 +535,16 @@ no bump can clear it today.
 The on-device smoke that gates the keychain/vector-icons bumps is described in
 `doc-temp/TEST_ON_PHONE_REMOTELY.md` (DB CRUD + migration, biometric cold-start gate,
 OAuth → Drive export, CSV export/share).
+
+> **First-party native code (`AppPinCrypto`).** The app PIN's key derivation and salt come from
+> a TurboModule in `android/app/src/main/java/com/expensetracker/pincrypto/`, wrapping the
+> platform's `SecretKeyFactory` and `SecureRandom` rather than a third-party crypto dependency —
+> so there is **no library row above to track**, and no upstream release to wait on. The trade is
+> that its failure modes are invisible to `pnpm validate`: a malformed codegen spec or a missing
+> `codegenConfig` block in `package.json` fails the **Gradle** build while Jest stays green, and
+> R8 stripping in a release build would surface only on device. Verify it with a real
+> `pnpm build:android:release` plus smoke steps 10–11, never a debug build alone. It is also a
+> TurboModule, so it inherits the bridgeless-only constraint noted for `MainApplication.kt` below.
 
 > **`MainApplication.kt` bootstrap (first-party deprecation resolved).** `reactHost` is built from
 > `PackageList(this).packages` via the `getDefaultReactHost` overload that takes a package list, so the

@@ -10,6 +10,8 @@ import type {
 import { makeImportSummary } from './importFixtures';
 import type { FundRecord } from '../../database';
 import { EMPTY_CATEGORY_USAGE_COUNTS } from '../../utils/suggestions';
+import { DEFAULT_AUTO_LOCK_MINUTES } from '../../constants/autoLockPresets';
+import { PIN_LOCKOUT_ATTEMPTS } from '../../security/lockoutPolicy';
 
 // react-native maps requestAnimationFrame to setTimeout; Paper's transition
 // animations would otherwise leave timers that fire after env teardown. Fake
@@ -65,12 +67,27 @@ export const makeContextState = (
     isInitialised: true,
     isLoading: false,
     error: null,
-    biometric: { isLocked: false, lastError: null },
+    biometric: {
+      isLocked: false,
+      lastError: null,
+      lockout: {
+        allowed: true,
+        retryAtMs: null,
+        throttled: false,
+        lockedOut: false,
+        attemptsRemaining: PIN_LOCKOUT_ATTEMPTS,
+        warnAttemptsRemaining: false,
+      },
+      biometricsAvailable: true,
+      pinUsable: true,
+    },
+    pinSetupRequired: false,
     ...rest,
     settings: {
       baseCurrency: 'USD',
       biometricGateEnabled: false,
       biometricCredentialVersion: 0,
+      autoLockMinutes: DEFAULT_AUTO_LOCK_MINUTES,
       driveFolderId: null,
       exportDirectoryUri: null,
       ...settings,
@@ -107,6 +124,12 @@ export const makeContextActions = (
   deleteFund: jest.fn().mockResolvedValue(undefined),
   setBaseCurrency: jest.fn().mockResolvedValue(undefined),
   setBiometricGateEnabled: jest.fn().mockResolvedValue(undefined),
+  setAutoLockMinutes: jest.fn().mockResolvedValue(undefined),
+  setAppPin: jest.fn().mockResolvedValue(undefined),
+  changeAppPin: jest.fn().mockResolvedValue(true),
+  appPinUsable: jest.fn().mockResolvedValue(true),
+  completePinSetup: jest.fn().mockResolvedValue(undefined),
+  declinePinSetup: jest.fn().mockResolvedValue(undefined),
   setDriveFolderId: jest.fn().mockResolvedValue(undefined),
   setExportDirectoryUri: jest.fn().mockResolvedValue(undefined),
   setFilters: jest.fn(),
@@ -119,6 +142,7 @@ export const makeContextActions = (
   uploadQueuedExports: jest.fn().mockResolvedValue(null),
   importTransactions: jest.fn().mockResolvedValue(makeImportSummary()),
   unlockWithBiometrics: jest.fn().mockResolvedValue(true),
+  unlockWithPin: jest.fn().mockResolvedValue(true),
   ...overrides,
 });
 

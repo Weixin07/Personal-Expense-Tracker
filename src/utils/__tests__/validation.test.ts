@@ -4,6 +4,7 @@ import {
   validateBaseAmountPrecision,
   validateCurrencyCode,
   validateIsoDateWithinFutureWindow,
+  validatePin,
   validatePositiveAmount,
   validatePositiveRate,
   validateTimeOfDay,
@@ -234,5 +235,81 @@ describe('validateOpeningBalance', () => {
   it('rejects a value that is not a number', () => {
     expect(validateOpeningBalance(Number.NaN).valid).toBe(false);
     expect(validateOpeningBalance(null).valid).toBe(false);
+  });
+});
+
+describe('validatePin', () => {
+  it('accepts a six-digit PIN with no obvious pattern', () => {
+    expect(validatePin('846207')).toEqual({ valid: true });
+  });
+
+  it('accepts the maximum length', () => {
+    expect(validatePin('846207391584')).toEqual({ valid: true });
+  });
+
+  it('requires a value', () => {
+    expect(validatePin('')).toMatchObject({ valid: false });
+    expect(validatePin(null)).toMatchObject({ valid: false });
+    expect(validatePin(undefined)).toMatchObject({ valid: false });
+  });
+
+  it('rejects anything but digits', () => {
+    expect(validatePin('84a207')).toMatchObject({
+      valid: false,
+      message: 'PIN must contain digits only.',
+    });
+  });
+
+  it('rejects a PIN below the minimum length', () => {
+    expect(validatePin('84620')).toMatchObject({
+      valid: false,
+      message: 'PIN must be at least 6 digits.',
+    });
+  });
+
+  it('rejects a PIN above the maximum length', () => {
+    expect(validatePin('8462073915840')).toMatchObject({
+      valid: false,
+      message: 'PIN must be at most 12 digits.',
+    });
+  });
+
+  it('rejects a single digit repeated', () => {
+    expect(validatePin('111111')).toMatchObject({
+      valid: false,
+      message: 'PIN cannot be the same digit repeated.',
+    });
+  });
+
+  it.each(['123456', '987654', '345678'])('rejects the run %s', pin => {
+    expect(validatePin(pin)).toMatchObject({
+      valid: false,
+      message: 'PIN cannot be a run of consecutive digits.',
+    });
+  });
+
+  it.each(['121212', '123123', '45454545'])(
+    'rejects the repeated pattern %s',
+    pin => {
+      expect(validatePin(pin)).toMatchObject({
+        valid: false,
+        message: 'PIN cannot be a short pattern repeated.',
+      });
+    },
+  );
+
+  it('rejects a well-known choice that no structural rule catches', () => {
+    expect(validatePin('159753')).toMatchObject({
+      valid: false,
+      message: 'PIN is too easily guessed. Choose another.',
+    });
+  });
+
+  it('never echoes the input in its message', () => {
+    const result = validatePin('111111');
+    expect(result.valid).toBe(false);
+    if (!result.valid) {
+      expect(result.message).not.toContain('111111');
+    }
   });
 });

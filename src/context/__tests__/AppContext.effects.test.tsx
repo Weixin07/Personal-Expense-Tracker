@@ -2,9 +2,20 @@ import React, { useEffect } from 'react';
 import { AppState } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import * as Keychain from 'react-native-keychain';
+
+const APP_PIN_SERVICE = 'expense-tracker-app-pin';
+const BIOMETRIC_SERVICE = 'expense-tracker-biometric-gate';
+const STORED_PIN_RECORD = JSON.stringify({
+  v: 1,
+  algorithm: 'PBKDF2-HMAC-SHA256',
+  iterations: 150000,
+  saltB64: 'c2FsdA==',
+  hashB64: 'aGFzaA==',
+});
 import {
   renderWithProviders,
   act,
+  fireEvent,
   screen,
   waitFor,
 } from '../../__tests__/test-utils/renderWithProviders';
@@ -21,6 +32,7 @@ import * as db from '../../database';
 import * as exportModule from '../../export';
 import * as importModule from '../../import';
 import * as storageAccess from '../../security/storageAccess';
+import { isAppLockError } from '../../security/appLockError';
 import { computePresetRange } from '../../screens/homeUtils';
 import { localIsoDate } from '../../utils/date';
 import type { TransactionRecord, CategoryRecord } from '../../database';
@@ -124,6 +136,13 @@ const renderProvider = async () => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // clearAllMocks leaves implementations in place, so a per-test credential
+  // stub would otherwise decide the outcome of every test after it.
+  (Keychain.hasGenericPassword as jest.Mock).mockResolvedValue(false);
+  (Keychain.getGenericPassword as jest.Mock).mockResolvedValue(false);
+  (Keychain.getSupportedBiometryType as jest.Mock).mockResolvedValue(
+    'Fingerprint',
+  );
   (mockDb.withDatabase as jest.Mock).mockImplementation(
     (cb: (database: unknown) => unknown) => Promise.resolve(cb({})),
   );
@@ -410,7 +429,23 @@ describe('TransactionDataProvider effects', () => {
     expect(ctx.state.settings.exportDirectoryUri).toBe('content://dir');
   });
 
+  const stubPinExists = (exists: boolean): void => {
+    (Keychain.hasGenericPassword as jest.Mock).mockImplementation(
+      ({ service }: { service: string }) =>
+        Promise.resolve(exists && service === APP_PIN_SERVICE),
+    );
+    (Keychain.getGenericPassword as jest.Mock).mockImplementation(
+      ({ service }: { service: string }) =>
+        Promise.resolve(
+          exists && service === APP_PIN_SERVICE
+            ? { username: 'expense-tracker', password: STORED_PIN_RECORD }
+            : false,
+        ),
+    );
+  };
+
   it('enables and disables the biometric gate', async () => {
+    stubPinExists(true);
     await renderProvider();
     await act(async () => {
       await ctx.actions.setBiometricGateEnabled(true);
@@ -425,7 +460,81 @@ describe('TransactionDataProvider effects', () => {
     expect(ctx.state.settings.biometricGateEnabled).toBe(false);
   });
 
+  // Under the rule on `TransactionDataActions.setBiometricGateEnabled`.
+  it('refuses to enable the gate when no PIN is set', async () => {
+    stubPinExists(false);
+    await renderProvider();
+    await act(async () => {
+      const thrown = await ctx.actions
+        .setBiometricGateEnabled(true)
+        .then(() => null)
+        .catch((error: unknown) => error);
+      expect(isAppLockError(thrown, 'pin-required')).toBe(true);
+    });
+    expect(ctx.state.settings.biometricGateEnabled).toBe(false);
+    expect(mockDb.setSetting).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'biometric_gate_enabled',
+      'true',
+    );
+  });
+
+  /**
+   * A device with no TEE or no screen lock cannot hold the biometric
+   * credential. The PIN is a complete unlock path on its own, so the gate must
+   * still go on for exactly the users the fallback exists to serve.
+   */
+  it('enables the gate PIN-only when the biometric credential cannot be created', async () => {
+    stubPinExists(true);
+    await renderProvider();
+    (Keychain.setGenericPassword as jest.Mock).mockRejectedValue(
+      new Error('Cannot generate keys with required security guarantees'),
+    );
+
+    await act(async () => {
+      await ctx.actions.setBiometricGateEnabled(true);
+    });
+
+    expect(ctx.state.settings.biometricGateEnabled).toBe(true);
+    expect(mockDb.setSetting).toHaveBeenCalledWith(
+      expect.anything(),
+      'biometric_gate_enabled',
+      'true',
+    );
+    (Keychain.setGenericPassword as jest.Mock).mockResolvedValue(true);
+  });
+
+  it('still refuses to enable without a PIN, whatever the biometric hardware does', async () => {
+    stubPinExists(false);
+    await renderProvider();
+    (Keychain.setGenericPassword as jest.Mock).mockRejectedValue(
+      new Error('Cannot generate keys with required security guarantees'),
+    );
+
+    await act(async () => {
+      const thrown = await ctx.actions
+        .setBiometricGateEnabled(true)
+        .then(() => null)
+        .catch((error: unknown) => error);
+      expect(isAppLockError(thrown, 'pin-required')).toBe(true);
+    });
+    expect(ctx.state.settings.biometricGateEnabled).toBe(false);
+    (Keychain.setGenericPassword as jest.Mock).mockResolvedValue(true);
+  });
+
+  it('clears the PIN when the gate is disabled', async () => {
+    stubPinExists(true);
+    await renderProvider();
+    await act(async () => {
+      await ctx.actions.setBiometricGateEnabled(false);
+    });
+    expect(Keychain.resetGenericPassword).toHaveBeenCalledWith({
+      service: APP_PIN_SERVICE,
+    });
+  });
+
   it('stamps the credential version when the gate is enabled', async () => {
+    stubPinExists(true);
     await renderProvider();
     await act(async () => {
       await ctx.actions.setBiometricGateEnabled(true);
@@ -436,6 +545,324 @@ describe('TransactionDataProvider effects', () => {
       '2',
     );
     expect(ctx.state.settings.biometricCredentialVersion).toBe(2);
+  });
+
+  describe('the PIN and auto-lock settings', () => {
+    it('persists an auto-lock preset', async () => {
+      await renderProvider();
+      await act(async () => {
+        await ctx.actions.setAutoLockMinutes(15);
+      });
+      expect(mockDb.setSetting).toHaveBeenCalledWith(
+        expect.anything(),
+        'auto_lock_minutes',
+        '15',
+      );
+      expect(ctx.state.settings.autoLockMinutes).toBe(15);
+    });
+
+    it('persists Never as its own token, not as NULL', async () => {
+      await renderProvider();
+      await act(async () => {
+        await ctx.actions.setAutoLockMinutes(null);
+      });
+      expect(mockDb.setSetting).toHaveBeenCalledWith(
+        expect.anything(),
+        'auto_lock_minutes',
+        'never',
+      );
+      expect(ctx.state.settings.autoLockMinutes).toBeNull();
+    });
+
+    it('reports a failure to persist the preset', async () => {
+      await renderProvider();
+      mockDb.setSetting.mockRejectedValueOnce(new Error('write failed'));
+      await act(async () => {
+        await expect(ctx.actions.setAutoLockMinutes(30)).rejects.toThrow(
+          'write failed',
+        );
+      });
+      expect(ctx.state.error).toBe('write failed');
+    });
+
+    it('hydrates the preset from storage', async () => {
+      mockDb.getAllSettings.mockResolvedValue([
+        { key: 'auto_lock_minutes', value: '30' },
+      ]);
+      await renderProvider();
+      await waitFor(() => expect(ctx.state.settings.autoLockMinutes).toBe(30));
+    });
+
+    it('hydrates Never from its own token', async () => {
+      mockDb.getAllSettings.mockResolvedValue([
+        { key: 'auto_lock_minutes', value: 'never' },
+      ]);
+      await renderProvider();
+      await waitFor(() => expect(ctx.state.isInitialised).toBe(true));
+      expect(ctx.state.settings.autoLockMinutes).toBeNull();
+    });
+
+    // Resolved under the rule on `autoLockMinutesFromToken`.
+    it.each([
+      ['an unknown token', 'sometimes'],
+      ['a value outside the presets', '7'],
+      ['an empty value', ''],
+      ['a NULL value', null],
+    ])('falls back to five minutes for %s', async (_label, value) => {
+      mockDb.getAllSettings.mockResolvedValue([
+        { key: 'auto_lock_minutes', value },
+      ]);
+      await renderProvider();
+      await waitFor(() => expect(ctx.state.isInitialised).toBe(true));
+      expect(ctx.state.settings.autoLockMinutes).toBe(5);
+    });
+
+    it('sets a PIN and records the upgrade', async () => {
+      stubPinExists(false);
+      await renderProvider();
+      await act(async () => {
+        await ctx.actions.completePinSetup('846207');
+      });
+      expect(mockDb.setSetting).toHaveBeenCalledWith(
+        expect.anything(),
+        'app_pin_version',
+        '1',
+      );
+    });
+
+    it('refuses a PIN that fails the strength rule', async () => {
+      await renderProvider();
+      await act(async () => {
+        await expect(ctx.actions.setAppPin('111111')).rejects.toThrow(
+          /same digit repeated/,
+        );
+      });
+    });
+
+    /**
+     * Declining leaves the gate off rather than on-without-a-PIN, which the
+     * gate has no unlock path for.
+     */
+    it('turns the gate off when the PIN upgrade is declined', async () => {
+      stubPinExists(false);
+      mockDb.getAllSettings.mockResolvedValue([
+        { key: 'biometric_gate_enabled', value: 'true' },
+      ]);
+      await renderProvider();
+      await waitFor(() => expect(ctx.state.pinSetupRequired).toBe(true));
+      await act(async () => {
+        await ctx.actions.declinePinSetup();
+      });
+      expect(ctx.state.settings.biometricGateEnabled).toBe(false);
+      expect(ctx.state.pinSetupRequired).toBe(false);
+      expect(mockDb.setSetting).toHaveBeenCalledWith(
+        expect.anything(),
+        'biometric_gate_enabled',
+        'false',
+      );
+      expect(mockDb.setSetting).toHaveBeenCalledWith(
+        expect.anything(),
+        'app_pin_version',
+        '1',
+      );
+    });
+
+    /**
+     * The gate modal covers every route to Settings, so an install with the
+     * gate on and no PIN has to be offered enrolment at the lock screen or it
+     * cannot be opened at all.
+     */
+    it('offers enrolment at the lock screen, not a PIN field with no PIN', async () => {
+      stubPinExists(false);
+      (Keychain.getSupportedBiometryType as jest.Mock).mockResolvedValue(null);
+      mockDb.getAllSettings.mockResolvedValue([
+        { key: 'biometric_gate_enabled', value: 'true' },
+      ]);
+      await renderProvider();
+      await waitFor(() => expect(ctx.state.pinSetupRequired).toBe(true));
+      await waitFor(() =>
+        expect(screen.getByText('Set an app PIN')).toBeOnTheScreen(),
+      );
+      expect(screen.queryByLabelText('App PIN')).toBeNull();
+      expect(screen.queryByLabelText('Try biometrics again')).toBeNull();
+    });
+
+    it('lets the enrolled user straight in, through a real verify', async () => {
+      const written: string[] = [];
+      (Keychain.setGenericPassword as jest.Mock).mockImplementation(
+        (_username: string, password: string, options: { service: string }) => {
+          if (options.service === APP_PIN_SERVICE) {
+            written.push(password);
+            (Keychain.getGenericPassword as jest.Mock).mockImplementation(
+              ({ service }: { service: string }) =>
+                Promise.resolve(
+                  service === APP_PIN_SERVICE
+                    ? { username: 'expense-tracker', password }
+                    : false,
+                ),
+            );
+          }
+          return Promise.resolve(true);
+        },
+      );
+      stubPinExists(false);
+      (Keychain.getSupportedBiometryType as jest.Mock).mockResolvedValue(null);
+      mockDb.getAllSettings.mockResolvedValue([
+        { key: 'biometric_gate_enabled', value: 'true' },
+      ]);
+      await renderProvider();
+      await waitFor(() => expect(ctx.state.pinSetupRequired).toBe(true));
+
+      await act(async () => {
+        await ctx.actions.completePinSetup('846207');
+      });
+
+      expect(written).toHaveLength(1);
+      await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(false));
+      expect(ctx.state.pinSetupRequired).toBe(false);
+    });
+
+    it('lets that install turn the lock off from the same prompt', async () => {
+      stubPinExists(false);
+      (Keychain.getSupportedBiometryType as jest.Mock).mockResolvedValue(null);
+      mockDb.getAllSettings.mockResolvedValue([
+        { key: 'biometric_gate_enabled', value: 'true' },
+      ]);
+      await renderProvider();
+      await waitFor(() =>
+        expect(screen.getByText('Turn the lock off')).toBeOnTheScreen(),
+      );
+      await act(async () => {
+        fireEvent.press(screen.getByText('Turn the lock off'));
+      });
+      await waitFor(() =>
+        expect(ctx.state.settings.biometricGateEnabled).toBe(false),
+      );
+      expect(screen.queryByText('Set an app PIN')).toBeNull();
+    });
+
+    const stubKeychain = ({
+      biometricRead,
+      pinPassword,
+    }: {
+      biometricRead: boolean;
+      pinPassword: string | null;
+    }): void => {
+      (Keychain.hasGenericPassword as jest.Mock).mockImplementation(
+        ({ service }: { service: string }) =>
+          Promise.resolve(
+            service === BIOMETRIC_SERVICE ||
+              (service === APP_PIN_SERVICE && pinPassword !== null),
+          ),
+      );
+      (Keychain.getGenericPassword as jest.Mock).mockImplementation(
+        ({ service }: { service: string }) => {
+          if (service === BIOMETRIC_SERVICE) {
+            return Promise.resolve(
+              biometricRead
+                ? { username: 'expense-tracker', password: 'biometric-lock' }
+                : false,
+            );
+          }
+          if (service === APP_PIN_SERVICE && pinPassword !== null) {
+            return Promise.resolve({
+              username: 'expense-tracker',
+              password: pinPassword,
+            });
+          }
+          return Promise.resolve(false);
+        },
+      );
+    };
+
+    const gateOnSettings = [
+      { key: 'biometric_gate_enabled', value: 'true' },
+      { key: 'biometric_cred_version', value: '2' },
+    ];
+
+    it('asks for biometrics before offering enrolment or its decline', async () => {
+      stubKeychain({ biometricRead: false, pinPassword: null });
+      mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+      await renderProvider();
+      await waitFor(() =>
+        expect(ctx.state.biometric.biometricsAvailable).toBe(true),
+      );
+      await waitFor(() => expect(ctx.state.biometric.lastError).not.toBeNull());
+      expect(ctx.state.biometric.isLocked).toBe(true);
+      expect(ctx.state.pinSetupRequired).toBe(false);
+      expect(screen.queryByText('Turn the lock off')).toBeNull();
+      expect(screen.queryByText('Set an app PIN')).toBeNull();
+      expect(mockDb.setSetting).not.toHaveBeenCalledWith(
+        expect.anything(),
+        'biometric_gate_enabled',
+        'false',
+      );
+    });
+
+    it('offers enrolment once biometrics have unlocked', async () => {
+      stubKeychain({ biometricRead: true, pinPassword: null });
+      mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+      await renderProvider();
+      await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(false));
+      await waitFor(() => expect(ctx.state.pinSetupRequired).toBe(true));
+      expect(screen.getByText('Set an app PIN')).toBeOnTheScreen();
+    });
+
+    it('keeps a corrupt PIN record closed when no biometric can stand in', async () => {
+      stubKeychain({ biometricRead: false, pinPassword: 'not a record' });
+      (Keychain.getSupportedBiometryType as jest.Mock).mockResolvedValue(null);
+      mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+      await renderProvider();
+      await waitFor(() => expect(ctx.state.biometric.pinUsable).toBe(false));
+      await waitFor(() =>
+        expect(ctx.state.biometric.biometricsAvailable).toBe(false),
+      );
+      expect(ctx.state.biometric.isLocked).toBe(true);
+      expect(ctx.state.pinSetupRequired).toBe(false);
+      expect(screen.getByText('Unlock required')).toBeOnTheScreen();
+      expect(screen.queryByText('Turn the lock off')).toBeNull();
+    });
+
+    it('does not prompt a gate-on install that already has a PIN', async () => {
+      stubPinExists(true);
+      mockDb.getAllSettings.mockResolvedValue([
+        { key: 'biometric_gate_enabled', value: 'true' },
+      ]);
+      await renderProvider();
+      await waitFor(() => expect(ctx.state.isInitialised).toBe(true));
+      expect(ctx.state.pinSetupRequired).toBe(false);
+    });
+
+    it('does not prompt when the gate is off', async () => {
+      stubPinExists(false);
+      await renderProvider();
+      await waitFor(() => expect(ctx.state.isInitialised).toBe(true));
+      expect(ctx.state.pinSetupRequired).toBe(false);
+    });
+
+    it('exposes the PIN unlock path', async () => {
+      await renderProvider();
+      let unlocked = true;
+      await act(async () => {
+        unlocked = await ctx.actions.unlockWithPin('846207');
+      });
+      expect(unlocked).toBe(false);
+    });
+
+    it('reports whether a PIN exists', async () => {
+      stubPinExists(true);
+      await renderProvider();
+      await expect(ctx.actions.appPinUsable()).resolves.toBe(true);
+    });
+
+    it('changes a PIN only under the current one', async () => {
+      await renderProvider();
+      let changed = true;
+      await act(async () => {
+        changed = await ctx.actions.changeAppPin('111213', '846207');
+      });
+      expect(changed).toBe(false);
+    });
   });
 
   it('queues an export and writes a file', async () => {
@@ -484,6 +911,17 @@ describe('TransactionDataProvider effects', () => {
     mockDb.getAllSettings.mockResolvedValue([
       { key: 'biometric_gate_enabled', value: 'true' },
     ]);
+    // A normally configured gate-on install holds both credentials; the
+    // biometric auto-prompt only fires once a PIN exists.
+    (Keychain.hasGenericPassword as jest.Mock).mockResolvedValue(true);
+    (Keychain.getGenericPassword as jest.Mock).mockImplementation(
+      ({ service }: { service: string }) =>
+        Promise.resolve(
+          service === APP_PIN_SERVICE
+            ? { username: 'expense-tracker', password: STORED_PIN_RECORD }
+            : false,
+        ),
+    );
     const addEventListenerSpy = jest.spyOn(AppState, 'addEventListener');
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
 
@@ -512,6 +950,15 @@ describe('TransactionDataProvider effects', () => {
     mockDb.getAllSettings.mockResolvedValue([
       { key: 'biometric_gate_enabled', value: 'true' },
     ]);
+    (Keychain.hasGenericPassword as jest.Mock).mockResolvedValue(true);
+    (Keychain.getGenericPassword as jest.Mock).mockImplementation(
+      ({ service }: { service: string }) =>
+        Promise.resolve(
+          service === APP_PIN_SERVICE
+            ? { username: 'expense-tracker', password: STORED_PIN_RECORD }
+            : false,
+        ),
+    );
     await renderProvider();
     await waitFor(() =>
       expect(screen.getByText('Unlock required')).toBeOnTheScreen(),
@@ -521,7 +968,10 @@ describe('TransactionDataProvider effects', () => {
 
   it('locks fail-closed on a settings-load failure when a credential exists', async () => {
     mockDb.listTransactions.mockRejectedValueOnce(new Error('load failed'));
-    (Keychain.hasGenericPassword as jest.Mock).mockResolvedValueOnce(true);
+    (Keychain.hasGenericPassword as jest.Mock).mockImplementation(
+      ({ service }: { service: string }) =>
+        Promise.resolve(service === BIOMETRIC_SERVICE),
+    );
     await renderProvider();
     await waitFor(() =>
       expect(screen.getByText('Unlock required')).toBeOnTheScreen(),
@@ -535,6 +985,27 @@ describe('TransactionDataProvider effects', () => {
     );
   });
 
+  it('locks fail-closed for a PIN-only install with no biometric credential', async () => {
+    mockDb.listTransactions.mockRejectedValueOnce(new Error('load failed'));
+    (Keychain.hasGenericPassword as jest.Mock).mockImplementation(
+      ({ service }: { service: string }) =>
+        Promise.resolve(service === APP_PIN_SERVICE),
+    );
+    await renderProvider();
+    await waitFor(() =>
+      expect(screen.getByText('Unlock required')).toBeOnTheScreen(),
+    );
+    expect(ctx.state.biometric.isLocked).toBe(true);
+  });
+
+  it('keeps the five-minute auto-lock default when settings cannot be read', async () => {
+    mockDb.listTransactions.mockRejectedValueOnce(new Error('load failed'));
+    (Keychain.hasGenericPassword as jest.Mock).mockResolvedValue(false);
+    await renderProvider();
+    expect(ctx.state.error).toBe('load failed');
+    expect(ctx.state.settings.autoLockMinutes).toBe(5);
+  });
+
   it('stays unlocked on a settings-load failure when no credential exists', async () => {
     mockDb.listTransactions.mockRejectedValueOnce(new Error('load failed'));
     (Keychain.hasGenericPassword as jest.Mock).mockResolvedValueOnce(false);
@@ -545,7 +1016,7 @@ describe('TransactionDataProvider effects', () => {
 
   it('locks fail-closed when the credential probe itself throws', async () => {
     mockDb.listTransactions.mockRejectedValueOnce(new Error('load failed'));
-    (Keychain.hasGenericPassword as jest.Mock).mockRejectedValueOnce(
+    (Keychain.hasGenericPassword as jest.Mock).mockRejectedValue(
       new Error('keychain down'),
     );
     await renderProvider();

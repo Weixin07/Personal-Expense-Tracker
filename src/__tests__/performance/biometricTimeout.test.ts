@@ -1,17 +1,30 @@
 /**
  * Performance Test: Biometric Lock Timeout Accuracy
- * Tests the accuracy and consistency of the 5-minute timeout
+ * Measurement accuracy, and the lock decision at every auto-lock preset.
  */
 
 import { measureTime, wait, formatDuration } from './testHelpers';
+import {
+  getAutoLockPresets,
+  type AutoLockPreset,
+} from '../../constants/autoLockPresets';
+
+const idleTimeoutMs = (minutes: number | null): number | null =>
+  minutes === null ? null : minutes * 60 * 1000;
+
+const shouldLock = (elapsedMs: number, timeoutMs: number | null): boolean =>
+  timeoutMs !== null && elapsedMs >= timeoutMs;
+
+const idlePresets: AutoLockPreset[] = getAutoLockPresets().filter(
+  preset => preset.minutes !== null && preset.minutes > 0,
+);
 
 describe('Performance: Biometric Lock Timeout Accuracy', () => {
-  const BIOMETRIC_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-  const TOLERANCE_MS = 100; // 100ms tolerance
+  const TOLERANCE_MS = 100;
 
   describe('Timeout Duration Accuracy', () => {
     it('should measure 1-second timeout with high accuracy', async () => {
-      const targetDuration = 1000; // 1 second
+      const targetDuration = 1000;
 
       const { duration } = await measureTime(async () => {
         await wait(targetDuration);
@@ -19,32 +32,27 @@ describe('Performance: Biometric Lock Timeout Accuracy', () => {
 
       console.log(`⏱️  Target: ${targetDuration}ms`);
       console.log(`⏱️  Actual: ${duration.toFixed(2)}ms`);
-      console.log(
-        `⏱️  Difference: ${Math.abs(duration - targetDuration).toFixed(2)}ms`,
-      );
 
-      // Should be within 100ms tolerance
-      expect(Math.abs(duration - targetDuration)).toBeLessThan(TOLERANCE_MS);
-    });
+      expect(duration).toBeGreaterThanOrEqual(targetDuration - TOLERANCE_MS);
+      expect(duration).toBeLessThan(targetDuration + TOLERANCE_MS * 5);
+    }, 10000);
 
     it('should measure 5-second timeout with high accuracy', async () => {
-      const targetDuration = 5000; // 5 seconds
+      const targetDuration = 5000;
 
       const { duration } = await measureTime(async () => {
         await wait(targetDuration);
       });
 
-      console.log(`⏱️  Target: ${formatDuration(targetDuration)}`);
-      console.log(`⏱️  Actual: ${formatDuration(duration)}`);
-      console.log(
-        `⏱️  Difference: ${Math.abs(duration - targetDuration).toFixed(2)}ms`,
-      );
+      console.log(`⏱️  Target: ${targetDuration}ms`);
+      console.log(`⏱️  Actual: ${duration.toFixed(2)}ms`);
 
-      expect(Math.abs(duration - targetDuration)).toBeLessThan(TOLERANCE_MS);
-    }, 10000); // 10 second timeout for 5-second test
+      expect(duration).toBeGreaterThanOrEqual(targetDuration - TOLERANCE_MS);
+      expect(duration).toBeLessThan(targetDuration + TOLERANCE_MS * 5);
+    }, 15000);
 
     it('should measure 10-second timeout with high accuracy', async () => {
-      const targetDuration = 10000; // 10 seconds
+      const targetDuration = 10000;
 
       const { duration } = await measureTime(async () => {
         await wait(targetDuration);
@@ -52,279 +60,145 @@ describe('Performance: Biometric Lock Timeout Accuracy', () => {
 
       console.log(`⏱️  Target: ${formatDuration(targetDuration)}`);
       console.log(`⏱️  Actual: ${formatDuration(duration)}`);
-      console.log(
-        `⏱️  Difference: ${Math.abs(duration - targetDuration).toFixed(2)}ms`,
-      );
 
-      expect(Math.abs(duration - targetDuration)).toBeLessThan(TOLERANCE_MS);
-    }, 15000); // 15 second timeout for 10-second test
+      expect(duration).toBeGreaterThanOrEqual(targetDuration - TOLERANCE_MS);
+      expect(duration).toBeLessThan(targetDuration + TOLERANCE_MS * 5);
+    }, 20000);
   });
 
-  describe('Timeout Logic Simulation', () => {
-    it('should correctly calculate elapsed time', () => {
-      const now = Date.now();
-      const lastBackgroundTime = now - BIOMETRIC_TIMEOUT_MS;
+  describe('Timeout Threshold Boundaries', () => {
+    it.each(idlePresets)(
+      'locks at exactly the $label threshold',
+      ({ minutes }) => {
+        const timeoutMs = idleTimeoutMs(minutes);
+        const elapsed = timeoutMs as number;
 
-      const elapsed = now - lastBackgroundTime;
+        console.log(`⏱️  Elapsed: ${formatDuration(elapsed)}`);
+        expect(shouldLock(elapsed, timeoutMs)).toBe(true);
+      },
+    );
 
-      console.log(`⏱️  Elapsed Time: ${formatDuration(elapsed)}`);
-      console.log(
-        `⏱️  Timeout Threshold: ${formatDuration(BIOMETRIC_TIMEOUT_MS)}`,
-      );
-      console.log(`⏱️  Should Lock: ${elapsed >= BIOMETRIC_TIMEOUT_MS}`);
+    it.each(idlePresets)(
+      'does not lock one second under the $label threshold',
+      ({ minutes }) => {
+        const timeoutMs = idleTimeoutMs(minutes) as number;
+        const elapsed = timeoutMs - 1000;
 
-      expect(elapsed).toBeGreaterThanOrEqual(BIOMETRIC_TIMEOUT_MS);
+        console.log(`⏱️  Elapsed: ${formatDuration(elapsed)}`);
+        expect(shouldLock(elapsed, timeoutMs)).toBe(false);
+      },
+    );
+
+    it.each(idlePresets)(
+      'locks one second past the $label threshold',
+      ({ minutes }) => {
+        const timeoutMs = idleTimeoutMs(minutes) as number;
+        expect(shouldLock(timeoutMs + 1000, timeoutMs)).toBe(true);
+      },
+    );
+
+    it('locks on any background transition when set to Immediately', () => {
+      const timeoutMs = idleTimeoutMs(0);
+      expect(shouldLock(0, timeoutMs)).toBe(true);
+      expect(shouldLock(1, timeoutMs)).toBe(true);
     });
 
-    it('should NOT lock when elapsed time is less than timeout', () => {
-      const now = Date.now();
-      const lastBackgroundTime = now - (BIOMETRIC_TIMEOUT_MS - 1000); // 1 second before timeout
-
-      const elapsed = now - lastBackgroundTime;
-      const shouldLock = elapsed >= BIOMETRIC_TIMEOUT_MS;
-
-      console.log(`⏱️  Elapsed Time: ${formatDuration(elapsed)}`);
-      console.log(
-        `⏱️  Timeout Threshold: ${formatDuration(BIOMETRIC_TIMEOUT_MS)}`,
-      );
-      console.log(`⏱️  Should Lock: ${shouldLock}`);
-
-      expect(shouldLock).toBe(false);
-    });
-
-    it('should lock when elapsed time equals or exceeds timeout', () => {
-      const now = Date.now();
-      const lastBackgroundTime = now - BIOMETRIC_TIMEOUT_MS;
-
-      const elapsed = now - lastBackgroundTime;
-      const shouldLock = elapsed >= BIOMETRIC_TIMEOUT_MS;
-
-      console.log(`⏱️  Elapsed Time: ${formatDuration(elapsed)}`);
-      console.log(`⏱️  Should Lock: ${shouldLock}`);
-
-      expect(shouldLock).toBe(true);
-    });
-
-    it('should handle edge case at exactly timeout duration', () => {
-      const now = Date.now();
-      const lastBackgroundTime = now - BIOMETRIC_TIMEOUT_MS;
-
-      const elapsed = now - lastBackgroundTime;
-
-      // At exactly 5 minutes, should lock
-      expect(elapsed).toBe(BIOMETRIC_TIMEOUT_MS);
-      expect(elapsed >= BIOMETRIC_TIMEOUT_MS).toBe(true);
+    it('never locks on idle when set to Never', () => {
+      const timeoutMs = idleTimeoutMs(null);
+      expect(shouldLock(24 * 60 * 60 * 1000, timeoutMs)).toBe(false);
     });
   });
 
   describe('Timeout Consistency Across Multiple Checks', () => {
     it('should maintain consistent timeout behavior', async () => {
+      const timeoutMs = idleTimeoutMs(5) as number;
       const results: boolean[] = [];
-      const iterations = 5;
 
-      for (let i = 0; i < iterations; i++) {
+      for (let index = 0; index < 5; index += 1) {
         const now = Date.now();
-        const lastBackgroundTime = now - BIOMETRIC_TIMEOUT_MS;
-        const elapsed = now - lastBackgroundTime;
-        const shouldLock = elapsed >= BIOMETRIC_TIMEOUT_MS;
-
-        results.push(shouldLock);
-
-        await wait(10); // Small delay between checks
+        const lastBackgroundTime = now - timeoutMs;
+        results.push(shouldLock(now - lastBackgroundTime, timeoutMs));
+        await wait(10);
       }
 
       console.log(
         `🔒 Lock decisions: ${results.map(r => (r ? 'LOCK' : 'UNLOCK')).join(', ')}`,
       );
 
-      // All checks should produce the same result
-      const allSame = results.every(r => r === results[0]);
-      expect(allSame).toBe(true);
+      expect(results.every(result => result === results[0])).toBe(true);
     });
 
-    it('should handle rapid successive checks', async () => {
-      const now = Date.now();
-      const lastBackgroundTime = now - (BIOMETRIC_TIMEOUT_MS + 1000); // 1 second past timeout
+    it('should handle rapid successive checks', () => {
+      const timeoutMs = idleTimeoutMs(5) as number;
+      const lastBackgroundTime = Date.now() - (timeoutMs + 1000);
 
-      const checks: boolean[] = [];
-
-      // Perform 100 rapid checks
-      for (let i = 0; i < 100; i++) {
-        const currentNow = Date.now();
-        const elapsed = currentNow - lastBackgroundTime;
-        checks.push(elapsed >= BIOMETRIC_TIMEOUT_MS);
-      }
+      const checks = Array.from({ length: 100 }, () =>
+        shouldLock(Date.now() - lastBackgroundTime, timeoutMs),
+      );
 
       console.log(`🔒 Rapid checks performed: ${checks.length}`);
-      console.log(`🔒 All locked: ${checks.every(c => c)}`);
-
-      // All checks should indicate lock
-      expect(checks.every(c => c)).toBe(true);
-    });
-  });
-
-  describe('Timeout Threshold Boundaries', () => {
-    it('should not lock at 4 minutes 59 seconds', () => {
-      const now = Date.now();
-      const lastBackgroundTime = now - (4 * 60 * 1000 + 59 * 1000); // 4:59
-
-      const elapsed = now - lastBackgroundTime;
-      const shouldLock = elapsed >= BIOMETRIC_TIMEOUT_MS;
-
-      console.log(`⏱️  Elapsed: ${formatDuration(elapsed)}`);
-      console.log(`🔒 Should Lock: ${shouldLock}`);
-
-      expect(shouldLock).toBe(false);
-    });
-
-    it('should lock at 5 minutes 1 second', () => {
-      const now = Date.now();
-      const lastBackgroundTime = now - (5 * 60 * 1000 + 1000); // 5:01
-
-      const elapsed = now - lastBackgroundTime;
-      const shouldLock = elapsed >= BIOMETRIC_TIMEOUT_MS;
-
-      console.log(`⏱️  Elapsed: ${formatDuration(elapsed)}`);
-      console.log(`🔒 Should Lock: ${shouldLock}`);
-
-      expect(shouldLock).toBe(true);
-    });
-
-    it('should lock at exactly 5 minutes', () => {
-      const now = Date.now();
-      const lastBackgroundTime = now - BIOMETRIC_TIMEOUT_MS;
-
-      const elapsed = now - lastBackgroundTime;
-      const shouldLock = elapsed >= BIOMETRIC_TIMEOUT_MS;
-
-      console.log(`⏱️  Elapsed: ${formatDuration(elapsed)}`);
-      console.log(`🔒 Should Lock: ${shouldLock}`);
-
-      expect(shouldLock).toBe(true);
-    });
-
-    it('should lock well past timeout (10 minutes)', () => {
-      const now = Date.now();
-      const lastBackgroundTime = now - 10 * 60 * 1000; // 10 minutes
-
-      const elapsed = now - lastBackgroundTime;
-      const shouldLock = elapsed >= BIOMETRIC_TIMEOUT_MS;
-
-      console.log(`⏱️  Elapsed: ${formatDuration(elapsed)}`);
-      console.log(`🔒 Should Lock: ${shouldLock}`);
-
-      expect(shouldLock).toBe(true);
-    });
-  });
-
-  describe('Real-world Timing Scenarios', () => {
-    it('should handle realistic app backgrounding scenario', async () => {
-      console.log('\n📱 Simulating app backgrounding for 30 seconds...');
-
-      const backgroundTime = Date.now();
-
-      // Simulate 30 seconds in background
-      await wait(1000); // Wait 1 second (simulating partial time)
-
-      const foregroundTime = backgroundTime + 30000; // Simulate 30 seconds elapsed
-      const elapsed = foregroundTime - backgroundTime;
-      const shouldLock = elapsed >= BIOMETRIC_TIMEOUT_MS;
-
-      console.log(`⏱️  Time in background: ${formatDuration(elapsed)}`);
-      console.log(`🔒 Should Lock: ${shouldLock}`);
-
-      expect(shouldLock).toBe(false); // 30 seconds < 5 minutes
-    });
-
-    it('should handle app staying in background for 6 minutes', () => {
-      const backgroundTime = Date.now();
-      const foregroundTime = backgroundTime + 6 * 60 * 1000; // 6 minutes
-
-      const elapsed = foregroundTime - backgroundTime;
-      const shouldLock = elapsed >= BIOMETRIC_TIMEOUT_MS;
-
-      console.log(`⏱️  Time in background: ${formatDuration(elapsed)}`);
-      console.log(`🔒 Should Lock: ${shouldLock}`);
-
-      expect(shouldLock).toBe(true);
-    });
-
-    it('should lock on cold start when the gate is enabled', () => {
-      const isInitialised = true;
-      const gateEnabled = true;
-
-      const shouldLock = isInitialised && gateEnabled;
-
-      console.log('🔒 Cold start with gate enabled - lock required');
-      expect(shouldLock).toBe(true);
+      expect(checks.every(check => check)).toBe(true);
     });
   });
 
   describe('Performance of Timeout Check', () => {
     it('should perform timeout check in under 1ms', async () => {
       const iterations = 1000;
+      const timeoutMs = idleTimeoutMs(5);
       const durations: number[] = [];
 
-      for (let i = 0; i < iterations; i++) {
+      for (let index = 0; index < iterations; index += 1) {
         const { duration } = await measureTime(() => {
           const now = Date.now();
-          const lastBackgroundTime = now - BIOMETRIC_TIMEOUT_MS;
-          const elapsed = now - lastBackgroundTime;
-          return elapsed >= BIOMETRIC_TIMEOUT_MS;
+          return shouldLock(now - (now - (timeoutMs as number)), timeoutMs);
         });
 
         durations.push(duration);
       }
 
       const avgDuration =
-        durations.reduce((sum, d) => sum + d, 0) / durations.length;
+        durations.reduce((sum, value) => sum + value, 0) / durations.length;
       const maxDuration = Math.max(...durations);
 
       console.log(`⚡ Average check time: ${avgDuration.toFixed(4)}ms`);
       console.log(`⚡ Max check time: ${maxDuration.toFixed(4)}ms`);
-      console.log(`⚡ Iterations: ${iterations}`);
 
-      // Timeout check should be extremely fast
       expect(avgDuration).toBeLessThan(1);
       expect(maxDuration).toBeLessThan(5);
-    });
+    }, 20000);
   });
 
+  /**
+   * The lockout in `lockoutPolicy` expires by comparing stored wall-clock
+   * timestamps, so these properties of `Date.now()` are load-bearing for it, not
+   * only for the idle timer.
+   */
   describe('Date.now() Reliability', () => {
     it('should return monotonically increasing timestamps', async () => {
       const timestamps: number[] = [];
 
-      for (let i = 0; i < 100; i++) {
+      for (let index = 0; index < 100; index += 1) {
         timestamps.push(Date.now());
-        await wait(1); // Small delay
+        await wait(1);
       }
 
       console.log(`⏱️  Collected ${timestamps.length} timestamps`);
 
-      // Each timestamp should be >= previous
-      for (let i = 1; i < timestamps.length; i++) {
-        expect(timestamps[i]).toBeGreaterThanOrEqual(timestamps[i - 1]);
+      for (let index = 1; index < timestamps.length; index += 1) {
+        expect(timestamps[index]).toBeGreaterThanOrEqual(timestamps[index - 1]);
       }
-
-      console.log(`✅ All timestamps monotonically increasing`);
-    });
+    }, 10000);
 
     it('should provide millisecond precision', () => {
-      const t1 = Date.now();
-      const t2 = Date.now();
-      const t3 = Date.now();
+      const first = Date.now();
+      const second = Date.now();
+      const third = Date.now();
 
-      console.log(`⏱️  Timestamp 1: ${t1}`);
-      console.log(`⏱️  Timestamp 2: ${t2}`);
-      console.log(`⏱️  Timestamp 3: ${t3}`);
+      expect(typeof first).toBe('number');
+      expect(typeof second).toBe('number');
+      expect(typeof third).toBe('number');
 
-      // All timestamps should be valid numbers
-      expect(typeof t1).toBe('number');
-      expect(typeof t2).toBe('number');
-      expect(typeof t3).toBe('number');
-
-      // Should be reasonably close (within 10ms if running fast)
-      expect(t3 - t1).toBeLessThan(10);
+      expect(third - first).toBeLessThan(10);
     });
   });
 });

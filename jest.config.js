@@ -37,6 +37,7 @@ module.exports = {
     // Native-module IO bootstrap/wrappers covered by integration, not unit tests.
     '!src/database/index.ts',
     '!src/database/seeding.ts',
+    '!src/security/NativeAppPinCrypto.ts',
   ],
   coverageThreshold: {
     global: { branches: 70, functions: 80, lines: 80, statements: 80 },
@@ -75,6 +76,42 @@ module.exports = {
       functions: 92,
       lines: 93,
       statements: 93,
+    },
+    './src/security/pinHash.ts': {
+      branches: 95,
+      functions: 95,
+      lines: 95,
+      statements: 95,
+    },
+    './src/security/pinCredential.ts': {
+      branches: 95,
+      functions: 95,
+      lines: 95,
+      statements: 95,
+    },
+    './src/security/pinCalibration.ts': {
+      branches: 95,
+      functions: 95,
+      lines: 95,
+      statements: 95,
+    },
+    './src/security/lockoutPolicy.ts': {
+      branches: 95,
+      functions: 95,
+      lines: 95,
+      statements: 95,
+    },
+    './src/security/lockoutStore.ts': {
+      branches: 95,
+      functions: 95,
+      lines: 95,
+      statements: 95,
+    },
+    './src/security/appLockError.ts': {
+      branches: 95,
+      functions: 95,
+      lines: 95,
+      statements: 95,
     },
     './src/utils/textSearch.ts': {
       branches: 95,
