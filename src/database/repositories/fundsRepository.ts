@@ -103,7 +103,7 @@ export const getFundById = async (
   id: number,
 ): Promise<FundRecord | null> => {
   const [result] = await db.executeSql(
-    // eslint-disable-next-line no-restricted-syntax -- FUND_COLUMNS is a trusted constant column list, not user input
+    // eslint-disable-next-line local/no-dynamic-sql -- FUND_COLUMNS is a trusted constant column list, not user input
     `SELECT ${FUND_COLUMNS} FROM funds WHERE id = ? LIMIT 1`,
     [id],
   );
@@ -123,7 +123,7 @@ export const getFundByName = async (
   name: string,
 ): Promise<FundRecord | null> => {
   const [result] = await db.executeSql(
-    // eslint-disable-next-line no-restricted-syntax -- FUND_COLUMNS is a trusted constant column list, not user input
+    // eslint-disable-next-line local/no-dynamic-sql -- FUND_COLUMNS is a trusted constant column list, not user input
     `SELECT ${FUND_COLUMNS} FROM funds WHERE name = ? LIMIT 1`,
     [name.trim()],
   );
@@ -135,7 +135,7 @@ export const getFundByName = async (
 
 export const listFunds = async (db: SQLiteDatabase): Promise<FundRecord[]> => {
   const [result] = await db.executeSql(
-    // eslint-disable-next-line no-restricted-syntax -- FUND_COLUMNS is a trusted constant column list, not user input
+    // eslint-disable-next-line local/no-dynamic-sql -- FUND_COLUMNS is a trusted constant column list, not user input
     `SELECT ${FUND_COLUMNS} FROM funds ORDER BY name ASC`,
   );
   return mapResultSetToFunds(result);

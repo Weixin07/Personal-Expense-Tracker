@@ -169,6 +169,7 @@ export const updateExportQueueItem = async (
 
   fields.push("updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ','now'))");
 
+  // eslint-disable-next-line local/no-dynamic-sql -- every `fields` entry is a literal assignment written above; the caller's values are bound through `values`
   const query = `UPDATE export_queue SET ${fields.join(', ')} WHERE id = ?`;
   const [result] = await db.executeSql(query, [...values, id]);
 

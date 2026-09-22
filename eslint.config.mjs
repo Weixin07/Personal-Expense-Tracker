@@ -8,6 +8,7 @@ import importPlugin from 'eslint-plugin-import';
 import tseslint from 'typescript-eslint';
 import noSecrets from 'eslint-plugin-no-secrets';
 import { NARRATION_TERMS } from './scripts/comment-policy.mjs';
+import noDynamicSql from './scripts/eslint-rules/noDynamicSql.js';
 
 export default [
   // Ignore heavy/native folders
@@ -48,8 +49,10 @@ export default [
       'react-native': reactNative,
       import: importPlugin,
       'no-secrets': noSecrets,
+      local: { rules: { 'no-dynamic-sql': noDynamicSql } },
     },
     settings: { react: { version: 'detect' } },
+    linterOptions: { reportUnusedDisableDirectives: 'error' },
     rules: {
       ...reactPlugin.configs.recommended.rules,
       ...reactHooks.configs.recommended.rules,
@@ -88,17 +91,12 @@ export default [
         },
         {
           selector:
-            "CallExpression[callee.property.name='executeSql'] > :matches(TemplateLiteral[expressions.length > 0], BinaryExpression)",
-          message:
-            'Use parameterised queries with placeholder bindings when calling executeSql.',
-        },
-        {
-          selector:
             "JSXOpeningElement[name.name='TextInput']:has(JSXAttribute[name.name='editable'] Literal[value=false]):has(JSXAttribute[name.name=/^onPress/])",
           message:
             'A non-editable TextInput (editable={false}) does not receive touch events on Android, so its onPress* handler never fires. Use the SelectField component for tap-to-open fields.',
         },
       ],
+      'local/no-dynamic-sql': 'error',
       'no-restricted-properties': [
         'error',
         {

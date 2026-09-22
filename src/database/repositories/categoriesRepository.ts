@@ -86,7 +86,7 @@ export const getCategoryById = async (
   id: number,
 ): Promise<CategoryRecord | null> => {
   const [result] = await db.executeSql(
-    // eslint-disable-next-line no-restricted-syntax -- CATEGORY_COLUMNS is a trusted constant column list, not user input
+    // eslint-disable-next-line local/no-dynamic-sql -- CATEGORY_COLUMNS is a trusted constant column list, not user input
     `SELECT ${CATEGORY_COLUMNS} FROM categories WHERE id = ? LIMIT 1`,
     [id],
   );
@@ -101,7 +101,7 @@ export const getCategoryByName = async (
   name: string,
 ): Promise<CategoryRecord | null> => {
   const [result] = await db.executeSql(
-    // eslint-disable-next-line no-restricted-syntax -- CATEGORY_COLUMNS is a trusted constant column list, not user input
+    // eslint-disable-next-line local/no-dynamic-sql -- CATEGORY_COLUMNS is a trusted constant column list, not user input
     `SELECT ${CATEGORY_COLUMNS} FROM categories WHERE LOWER(name) = LOWER(?) LIMIT 1`,
     [name.trim()],
   );
@@ -131,7 +131,7 @@ export const listCategories = async (
   db: SQLiteDatabase,
 ): Promise<CategoryRecord[]> => {
   const [result] = await db.executeSql(
-    // eslint-disable-next-line no-restricted-syntax -- CATEGORY_COLUMNS is a trusted constant column list, not user input
+    // eslint-disable-next-line local/no-dynamic-sql -- CATEGORY_COLUMNS is a trusted constant column list, not user input
     `SELECT ${CATEGORY_COLUMNS} FROM categories ORDER BY name COLLATE NOCASE ASC`,
   );
   return mapResultSetToCategories(result);

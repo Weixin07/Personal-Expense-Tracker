@@ -189,7 +189,7 @@ export const createTransactionsBulk = async (
     const placeholders = Array(batch.length).fill(rowPlaceholder).join(', ');
     const params = batch.flatMap(toInsertParams);
     await db.executeSql(
-      // eslint-disable-next-line no-restricted-syntax -- placeholder groups are a trusted constant; every row value is parameterized
+      // eslint-disable-next-line local/no-dynamic-sql -- placeholder groups are a trusted constant; every row value is parameterized
       `INSERT INTO transactions (
         type,
         description,
@@ -306,7 +306,7 @@ export const getTransactionById = async (
   id: number,
 ): Promise<TransactionRecord | null> => {
   const [result] = await db.executeSql(
-    // eslint-disable-next-line no-restricted-syntax -- TRANSACTION_COLUMNS is a trusted constant column list, not user input
+    // eslint-disable-next-line local/no-dynamic-sql -- TRANSACTION_COLUMNS is a trusted constant column list, not user input
     `SELECT ${TRANSACTION_COLUMNS} FROM transactions WHERE id = ? LIMIT 1`,
     [id],
   );
@@ -373,6 +373,7 @@ export const listTransactions = async (
   // SQLite orders NULL below every other value, so `time DESC` already places
   // untimed rows after timed ones within a date. An explicit NULLS LAST would
   // require SQLite 3.30 and change nothing.
+  // eslint-disable-next-line local/no-dynamic-sql -- TRANSACTION_COLUMNS is a trusted constant column list; `whereClause` and `limitClause` are literal fragments and every filter value is bound through `params`
   const sql = `SELECT ${TRANSACTION_COLUMNS} FROM transactions ${whereClause} ORDER BY date DESC, time DESC, id DESC${limitClause}`;
   const [result] = await db.executeSql(sql, params);
   return mapResultSetToTransactions(result);

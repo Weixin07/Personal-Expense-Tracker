@@ -1016,7 +1016,11 @@ are available.
 
 **Enforcement:**
 
-- Custom ESLint rule detects `executeSql` calls with template literals or string concatenation
+- Custom ESLint rule (`local/no-dynamic-sql`, in `scripts/eslint-rules/`) detects `executeSql` calls
+  whose query is built by interpolation or concatenation
+- It resolves a query back through a variable, or through a helper declared in the same file, so
+  extracting the string first does not hide it, and sees through casts, ternaries, `.concat()` and
+  `.join()`
 - All queries must use `?` placeholders and value arrays
 
 **Example:**
@@ -1025,9 +1029,20 @@ are available.
 // ❌ WRONG (ESLint error)
 db.executeSql(`SELECT * FROM transactions WHERE id = ${id}`);
 
+// ❌ ALSO WRONG (ESLint error) — the variable does not hide it
+const sql = `SELECT * FROM transactions WHERE id = ${id}`;
+db.executeSql(sql);
+
 // ✅ CORRECT
 db.executeSql('SELECT * FROM transactions WHERE id = ?', [id]);
 ```
+
+**Limits:** the rule reasons within a single file. SQL imported from another module, arriving as a
+function parameter, or read off an object the rule cannot resolve — such as the statement list in
+`migrations.ts` — is not reported. Those queries are author-written constants, never user input.
+Where interpolation is deliberate and the interpolated fragment is a trusted constant, the code
+carries an `eslint-disable-next-line` with the reason, placed at the declaration or the helper's
+returned expression, which is where the rule reports.
 
 #### 6. Secret Detection
 
