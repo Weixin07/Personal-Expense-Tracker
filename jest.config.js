@@ -1,14 +1,14 @@
 module.exports = {
   preset: 'react-native',
-  // A frame-scale budget needs a process of its own: parallel workers compete
-  // for cores, and even a serial run sharing a process with the other
-  // performance suites inherits their heap, either of which moves a tight loop
-  // past the frame it is asserting. That suite is excluded here and run alone
-  // by `jest.performance.config.js`; the others carry budgets loose enough not
-  // to care.
+  // Wall-clock budgets need a process of their own: parallel workers compete
+  // for cores, and a machine that is also compiling moves a tight loop past
+  // the time it is asserting. Every suite under `src/__tests__/performance/`
+  // is excluded here and run serially by `jest.performance.config.js`, which
+  // resets this list — an ignored path stays ignored even when passed to jest
+  // explicitly, so that config, not a path argument, is what runs them.
   testPathIgnorePatterns: [
     '/node_modules/',
-    '<rootDir>/src/__tests__/performance/transactionSearch.test.ts',
+    '<rootDir>/src/__tests__/performance/',
   ],
   setupFiles: [
     require.resolve('react-native/jest/setup.js'),
