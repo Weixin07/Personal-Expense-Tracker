@@ -30,7 +30,8 @@
     "build:android:release": "cd android && gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a && cd ..",
     "build:android:release:all": "cd android && gradlew assembleRelease && cd ..",
     "build:android:bundle": "cd android && gradlew bundleRelease && cd ..",
-    "signing:report": "cd android && gradlew signingReport && cd .."
+    "signing:report": "cd android && gradlew signingReport && cd ..",
+    "install:android:debug": "cd android && .\\gradlew.bat app:installDebug && cd .."
   },
   "dependencies": {
     "@react-native-community/netinfo": "^11.3.3",
