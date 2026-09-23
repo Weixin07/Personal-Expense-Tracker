@@ -1,3 +1,4 @@
+import { DatabaseSync } from 'node:sqlite';
 import {
   formatDateBritish,
   formatDateRangeBritish,
@@ -6,6 +7,7 @@ import {
   localIsoDate,
   localIsoDateOffset,
   localTimeOfDay,
+  localUtcOffsetModifier,
   parseTimeInput,
 } from '../date';
 
@@ -245,4 +247,38 @@ describe('localIsoDateOffset', () => {
   it('returns the local day itself when nothing is offset', () => {
     expect(localIsoDateOffset(august14, {})).toBe(localIsoDate(august14));
   });
+});
+
+describe('localUtcOffsetModifier', () => {
+  const at = (offsetMinutes: number) =>
+    ({ getTimezoneOffset: () => offsetMinutes }) as Date;
+
+  it('states the pinned zone as minutes ahead of UTC', () => {
+    expect(localUtcOffsetModifier()).toBe('+480 minutes');
+  });
+
+  it('signs a zone behind UTC explicitly', () => {
+    expect(localUtcOffsetModifier(at(300))).toBe('-300 minutes');
+  });
+
+  it('states UTC itself as a zero shift', () => {
+    expect(localUtcOffsetModifier(at(0))).toBe('+0 minutes');
+  });
+
+  it.each([
+    [0, '2026-08-02'],
+    [-480, '2026-08-03'],
+    [300, '2026-08-02'],
+  ])(
+    'files a UTC timestamp under the local day SQLite reads for offset %i',
+    (offset, expected) => {
+      const db = new DatabaseSync(':memory:');
+      const row = db
+        .prepare("SELECT date('2026-08-02T23:30:00.000Z', ?) AS day")
+        .get(localUtcOffsetModifier(at(offset))) as { day: string };
+      db.close();
+
+      expect(row.day).toBe(expected);
+    },
+  );
 });

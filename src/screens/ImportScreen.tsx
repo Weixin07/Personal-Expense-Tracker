@@ -23,6 +23,7 @@ import {
   formatTransferCount,
 } from '../utils/transactionLabels';
 import { formatDateBritish } from '../utils/date';
+import { becomesCurrentRate } from '../utils/fxRates';
 import { formatFxRate } from '../utils/formatting';
 import { pickCsvFile, readFileAsString } from '../security/storageAccess';
 import { GoogleAuthError } from '../security/googleAuth';
@@ -54,6 +55,7 @@ import type {
   ImportTargetField,
   NegativeAmountMeaning,
   NumberFormat,
+  SeededRate,
 } from '../import';
 
 type Step = 'source' | 'drive' | 'mapping' | 'preview';
@@ -155,10 +157,27 @@ const targetFieldLabel = (
   return label;
 };
 
+const describeSavedRate = (rate: SeededRate): string =>
+  `1 ${rate.currencyCode} = ${formatFxRate(rate.fxRateToBase)} ${rate.baseCurrencyCode}, for ${formatDateBritish(rate.effectiveDate)}`;
+
+const describeSavedRates = (rates: readonly SeededRate[]): string => {
+  const current = rates.filter(rate => rate.becomesCurrent);
+  const history = rates.filter(rate => !rate.becomesCurrent);
+  return (
+    (current.length
+      ? `\n\nSaved as your current rates: ${current.map(describeSavedRate).join(', ')}.`
+      : '') +
+    (history.length
+      ? `\n\nSaved for their own date only: ${history.map(describeSavedRate).join(', ')}.`
+      : '')
+  );
+};
+
 const ImportScreen: React.FC = () => {
   const {
-    state: { settings, transactions, categories, funds, fxRateCache },
+    state: { settings, transactions, categories, funds },
     actions: { importTransactions },
+    selectors: { currentFxRates },
   } = useTransactionData();
 
   const [step, setStep] = useState<Step>('source');
@@ -397,7 +416,7 @@ const ImportScreen: React.FC = () => {
           delimiter,
           manualFxRates: rates,
           useCachedRates: useCached,
-          fxRateCache,
+          fxRateCache: currentFxRates,
           existingTransactions: transactions,
           existingCategories: categories,
           existingFunds: funds,
@@ -435,7 +454,7 @@ const ImportScreen: React.FC = () => {
       delimiter,
       funds,
       transactions,
-      fxRateCache,
+      currentFxRates,
       mapping,
       negativeMeans,
       numberFormat,
@@ -468,7 +487,30 @@ const ImportScreen: React.FC = () => {
   const derivedRateCount = readyRows.filter(
     item => item.fxRateSource === 'derived',
   ).length;
-  const ratesToBeSaved = useMemo(() => ratesToSeed(readyRows), [readyRows]);
+  const ratesToBeSaved = useMemo(
+    () =>
+      ratesToSeed(readyRows).map(rate => {
+        const current =
+          currentFxRates.find(
+            held =>
+              held.baseCurrencyCode.toUpperCase() ===
+                rate.baseCurrencyCode.toUpperCase() &&
+              held.currencyCode.toUpperCase() ===
+                rate.currencyCode.toUpperCase(),
+          ) ?? null;
+        return {
+          ...rate,
+          becomesCurrent: becomesCurrentRate(rate, current),
+        };
+      }),
+    [readyRows, currentFxRates],
+  );
+  const ratesBecomingCurrent = ratesToBeSaved.filter(
+    rate => rate.becomesCurrent,
+  );
+  const ratesForTheirDateOnly = ratesToBeSaved.filter(
+    rate => !rate.becomesCurrent,
+  );
   const allRowsDuplicated = Boolean(
     preview && preview.valid.length > 0 && readyRows.length === 0,
   );
@@ -668,14 +710,7 @@ const ImportScreen: React.FC = () => {
           (summary.skippedNeedsFxRate
             ? ` ${summary.skippedNeedsFxRate} row${summary.skippedNeedsFxRate === 1 ? '' : 's'} still need an FX rate.`
             : '') +
-          (summary.seededRates.length
-            ? `\n\nSaved as your current rates: ${summary.seededRates
-                .map(
-                  rate =>
-                    `1 ${rate.currencyCode} = ${formatFxRate(rate.fxRateToBase)} ${rate.baseCurrencyCode}`,
-                )
-                .join(', ')}.`
-            : ''),
+          describeSavedRates(summary.seededRates),
       );
       resetToStart();
     } catch (error) {
@@ -1152,13 +1187,13 @@ const ImportScreen: React.FC = () => {
                       />
                       {item.suggestedRate != null ? (
                         <Text variant="bodySmall" style={styles.muted}>
-                          Filled in from your saved rate: 1 {item.currencyCode}{' '}
-                          = {formatFxRate(item.suggestedRate)}{' '}
-                          {item.baseCurrencyCode}
-                          {item.suggestedRateUpdatedAt
-                            ? `, saved on ${formatDateBritish(item.suggestedRateUpdatedAt.slice(0, 10))}`
+                          Filled in from your rate
+                          {item.suggestedRateEffectiveDate
+                            ? ` for ${formatDateBritish(item.suggestedRateEffectiveDate)}`
                             : ''}
-                          . {item.rowCount} row
+                          : 1 {item.currencyCode} ={' '}
+                          {formatFxRate(item.suggestedRate)}{' '}
+                          {item.baseCurrencyCode}. {item.rowCount} row
                           {item.rowCount === 1 ? ' is' : 's are'} counted at it
                           — clear the field to hold them back instead.
                         </Text>
@@ -1257,20 +1292,37 @@ const ImportScreen: React.FC = () => {
               </View>
             ) : null}
 
-            {ratesToBeSaved.length > 0 ? (
+            {ratesBecomingCurrent.length > 0 ? (
               <View style={styles.bannerInfo}>
                 <Text variant="bodySmall">
-                  These rates will also be saved as your current ones, and
-                  filled in when you add a transaction by hand:
+                  These rates will be saved and filled in when you add a
+                  transaction by hand:
                 </Text>
-                {ratesToBeSaved.map(rate => (
+                {ratesBecomingCurrent.map(rate => (
                   <Text
                     key={fxPairKey(rate.baseCurrencyCode, rate.currencyCode)}
                     variant="bodySmall"
                     style={styles.muted}
                   >
-                    1 {rate.currencyCode} = {formatFxRate(rate.fxRateToBase)}{' '}
-                    {rate.baseCurrencyCode}
+                    {describeSavedRate(rate)}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+
+            {ratesForTheirDateOnly.length > 0 ? (
+              <View style={styles.bannerInfo}>
+                <Text variant="bodySmall">
+                  These rates will be saved for their own date only, since you
+                  have a newer rate:
+                </Text>
+                {ratesForTheirDateOnly.map(rate => (
+                  <Text
+                    key={fxPairKey(rate.baseCurrencyCode, rate.currencyCode)}
+                    variant="bodySmall"
+                    style={styles.muted}
+                  >
+                    {describeSavedRate(rate)}
                   </Text>
                 ))}
               </View>

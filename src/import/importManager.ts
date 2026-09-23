@@ -7,6 +7,7 @@ import {
   updateCategory,
   createFund,
   getFundByName,
+  getCurrencyFxRate,
   upsertCurrencyFxRate,
 } from '../database';
 import type {
@@ -24,7 +25,11 @@ import {
   validatePositiveRate,
   validateIsoDateWithinFutureWindow,
 } from '../utils/validation';
-import { convertToCurrency, deriveCounterpartRate } from '../utils/fxRates';
+import {
+  becomesCurrentRate,
+  convertToCurrency,
+  deriveCounterpartRate,
+} from '../utils/fxRates';
 import { resolveTransferCurrency } from '../utils/funds';
 import { computeBaseAmount } from '../screens/transactionFormUtils';
 import { parseCsv } from './csvParser';
@@ -637,7 +642,7 @@ export const previewImport = (
             baseCurrencyCode,
             currencyCode,
             suggestedRate: cachedRecord?.fxRateToBase ?? null,
-            suggestedRateUpdatedAt: cachedRecord?.updatedAt ?? null,
+            suggestedRateEffectiveDate: cachedRecord?.effectiveDate ?? null,
             rowCount: 1,
           });
         }
@@ -782,7 +787,8 @@ export const previewImport = (
                   baseCurrencyCode: baseCurrencyCode as string,
                   currencyCode: counterpartCurrencyCode as string,
                   fxRateToBase: manualConversionRate as number,
-                  updatedAt: '',
+                  effectiveDate: '',
+                  confirmedAt: '',
                 },
                 ...cachedForConversion,
               ]
@@ -803,7 +809,7 @@ export const previewImport = (
                 baseCurrencyCode: baseCurrencyCode as string,
                 currencyCode: counterpartCurrencyCode as string,
                 suggestedRate: cachedRecord?.fxRateToBase ?? null,
-                suggestedRateUpdatedAt: cachedRecord?.updatedAt ?? null,
+                suggestedRateEffectiveDate: cachedRecord?.effectiveDate ?? null,
                 rowCount: 1,
               });
             }
@@ -998,6 +1004,7 @@ type SeedCandidate = {
     | 'baseAmount'
     | 'counterpartAmount'
     | 'counterpartCurrencyCode'
+    | 'date'
   >;
   fxRateSource: FxRateSource;
   counterpartAmountSource: CounterpartAmountSource | null;
@@ -1007,7 +1014,8 @@ type SeedCandidate = {
  * How far a rate's origin is from the user's own judgement, highest first. A
  * pair carried by more than one row is saved at its best-evidenced rate rather
  * than at whichever row came first, so a rate confirmed during review is never
- * displaced by one a saved rate stood in for.
+ * displaced by one a saved rate stood in for. Among rows of equal rank the
+ * latest-dated wins, so the rate saved is the one the saved date belongs to.
  */
 const RATE_RANK: Record<FxRateSource, number> = {
   manual: 3,
@@ -1018,13 +1026,13 @@ const RATE_RANK: Record<FxRateSource, number> = {
 };
 
 /**
- * The rates an import saves as current, one per pair. A derived rate
- * reconstructs what the source recorded at the time of the transaction, so it
- * is history rather than a rate to reuse; a row whose currency already matches
- * its base carries no conversion to save.
+ * The rates an import saves, one per pair, each dated to the row it came from;
+ * `becomesCurrent` is left false for a caller to settle with
+ * `becomesCurrentRate`. A derived rate reconstructs what the source recorded at
+ * the time, so it is not saved; nor is a row already in its base currency.
  *
  * A cross-currency transfer also carries what the destination currency was
- * worth, but only where the user confirmed that rate during review: a received
+ * worth, saved only where the user confirmed that rate during review: a received
  * amount the file supplied is history for the same reason a derived rate is,
  * and one a saved rate produced is already held.
  *
@@ -1036,7 +1044,11 @@ export const ratesToSeed = (items: readonly SeedCandidate[]): SeededRate[] => {
   const offer = (rate: SeededRate, rank: number) => {
     const key = fxPairKey(rate.baseCurrencyCode, rate.currencyCode);
     const held = seeded.get(key);
-    if (!held || rank > held.rank) {
+    if (
+      !held ||
+      rank > held.rank ||
+      (rank === held.rank && rate.effectiveDate >= held.rate.effectiveDate)
+    ) {
       seeded.set(key, { rate, rank });
     }
   };
@@ -1046,10 +1058,17 @@ export const ratesToSeed = (items: readonly SeedCandidate[]): SeededRate[] => {
     if (!baseCurrencyCode) {
       return;
     }
+    const effectiveDate = record.date;
 
     if (fxRateSource !== 'derived' && baseCurrencyCode !== currencyCode) {
       offer(
-        { baseCurrencyCode, currencyCode, fxRateToBase },
+        {
+          baseCurrencyCode,
+          currencyCode,
+          fxRateToBase,
+          effectiveDate,
+          becomesCurrent: false,
+        },
         RATE_RANK[fxRateSource],
       );
     }
@@ -1066,6 +1085,8 @@ export const ratesToSeed = (items: readonly SeedCandidate[]): SeededRate[] => {
         baseCurrencyCode,
         currencyCode: record.counterpartCurrencyCode,
         fxRateToBase: counterpartRate,
+        effectiveDate,
+        becomesCurrent: false,
       },
       RATE_RANK.manual,
     );
@@ -1251,14 +1272,26 @@ export const commitImport = async (
         record => record.type === 'transfer',
       ).length;
 
-      const seededRates = ratesToSeed(prepared);
-      for (const rate of seededRates) {
+      const confirmedAt = new Date().toISOString();
+      const seededRates: SeededRate[] = [];
+      for (const rate of ratesToSeed(prepared)) {
+        const current = await getCurrencyFxRate(
+          db,
+          rate.baseCurrencyCode,
+          rate.currencyCode,
+        );
         await upsertCurrencyFxRate(
           db,
           rate.baseCurrencyCode,
           rate.currencyCode,
           rate.fxRateToBase,
+          rate.effectiveDate,
+          confirmedAt,
         );
+        seededRates.push({
+          ...rate,
+          becomesCurrent: becomesCurrentRate(rate, current),
+        });
       }
 
       return {

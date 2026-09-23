@@ -1,130 +1,141 @@
-import type { SQLiteDatabase, ResultSet } from 'react-native-sqlite-storage';
+/**
+ * @jest-environment node
+ */
+import { DatabaseSync } from 'node:sqlite';
+import type { SQLiteDatabase } from 'react-native-sqlite-storage';
+import { adaptNodeSqlite } from '../../../__tests__/test-utils/sqliteAdapter';
 import {
-  upsertCurrencyFxRate,
+  AS_OF_EXPECTATIONS,
+  AS_OF_SERIES,
+} from '../../../__tests__/test-utils/fxRateFixtures';
+import { runMigrations } from '../../migrations';
+import {
   getCurrencyFxRate,
+  getCurrencyFxRateAsOf,
   listCurrencyFxRates,
+  upsertCurrencyFxRate,
 } from '../currencyFxRatesRepository';
 
 describe('currencyFxRatesRepository', () => {
-  let mockDb: jest.Mocked<SQLiteDatabase>;
+  let raw: DatabaseSync;
+  let db: SQLiteDatabase;
 
-  beforeEach(() => {
-    mockDb = {
-      executeSql: jest.fn(),
-    } as unknown as jest.Mocked<SQLiteDatabase>;
+  const save = (
+    rate: number,
+    effectiveDate: string,
+    confirmedAt: string,
+    currencyCode = 'EUR',
+  ) =>
+    upsertCurrencyFxRate(
+      db,
+      'MYR',
+      currencyCode,
+      rate,
+      effectiveDate,
+      confirmedAt,
+    );
+
+  beforeEach(async () => {
+    raw = new DatabaseSync(':memory:');
+    db = adaptNodeSqlite(raw);
+    await runMigrations(db);
+  });
+
+  afterEach(() => {
+    raw.close();
   });
 
   describe('upsertCurrencyFxRate', () => {
-    it('upserts on the (base, currency) primary key', async () => {
-      const mockResult: ResultSet = {
-        insertId: undefined,
-        rowsAffected: 1,
-        rows: { length: 0, raw: () => [], item: () => null },
-      };
-      mockDb.executeSql.mockResolvedValueOnce([mockResult]);
+    it('stores every column it is given, without the ON CONFLICT form API 28 lacks', async () => {
+      const spy = jest.spyOn(db, 'executeSql');
+      await save(4.9, '2026-08-10', '2026-08-10T09:00:00.000Z');
 
-      await upsertCurrencyFxRate(mockDb, 'USD', 'EUR', 1.1);
-
-      expect(mockDb.executeSql).toHaveBeenCalledWith(
+      expect(spy).toHaveBeenCalledWith(
         expect.stringContaining('INSERT OR REPLACE INTO currency_fx_rates'),
-        ['USD', 'EUR', 1.1],
+        ['MYR', 'EUR', '2026-08-10', 4.9, '2026-08-10T09:00:00.000Z'],
       );
-      expect(mockDb.executeSql).not.toHaveBeenCalledWith(
+      expect(spy).not.toHaveBeenCalledWith(
         expect.stringContaining('ON CONFLICT'),
         expect.anything(),
       );
+      expect(await listCurrencyFxRates(db)).toEqual([
+        {
+          baseCurrencyCode: 'MYR',
+          currencyCode: 'EUR',
+          fxRateToBase: 4.9,
+          effectiveDate: '2026-08-10',
+          confirmedAt: '2026-08-10T09:00:00.000Z',
+        },
+      ]);
+    });
+
+    it('keeps one rate per pair per day, the later write replacing the earlier', async () => {
+      await save(4.9, '2026-08-10', '2026-08-10T09:00:00.000Z');
+      await save(4.95, '2026-08-10', '2026-08-10T18:00:00.000Z');
+      await save(4.6, '2026-01-15', '2026-08-20T09:00:00.000Z');
+
+      const series = await listCurrencyFxRates(db);
+      expect(
+        series.map(rate => [rate.effectiveDate, rate.fxRateToBase]),
+      ).toEqual([
+        ['2026-01-15', 4.6],
+        ['2026-08-10', 4.95],
+      ]);
     });
   });
 
   describe('getCurrencyFxRate', () => {
-    it('returns the cached rate when present', async () => {
-      const row = {
-        base_currency_code: 'USD',
-        currency_code: 'EUR',
-        fx_rate_to_base: 1.1,
-        updated_at: '2025-01-15T10:00:00.000Z',
-      };
-      const mockResult: ResultSet = {
-        insertId: undefined,
-        rowsAffected: 0,
-        rows: {
-          length: 1,
-          raw: () => [row],
-          item: (index: number) => (index === 0 ? row : null),
-        },
-      };
-      mockDb.executeSql.mockResolvedValueOnce([mockResult]);
+    it('answers with the latest-dated rate, not the latest-confirmed one', async () => {
+      await save(4.9, '2026-08-10', '2026-08-10T09:00:00.000Z');
+      await save(4.6, '2026-01-15', '2026-08-20T09:00:00.000Z');
 
-      const result = await getCurrencyFxRate(mockDb, 'USD', 'EUR');
-
-      expect(mockDb.executeSql).toHaveBeenCalledWith(
-        expect.stringContaining('FROM currency_fx_rates'),
-        ['USD', 'EUR'],
+      expect((await getCurrencyFxRate(db, 'MYR', 'EUR'))?.fxRateToBase).toBe(
+        4.9,
       );
-      expect(result).toEqual({
-        baseCurrencyCode: 'USD',
-        currencyCode: 'EUR',
-        fxRateToBase: 1.1,
-        updatedAt: '2025-01-15T10:00:00.000Z',
-      });
     });
 
-    it('returns null when no cached rate exists', async () => {
-      const mockResult: ResultSet = {
-        insertId: undefined,
-        rowsAffected: 0,
-        rows: { length: 0, raw: () => [], item: () => null },
-      };
-      mockDb.executeSql.mockResolvedValueOnce([mockResult]);
-
-      const result = await getCurrencyFxRate(mockDb, 'USD', 'JPY');
-
-      expect(result).toBeNull();
+    it('has no answer for a pair never saved', async () => {
+      expect(await getCurrencyFxRate(db, 'MYR', 'EUR')).toBeNull();
     });
   });
 
+  describe('getCurrencyFxRateAsOf', () => {
+    it.each(AS_OF_EXPECTATIONS)(
+      'resolves $point to $expected',
+      async ({ point, expected }) => {
+        // Written in reverse, so the answer cannot depend on insertion order.
+        for (const rate of [...AS_OF_SERIES].reverse()) {
+          await upsertCurrencyFxRate(
+            db,
+            rate.baseCurrencyCode,
+            rate.currencyCode,
+            rate.fxRateToBase,
+            rate.effectiveDate,
+            rate.confirmedAt,
+          );
+        }
+
+        const found = await getCurrencyFxRateAsOf(db, 'MYR', 'EUR', point);
+        expect(found?.fxRateToBase ?? null).toBe(expected);
+      },
+    );
+  });
+
   describe('listCurrencyFxRates', () => {
-    it('maps every cached row to a record', async () => {
-      const rows = [
-        {
-          base_currency_code: 'USD',
-          currency_code: 'EUR',
-          fx_rate_to_base: 1.1,
-          updated_at: '2025-01-15T10:00:00.000Z',
-        },
-        {
-          base_currency_code: 'USD',
-          currency_code: 'GBP',
-          fx_rate_to_base: 1.27,
-          updated_at: '2025-01-16T10:00:00.000Z',
-        },
-      ];
-      const mockResult: ResultSet = {
-        insertId: undefined,
-        rowsAffected: 0,
-        rows: {
-          length: 2,
-          raw: () => rows,
-          item: (index: number) => rows[index] ?? null,
-        },
-      };
-      mockDb.executeSql.mockResolvedValueOnce([mockResult]);
+    it('lists every pair oldest first, whatever order they were written in', async () => {
+      await save(0.03, '2026-02-01', '2026-02-01T09:00:00.000Z', 'JPY');
+      await save(4.9, '2026-08-10', '2026-08-10T09:00:00.000Z');
+      await save(4.6, '2026-01-15', '2026-08-20T09:00:00.000Z');
 
-      const result = await listCurrencyFxRates(mockDb);
-
-      expect(result).toEqual([
-        {
-          baseCurrencyCode: 'USD',
-          currencyCode: 'EUR',
-          fxRateToBase: 1.1,
-          updatedAt: '2025-01-15T10:00:00.000Z',
-        },
-        {
-          baseCurrencyCode: 'USD',
-          currencyCode: 'GBP',
-          fxRateToBase: 1.27,
-          updatedAt: '2025-01-16T10:00:00.000Z',
-        },
+      expect(
+        (await listCurrencyFxRates(db)).map(rate => [
+          rate.currencyCode,
+          rate.effectiveDate,
+        ]),
+      ).toEqual([
+        ['EUR', '2026-01-15'],
+        ['EUR', '2026-08-10'],
+        ['JPY', '2026-02-01'],
       ]);
     });
   });

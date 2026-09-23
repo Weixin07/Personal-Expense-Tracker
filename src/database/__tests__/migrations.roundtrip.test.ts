@@ -20,6 +20,15 @@ import { seedInitialData } from '../seeding';
  */
 const adapt = adaptNodeSqlite;
 
+/** `currency_fx_rates` as v5 created it, unchanged until v13 rebuilt it. */
+const CURRENCY_FX_RATES_V5 = `CREATE TABLE currency_fx_rates (
+  base_currency_code TEXT NOT NULL CHECK (LENGTH(base_currency_code) = 3),
+  currency_code TEXT NOT NULL CHECK (LENGTH(currency_code) = 3),
+  fx_rate_to_base REAL NOT NULL CHECK (fx_rate_to_base > 0),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  PRIMARY KEY (base_currency_code, currency_code)
+);`;
+
 /** The schema as it stood at v9, so the rebuild has real rows to carry across. */
 const seedV9 = (db: DatabaseSync): void => {
   db.exec(`CREATE TABLE categories (
@@ -48,6 +57,7 @@ const seedV9 = (db: DatabaseSync): void => {
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
   );`);
   db.exec(`CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT);`);
+  db.exec(CURRENCY_FX_RATES_V5);
   db.exec(`CREATE TABLE schema_migrations (
     version INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -210,12 +220,12 @@ describe('migration v10 against a real SQLite engine', () => {
     });
   });
 
-  it('reports the schema at version 12', () => {
+  it('reports the schema at version 13', () => {
     const [{ version }] = raw
       .prepare('SELECT MAX(version) AS version FROM schema_migrations')
       .all() as { version: number }[];
 
-    expect(version).toBe(12);
+    expect(version).toBe(13);
   });
 });
 
@@ -277,6 +287,7 @@ const seedV10 = (db: DatabaseSync, baseCurrency: string | null): void => {
     FOREIGN KEY (counterpart_fund_id) REFERENCES funds(id) ON DELETE RESTRICT
   );`);
   db.exec(`CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT);`);
+  db.exec(CURRENCY_FX_RATES_V5);
   db.exec(`CREATE TABLE schema_migrations (
     version INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -509,6 +520,7 @@ const seedV11 = (db: DatabaseSync): void => {
     FOREIGN KEY (counterpart_fund_id) REFERENCES funds(id) ON DELETE RESTRICT
   );`);
   db.exec(`CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT);`);
+  db.exec(CURRENCY_FX_RATES_V5);
   db.exec(`CREATE TABLE schema_migrations (
     version INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -603,12 +615,156 @@ describe('migration v12 against a real SQLite engine', () => {
     ).toThrow(/CHECK constraint failed/);
   });
 
-  it('reports the schema at version 12', () => {
+  it('reports the schema at version 13', () => {
     const [{ version }] = raw
       .prepare('SELECT MAX(version) AS version FROM schema_migrations')
       .all() as { version: number }[];
 
-    expect(version).toBe(12);
+    expect(version).toBe(13);
+  });
+});
+
+describe('migration v13 against a real SQLite engine', () => {
+  let raw: DatabaseSync;
+
+  /** Rates as a v12 device holds them: one per pair, stamped when last saved. */
+  const V12_RATES = [
+    ['MYR', 'EUR', 4.9, '2026-08-10T09:00:00.000Z'],
+    // 07:30 on 3 August in Kuala Lumpur, still 2 August in UTC.
+    ['MYR', 'JPY', 0.031, '2026-08-02T23:30:00.000Z'],
+    // 23:59:59 on 2 August in Kuala Lumpur.
+    ['MYR', 'USD', 4.2, '2026-08-02T15:59:59.000Z'],
+    ['USD', 'EUR', 1.08, '2025-12-31T20:00:00.000Z'],
+  ] as const;
+
+  const columns = (): string[] =>
+    (
+      raw.prepare('PRAGMA table_info(currency_fx_rates)').all() as {
+        name: string;
+      }[]
+    ).map(column => column.name);
+
+  const insert = (
+    currencyCode: string,
+    effectiveDate: string,
+    rate = 1.5,
+  ): void => {
+    raw
+      .prepare(
+        `INSERT INTO currency_fx_rates
+          (base_currency_code, currency_code, effective_date, fx_rate_to_base, confirmed_at)
+          VALUES ('MYR', ?, ?, ?, '2026-09-01T00:00:00.000Z')`,
+      )
+      .run(currencyCode, effectiveDate, rate);
+  };
+
+  beforeEach(async () => {
+    raw = new DatabaseSync(':memory:');
+    raw.exec('PRAGMA foreign_keys = ON');
+    seedV11(raw);
+    const seed = raw.prepare(
+      `INSERT INTO currency_fx_rates
+        (base_currency_code, currency_code, fx_rate_to_base, updated_at)
+        VALUES (?, ?, ?, ?)`,
+    );
+    V12_RATES.forEach(row => seed.run(...row));
+    await runMigrations(adapt(raw));
+  });
+
+  afterEach(() => {
+    raw.close();
+  });
+
+  it('carries every rate across with its value and when it was last saved', () => {
+    const rows = raw
+      .prepare(
+        `SELECT base_currency_code, currency_code, fx_rate_to_base, confirmed_at
+          FROM currency_fx_rates ORDER BY base_currency_code, currency_code`,
+      )
+      .all();
+
+    expect(rows).toEqual(
+      [...V12_RATES]
+        .sort((a, b) => `${a[0]}${a[1]}`.localeCompare(`${b[0]}${b[1]}`))
+        .map(([base, currency, rate, savedAt]) => ({
+          base_currency_code: base,
+          currency_code: currency,
+          fx_rate_to_base: rate,
+          confirmed_at: savedAt,
+        })),
+    );
+  });
+
+  it('dates each rate to the local day it was last saved', () => {
+    const dates = Object.fromEntries(
+      (
+        raw
+          .prepare(
+            'SELECT base_currency_code, currency_code, effective_date FROM currency_fx_rates',
+          )
+          .all() as {
+          base_currency_code: string;
+          currency_code: string;
+          effective_date: string;
+        }[]
+      ).map(row => [
+        `${row.base_currency_code}|${row.currency_code}`,
+        row.effective_date,
+      ]),
+    );
+
+    expect(dates).toEqual({
+      'MYR|EUR': '2026-08-10',
+      'MYR|JPY': '2026-08-03',
+      'MYR|USD': '2026-08-02',
+      'USD|EUR': '2026-01-01',
+    });
+  });
+
+  it('drops the column the two dates replace', () => {
+    expect(columns()).toEqual([
+      'base_currency_code',
+      'currency_code',
+      'effective_date',
+      'fx_rate_to_base',
+      'confirmed_at',
+    ]);
+  });
+
+  it('holds one pair on two dates', () => {
+    insert('EUR', '2026-01-15', 4.6);
+
+    expect(
+      raw
+        .prepare(
+          "SELECT COUNT(*) AS count FROM currency_fx_rates WHERE currency_code = 'EUR' AND base_currency_code = 'MYR'",
+        )
+        .get(),
+    ).toEqual({ count: 2 });
+  });
+
+  it('refuses a second rate for a pair on the same day', () => {
+    expect(() => insert('EUR', '2026-08-10')).toThrow(
+      /UNIQUE constraint failed/,
+    );
+  });
+
+  it('keeps every constraint the rebuild could have lost', () => {
+    expect(() => insert('EURO', '2026-01-01')).toThrow(
+      /CHECK constraint failed/,
+    );
+    expect(() => insert('EUR', '2026-1-1')).toThrow(/CHECK constraint failed/);
+    expect(() => insert('EUR', '2026-01-02', 0)).toThrow(
+      /CHECK constraint failed/,
+    );
+  });
+
+  it('reports the schema at version 13', () => {
+    const [{ version }] = raw
+      .prepare('SELECT MAX(version) AS version FROM schema_migrations')
+      .all() as { version: number }[];
+
+    expect(version).toBe(13);
   });
 });
 

@@ -1507,7 +1507,8 @@ describe('transfers and fund balances', () => {
         baseCurrencyCode: 'USD',
         currencyCode: 'EUR',
         fxRateToBase: 1.08,
-        updatedAt: '2026-01-01T00:00:00.000Z',
+        effectiveDate: '2026-01-01',
+        confirmedAt: '2026-01-01T00:00:00.000Z',
       },
     ]);
 
@@ -1527,6 +1528,7 @@ describe('transfers and fund balances', () => {
       fxRateToBase: 1.2,
       baseAmount: 0,
       fundId: 1,
+      date: '2026-02-01',
     };
     mockDb.createTransaction.mockResolvedValue(reRated);
 
@@ -1537,6 +1539,51 @@ describe('transfers and fund balances', () => {
     expect(
       ctx.selectors.fundBalances.find(item => item.fundId === 1)?.byCurrency,
     ).toEqual([{ currencyCode: 'EUR', balance: 90 }]);
+  });
+
+  it('leaves a fund alone when a rate for an earlier day is saved', async () => {
+    mockDb.getAllSettings.mockResolvedValue([
+      { key: 'base_currency', value: 'USD' },
+    ]);
+    mockDb.listFunds.mockResolvedValue([fund(1, { currencyCode: 'EUR' })]);
+    mockDb.listTransactions.mockResolvedValue([
+      { ...transaction, id: 1, type: 'income', baseAmount: 108 },
+    ]);
+    mockDb.listCurrencyFxRates.mockResolvedValue([
+      {
+        baseCurrencyCode: 'USD',
+        currencyCode: 'EUR',
+        fxRateToBase: 1.08,
+        effectiveDate: '2026-01-01',
+        confirmedAt: '2026-01-01T00:00:00.000Z',
+      },
+    ]);
+    await renderProvider();
+
+    const backfilled = {
+      ...transaction,
+      id: 99,
+      amountNative: 0,
+      currencyCode: 'EUR',
+      fxRateToBase: 1.2,
+      baseAmount: 0,
+      fundId: 1,
+      date: '2025-06-01',
+      updatedAt: '2026-08-20T00:00:00.000Z',
+    };
+    mockDb.createTransaction.mockResolvedValue(backfilled);
+
+    await act(async () => {
+      await ctx.actions.createTransaction(backfilled);
+    });
+
+    expect(ctx.state.fxRateSeries).toHaveLength(2);
+    expect(ctx.selectors.currentFxRates).toEqual([
+      expect.objectContaining({ fxRateToBase: 1.08 }),
+    ]);
+    expect(
+      ctx.selectors.fundBalances.find(item => item.fundId === 1)?.byCurrency,
+    ).toEqual([{ currencyCode: 'EUR', balance: 100 }]);
   });
 
   it('counts a fund filter against both sides of a transfer', async () => {
@@ -1719,7 +1766,7 @@ describe('fx rate cache', () => {
   };
 
   const cachedRates = () =>
-    ctx.state.fxRateCache.map(item => [item.currencyCode, item.fxRateToBase]);
+    ctx.state.fxRateSeries.map(item => [item.currencyCode, item.fxRateToBase]);
 
   beforeEach(() => {
     mockDb.getAllSettings.mockResolvedValue([
@@ -1742,6 +1789,8 @@ describe('fx rate cache', () => {
       'MYR',
       'EUR',
       5,
+      crossCurrencyTransfer.date,
+      crossCurrencyTransfer.updatedAt,
     );
     expect(mockDb.upsertCurrencyFxRate).toHaveBeenNthCalledWith(
       2,
@@ -1749,6 +1798,8 @@ describe('fx rate cache', () => {
       'MYR',
       'JPY',
       500 / 17000,
+      crossCurrencyTransfer.date,
+      crossCurrencyTransfer.updatedAt,
     );
   });
 
@@ -1764,6 +1815,26 @@ describe('fx rate cache', () => {
       ['EUR', 5],
       ['JPY', 500 / 17000],
     ]);
+    expect(
+      ctx.state.fxRateSeries.map(item => [
+        item.effectiveDate,
+        item.confirmedAt,
+      ]),
+    ).toEqual([
+      [crossCurrencyTransfer.date, crossCurrencyTransfer.updatedAt],
+      [crossCurrencyTransfer.date, crossCurrencyTransfer.updatedAt],
+    ]);
+  });
+
+  it('touches no rate when a transaction is deleted', async () => {
+    mockDb.listTransactions.mockResolvedValue([crossCurrencyTransfer]);
+    await renderProvider();
+
+    await act(async () => {
+      await ctx.actions.deleteTransaction(crossCurrencyTransfer.id);
+    });
+
+    expect(mockDb.upsertCurrencyFxRate).not.toHaveBeenCalled();
   });
 
   it('saves both currencies again when a stored transfer is corrected', async () => {
@@ -1778,9 +1849,22 @@ describe('fx rate cache', () => {
     });
 
     expect(mockDb.upsertCurrencyFxRate).toHaveBeenCalledTimes(2);
+    expect(mockDb.upsertCurrencyFxRate).toHaveBeenNthCalledWith(
+      2,
+      {},
+      'MYR',
+      'JPY',
+      500 / 16000,
+      crossCurrencyTransfer.date,
+      crossCurrencyTransfer.updatedAt,
+    );
     expect(cachedRates()).toEqual([
       ['EUR', 5],
       ['JPY', 500 / 16000],
+    ]);
+    expect(ctx.state.fxRateSeries.map(item => item.confirmedAt)).toEqual([
+      crossCurrencyTransfer.updatedAt,
+      crossCurrencyTransfer.updatedAt,
     ]);
   });
 
@@ -1801,6 +1885,8 @@ describe('fx rate cache', () => {
       'MYR',
       'EUR',
       5,
+      crossCurrencyTransfer.date,
+      crossCurrencyTransfer.updatedAt,
     );
     expect(cachedRates()).toEqual([['EUR', 5]]);
   });
@@ -1835,7 +1921,7 @@ describe('fx rate cache', () => {
     });
 
     expect(mockDb.upsertCurrencyFxRate).not.toHaveBeenCalled();
-    expect(ctx.state.fxRateCache).toEqual([]);
+    expect(ctx.state.fxRateSeries).toEqual([]);
   });
 });
 

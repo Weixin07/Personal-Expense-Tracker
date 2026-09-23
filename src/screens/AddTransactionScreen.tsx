@@ -78,13 +78,12 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
       funds,
       transactions,
       settings,
-      fxRateCache,
       isInitialised,
       isLoading,
       error,
     },
     actions: { createTransaction, updateTransaction, deleteTransaction },
-    selectors: { categoryUsageCounts },
+    selectors: { categoryUsageCounts, currentFxRates },
   } = useTransactionData();
 
   const existingTransaction = useMemo(
@@ -98,14 +97,14 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
         settings.baseCurrency,
         categories,
         existingTransaction ?? undefined,
-        fxRateCache,
+        currentFxRates,
         funds,
       ),
     [
       settings.baseCurrency,
       categories,
       existingTransaction,
-      fxRateCache,
+      currentFxRates,
       funds,
     ],
   );
@@ -257,7 +256,7 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
       values.fxRateToBase,
       values.counterpartCurrencyCode,
       settings.baseCurrency,
-      fxRateCache,
+      currentFxRates,
     );
     if (seed == null) {
       return;
@@ -276,7 +275,7 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
     values.counterpartCurrencyCode,
     values.counterpartFundId,
     settings.baseCurrency,
-    fxRateCache,
+    currentFxRates,
   ]);
 
   const computedBaseAmount = useMemo(() => {
@@ -398,7 +397,7 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
         currencyTouched,
         prev.fxRateToBase,
         settings.baseCurrency,
-        fxRateCache,
+        currentFxRates,
       ) ?? {}),
     }));
   };
@@ -436,7 +435,7 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
             prev.fxRateToBase,
             currency,
             settings.baseCurrency,
-            fxRateCache,
+            currentFxRates,
           ) ?? '',
       };
     });
@@ -512,7 +511,7 @@ const AddTransactionScreen: React.FC<Props> = ({ route, navigation }) => {
     const resolvedRate = resolveFxRateForCurrency(
       option.code,
       settings.baseCurrency,
-      fxRateCache,
+      currentFxRates,
     );
     setValues(prev => ({
       ...prev,

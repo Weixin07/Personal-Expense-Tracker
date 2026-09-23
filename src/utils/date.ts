@@ -59,6 +59,18 @@ export const localIsoDateOffset = (
     ),
   );
 
+/**
+ * The device's UTC offset at `now` as an SQLite date modifier, e.g.
+ * `'+480 minutes'`, so SQL can file a UTC timestamp under the local day that
+ * `localIsoDate` would. SQLite's own `'localtime'` modifier follows the zone the
+ * process started in and ignores a later `process.env.TZ`, which leaves it
+ * unpinnable under test.
+ */
+export const localUtcOffsetModifier = (now: Date = new Date()): string => {
+  const minutes = -now.getTimezoneOffset();
+  return `${minutes < 0 ? '-' : '+'}${Math.abs(minutes)} minutes`;
+};
+
 /** The device's current wall-clock time as `HH:MM`. */
 export const localTimeOfDay = (now: Date = new Date()): string =>
   `${pad(now.getHours())}:${pad(now.getMinutes())}`;

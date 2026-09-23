@@ -39,13 +39,15 @@ describe('Performance: Large Dataset (10k expenses)', () => {
       baseCurrencyCode: 'USD',
       currencyCode: 'EUR',
       fxRateToBase: 1.08,
-      updatedAt: '2026-01-01T00:00:00.000Z',
+      effectiveDate: '2026-01-01',
+      confirmedAt: '2026-01-01T00:00:00.000Z',
     },
     {
       baseCurrencyCode: 'USD',
       currencyCode: 'MYR',
       fxRateToBase: 0.22,
-      updatedAt: '2026-01-01T00:00:00.000Z',
+      effectiveDate: '2026-01-01',
+      confirmedAt: '2026-01-01T00:00:00.000Z',
     },
   ];
 

@@ -5,8 +5,15 @@ import {
   impliedTransferRate,
   isImplausibleRate,
   isSuspectTransferRate,
+  becomesCurrentRate,
+  currentFxRates,
+  rateAsOf,
   ratesForTransaction,
 } from '../fxRates';
+import {
+  AS_OF_EXPECTATIONS,
+  AS_OF_SERIES,
+} from '../../__tests__/test-utils/fxRateFixtures';
 import type { CounterpartRateInput, TransactionRatesInput } from '../fxRates';
 import type { CurrencyFxRateRecord } from '../../database';
 
@@ -16,7 +23,8 @@ const rate = (
   baseCurrencyCode: 'MYR',
   currencyCode: 'EUR',
   fxRateToBase: 5,
-  updatedAt: '2026-01-01T00:00:00.000Z',
+  effectiveDate: '2026-01-01',
+  confirmedAt: '2026-01-01T00:00:00.000Z',
   ...overrides,
 });
 
@@ -309,6 +317,7 @@ describe('deriveCounterpartRate', () => {
 const saved = (
   overrides: Partial<TransactionRatesInput> = {},
 ): TransactionRatesInput => ({
+  date: '2025-02-01',
   amountNative: 100,
   baseAmount: 500,
   fxRateToBase: 5,
@@ -322,13 +331,27 @@ const saved = (
 describe('ratesForTransaction', () => {
   it('carries the source leg before the destination', () => {
     expect(ratesForTransaction(saved())).toEqual([
-      { baseCurrencyCode: 'MYR', currencyCode: 'EUR', fxRateToBase: 5 },
+      {
+        baseCurrencyCode: 'MYR',
+        currencyCode: 'EUR',
+        fxRateToBase: 5,
+        effectiveDate: '2025-02-01',
+      },
       {
         baseCurrencyCode: 'MYR',
         currencyCode: 'JPY',
         fxRateToBase: 500 / 17000,
+        effectiveDate: '2025-02-01',
       },
     ]);
+  });
+
+  it('dates both legs of a transfer to the day it was made', () => {
+    expect(
+      ratesForTransaction(saved({ date: '2026-01-15' })).map(
+        rate => rate.effectiveDate,
+      ),
+    ).toEqual(['2026-01-15', '2026-01-15']);
   });
 
   it('saves nothing for a transaction in the base currency', () => {
@@ -350,13 +373,23 @@ describe('ratesForTransaction', () => {
         saved({ counterpartCurrencyCode: null, counterpartAmount: null }),
       ),
     ).toEqual([
-      { baseCurrencyCode: 'MYR', currencyCode: 'EUR', fxRateToBase: 5 },
+      {
+        baseCurrencyCode: 'MYR',
+        currencyCode: 'EUR',
+        fxRateToBase: 5,
+        effectiveDate: '2025-02-01',
+      },
     ]);
   });
 
   it('keeps the source leg of a transfer whose two amounts imply parity', () => {
     expect(ratesForTransaction(saved({ counterpartAmount: 100 }))).toEqual([
-      { baseCurrencyCode: 'MYR', currencyCode: 'EUR', fxRateToBase: 5 },
+      {
+        baseCurrencyCode: 'MYR',
+        currencyCode: 'EUR',
+        fxRateToBase: 5,
+        effectiveDate: '2025-02-01',
+      },
     ]);
   });
 
@@ -366,11 +399,117 @@ describe('ratesForTransaction', () => {
         saved({ counterpartCurrencyCode: 'EUR', counterpartAmount: 98 }),
       ),
     ).toEqual([
-      { baseCurrencyCode: 'MYR', currencyCode: 'EUR', fxRateToBase: 5 },
+      {
+        baseCurrencyCode: 'MYR',
+        currencyCode: 'EUR',
+        fxRateToBase: 5,
+        effectiveDate: '2025-02-01',
+      },
     ]);
   });
 
   it('saves nothing while no base currency is configured', () => {
     expect(ratesForTransaction(saved({ baseCurrencyCode: null }))).toEqual([]);
+  });
+});
+
+describe('currentFxRates', () => {
+  it('takes the latest-dated rate, not the latest-confirmed one', () => {
+    const current = currentFxRates([
+      rate({ fxRateToBase: 4.9, effectiveDate: '2026-08-10' }),
+      rate({
+        fxRateToBase: 4.6,
+        effectiveDate: '2026-01-15',
+        confirmedAt: '2026-08-20T00:00:00.000Z',
+      }),
+    ]);
+
+    expect(current.map(item => item.fxRateToBase)).toEqual([4.9]);
+  });
+
+  it('breaks a same-day tie by the later confirmation, in either order', () => {
+    const earlier = rate({
+      fxRateToBase: 4.75,
+      effectiveDate: '2026-03-01',
+      confirmedAt: '2026-03-01T09:00:00.000Z',
+    });
+    const later = rate({
+      fxRateToBase: 4.8,
+      effectiveDate: '2026-03-01',
+      confirmedAt: '2026-03-02T09:00:00.000Z',
+    });
+
+    expect(currentFxRates([earlier, later])[0].fxRateToBase).toBe(4.8);
+    expect(currentFxRates([later, earlier])[0].fxRateToBase).toBe(4.8);
+  });
+
+  it('treats a future-dated rate as current', () => {
+    const current = currentFxRates([
+      rate({ fxRateToBase: 4.9, effectiveDate: '2026-08-10' }),
+      rate({ fxRateToBase: 5.1, effectiveDate: '2099-01-01' }),
+    ]);
+
+    expect(current[0].fxRateToBase).toBe(5.1);
+  });
+
+  it('keeps one rate per pair, whatever case the codes were stored in', () => {
+    const current = currentFxRates([
+      rate({ currencyCode: 'eur', effectiveDate: '2026-01-01' }),
+      rate({ currencyCode: 'EUR', effectiveDate: '2026-02-01' }),
+      rate({ currencyCode: 'JPY', fxRateToBase: 0.03 }),
+    ]);
+
+    expect(
+      current.map(item => [item.currencyCode, item.effectiveDate]).sort(),
+    ).toEqual([
+      ['EUR', '2026-02-01'],
+      ['JPY', '2026-01-01'],
+    ]);
+  });
+
+  it('has nothing to offer for an empty series', () => {
+    expect(currentFxRates([])).toEqual([]);
+  });
+});
+
+describe('rateAsOf', () => {
+  it.each(AS_OF_EXPECTATIONS)(
+    'resolves $point to $expected',
+    ({ point, expected }) => {
+      const found = rateAsOf([...AS_OF_SERIES].reverse(), 'myr', 'eur', point);
+      expect(found?.fxRateToBase ?? null).toBe(expected);
+    },
+  );
+
+  it('ignores every other pair', () => {
+    expect(rateAsOf(AS_OF_SERIES, 'MYR', 'GBP', '2027-01-01')).toBeNull();
+  });
+});
+
+describe('becomesCurrentRate', () => {
+  const current = { effectiveDate: '2026-08-10' };
+
+  it('makes the first rate a pair has current', () => {
+    expect(becomesCurrentRate({ effectiveDate: '2020-01-01' }, null)).toBe(
+      true,
+    );
+  });
+
+  it('keeps a rate dated before the current one as history', () => {
+    expect(becomesCurrentRate({ effectiveDate: '2026-01-15' }, current)).toBe(
+      false,
+    );
+  });
+
+  it('lets a rate for the same day replace the current one', () => {
+    expect(becomesCurrentRate({ effectiveDate: '2026-08-10' }, current)).toBe(
+      true,
+    );
+  });
+
+  it('makes a later-dated rate current', () => {
+    expect(becomesCurrentRate({ effectiveDate: '2026-08-11' }, current)).toBe(
+      true,
+    );
   });
 });

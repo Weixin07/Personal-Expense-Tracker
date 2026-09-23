@@ -158,11 +158,17 @@ export type AppSettingRecord = {
   value: string | null;
 };
 
+/**
+ * One dated rate for a pair. `effectiveDate` is the local calendar day the rate
+ * held on, and orders a pair's history; `confirmedAt` is when the user asserted
+ * it. Which row of a pair is current is under the rule on `currentFxRates`.
+ */
 export type CurrencyFxRateRecord = {
   baseCurrencyCode: string;
   currencyCode: string;
   fxRateToBase: number;
-  updatedAt: string;
+  effectiveDate: string;
+  confirmedAt: string;
 };
 export type ExportQueueRecord = {
   id: string;

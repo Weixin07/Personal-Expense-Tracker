@@ -4,6 +4,7 @@ import {
   type TransactionDataAction,
 } from '../AppContext';
 import type { TransactionRecord, CategoryRecord } from '../../database';
+import { makeFxRate } from '../../__tests__/test-utils/fxRateFixtures';
 
 const makeTransaction = (
   overrides: Partial<TransactionRecord> = {},
@@ -43,6 +44,58 @@ const makeCategory = (
 });
 
 describe('transactionDataReducer', () => {
+  describe('fx-series/upsert', () => {
+    const upsert = (
+      state: typeof initialState,
+      payload: ReturnType<typeof makeFxRate>,
+    ) => transactionDataReducer(state, { type: 'fx-series/upsert', payload });
+
+    it('keeps a pair on two dates as two rates', () => {
+      const next = upsert(
+        upsert(initialState, makeFxRate({ effectiveDate: '2026-08-10' })),
+        makeFxRate({ effectiveDate: '2026-01-15', fxRateToBase: 1.3 }),
+      );
+
+      expect(
+        next.fxRateSeries.map(rate => [rate.effectiveDate, rate.fxRateToBase]),
+      ).toEqual([
+        ['2026-08-10', 1.1],
+        ['2026-01-15', 1.3],
+      ]);
+    });
+
+    it('replaces the rate a pair already holds for the same date', () => {
+      const next = upsert(
+        upsert(initialState, makeFxRate({ effectiveDate: '2026-08-10' })),
+        makeFxRate({
+          effectiveDate: '2026-08-10',
+          fxRateToBase: 1.2,
+          confirmedAt: '2026-08-10T18:00:00.000Z',
+        }),
+      );
+
+      expect(next.fxRateSeries).toEqual([
+        makeFxRate({
+          effectiveDate: '2026-08-10',
+          fxRateToBase: 1.2,
+          confirmedAt: '2026-08-10T18:00:00.000Z',
+        }),
+      ]);
+    });
+
+    it('leaves every other pair alone', () => {
+      const next = upsert(
+        upsert(initialState, makeFxRate({ currencyCode: 'JPY' })),
+        makeFxRate({ currencyCode: 'EUR' }),
+      );
+
+      expect(next.fxRateSeries.map(rate => rate.currencyCode)).toEqual([
+        'JPY',
+        'EUR',
+      ]);
+    });
+  });
+
   describe('load lifecycle', () => {
     it('load/start sets loading and clears error', () => {
       const next = transactionDataReducer(
@@ -66,7 +119,7 @@ describe('transactionDataReducer', () => {
           exportDirectoryUri: 'content://dir',
         },
         funds: [],
-        fxRateCache: [],
+        fxRateSeries: [],
       };
       const next = transactionDataReducer(
         { ...initialState, isLoading: true },

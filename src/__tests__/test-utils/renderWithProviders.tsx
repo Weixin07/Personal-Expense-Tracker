@@ -10,6 +10,7 @@ import type {
 import { makeImportSummary } from './importFixtures';
 import type { FundRecord } from '../../database';
 import { EMPTY_CATEGORY_USAGE_COUNTS } from '../../utils/suggestions';
+import { currentFxRates } from '../../utils/fxRates';
 import { DEFAULT_AUTO_LOCK_MINUTES } from '../../constants/autoLockPresets';
 import { PIN_LOCKOUT_ATTEMPTS } from '../../security/lockoutPolicy';
 
@@ -62,7 +63,7 @@ export const makeContextState = (
     // fixture with none would exercise a state the app cannot reach.
     funds: [makeFund()],
     exportQueue: [],
-    fxRateCache: [],
+    fxRateSeries: [],
     filters: {},
     isInitialised: true,
     isLoading: false,
@@ -101,6 +102,7 @@ export const makeContextSelectors = (
   filteredTransactions: [],
   totals: [],
   fundBalances: [],
+  currentFxRates: [],
   suspectTransferIds: new Set<number>(),
   unconfirmedIds: new Set<number>(),
   hasActiveFilters: false,
@@ -152,11 +154,18 @@ export const makeContextValue = (
     selectors: Partial<TransactionDataSelectors>;
     actions: Partial<TransactionDataActions>;
   }> = {},
-): TransactionDataContextValue => ({
-  state: makeContextState(overrides.state),
-  selectors: makeContextSelectors(overrides.selectors),
-  actions: makeContextActions(overrides.actions),
-});
+): TransactionDataContextValue => {
+  const state = makeContextState(overrides.state);
+  // Derived as the provider derives it, so a fixture sets the series alone.
+  return {
+    state,
+    selectors: makeContextSelectors({
+      currentFxRates: currentFxRates(state.fxRateSeries),
+      ...overrides.selectors,
+    }),
+    actions: makeContextActions(overrides.actions),
+  };
+};
 
 export const createNavigationMock = () => ({
   navigate: jest.fn(),

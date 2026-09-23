@@ -694,12 +694,13 @@ describe('ImportScreen', () => {
       mockedUseExpenseData.mockReturnValue(
         makeContextValue({
           state: {
-            fxRateCache: [
+            fxRateSeries: [
               {
                 baseCurrencyCode: 'USD',
                 currencyCode: 'EUR',
                 fxRateToBase: 1.1,
-                updatedAt: '2024-01-01T00:00:00Z',
+                effectiveDate: '2024-01-01',
+                confirmedAt: '2024-01-01T00:00:00Z',
               },
             ],
           },
@@ -723,12 +724,13 @@ describe('ImportScreen', () => {
       mockedUseExpenseData.mockReturnValue(
         makeContextValue({
           state: {
-            fxRateCache: [
+            fxRateSeries: [
               {
                 baseCurrencyCode: 'USD',
                 currencyCode: 'EUR',
                 fxRateToBase: 1.1,
-                updatedAt: '2024-01-01T00:00:00Z',
+                effectiveDate: '2024-01-01',
+                confirmedAt: '2024-01-01T00:00:00Z',
               },
             ],
           },
@@ -1029,17 +1031,18 @@ describe('ImportScreen', () => {
       await waitFor(() => expect(importTransactions).toHaveBeenCalled());
     });
 
-    it('names the rates the import will save as current', async () => {
+    const withSavedRateDated = (effectiveDate: string) =>
       mockedUseExpenseData.mockReturnValue(
         makeContextValue({
           state: {
             settings: { baseCurrency: 'USD' },
-            fxRateCache: [
+            fxRateSeries: [
               {
                 baseCurrencyCode: 'USD',
                 currencyCode: 'EUR',
                 fxRateToBase: 1.1,
-                updatedAt: '2024-03-14T00:00:00Z',
+                effectiveDate,
+                confirmedAt: '2024-03-14T00:00:00Z',
               },
             ],
           },
@@ -1047,12 +1050,40 @@ describe('ImportScreen', () => {
         }),
       );
 
+    it('names, with its date, a rate the import will make current', async () => {
+      withSavedRateDated('2023-12-01');
+
       await reachPreview(
         'Date,Description,Amount,Currency\r\n2024-01-01,Paris,10,EUR\r\n',
       );
 
-      expect(screen.getByText(/saved as your current ones/)).toBeOnTheScreen();
-      expect(screen.getByText('1 EUR = 1.100000 USD')).toBeOnTheScreen();
+      expect(
+        screen.getByText(/saved and filled in when you add a transaction/),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByText('1 EUR = 1.100000 USD, for 01/01/2024'),
+      ).toBeOnTheScreen();
+      expect(screen.queryByText(/for their own date only/)).toBeNull();
+    });
+
+    it('says a rate dated before the current one is kept for its date only', async () => {
+      withSavedRateDated('2024-03-14');
+
+      await reachPreview(
+        'Date,Description,Amount,Currency\r\n2024-01-01,Paris,10,EUR\r\n',
+      );
+
+      expect(
+        screen.getByText(
+          /saved for their own date only, since you have a newer rate/,
+        ),
+      ).toBeOnTheScreen();
+      expect(
+        screen.getByText('1 EUR = 1.100000 USD, for 01/01/2024'),
+      ).toBeOnTheScreen();
+      expect(
+        screen.queryByText(/saved and filled in when you add a transaction/),
+      ).toBeNull();
     });
 
     it('repeats the saved rates in the summary once the import runs', async () => {
@@ -1065,6 +1096,15 @@ describe('ImportScreen', () => {
               baseCurrencyCode: 'USD',
               currencyCode: 'EUR',
               fxRateToBase: 1.25,
+              effectiveDate: '2024-01-01',
+              becomesCurrent: true,
+            },
+            {
+              baseCurrencyCode: 'USD',
+              currencyCode: 'GBP',
+              fxRateToBase: 1.3,
+              effectiveDate: '2023-06-01',
+              becomesCurrent: false,
             },
           ],
         }),
@@ -1087,7 +1127,13 @@ describe('ImportScreen', () => {
       expect(alertSpy).toHaveBeenCalledWith(
         'Import complete',
         expect.stringContaining(
-          'Saved as your current rates: 1 EUR = 1.250000 USD.',
+          'Saved as your current rates: 1 EUR = 1.250000 USD, for 01/01/2024.',
+        ),
+      );
+      expect(alertSpy).toHaveBeenCalledWith(
+        'Import complete',
+        expect.stringContaining(
+          'Saved for their own date only: 1 GBP = 1.300000 USD, for 01/06/2023.',
         ),
       );
     });
@@ -1097,12 +1143,13 @@ describe('ImportScreen', () => {
         makeContextValue({
           state: {
             settings: { baseCurrency: 'USD' },
-            fxRateCache: [
+            fxRateSeries: [
               {
                 baseCurrencyCode: 'USD',
                 currencyCode: 'EUR',
                 fxRateToBase: 1.1,
-                updatedAt: '2024-03-14T00:00:00Z',
+                effectiveDate: '2024-03-14',
+                confirmedAt: '2024-03-14T00:00:00Z',
               },
             ],
           },
@@ -1116,7 +1163,7 @@ describe('ImportScreen', () => {
 
       expect(
         screen.getByText(
-          /Filled in from your saved rate: 1 EUR = 1.100000 USD, saved on 14\/03\/2024/,
+          /Filled in from your rate for 14\/03\/2024: 1 EUR = 1.100000 USD\./,
         ),
       ).toBeOnTheScreen();
       expect(screen.getByText(/1 row is counted at it/)).toBeOnTheScreen();
@@ -1127,12 +1174,13 @@ describe('ImportScreen', () => {
         makeContextValue({
           state: {
             settings: { baseCurrency: 'USD' },
-            fxRateCache: [
+            fxRateSeries: [
               {
                 baseCurrencyCode: 'USD',
                 currencyCode: 'EUR',
                 fxRateToBase: 1.1,
-                updatedAt: '2024-03-14T00:00:00Z',
+                effectiveDate: '2024-03-14',
+                confirmedAt: '2024-03-14T00:00:00Z',
               },
             ],
           },
@@ -1443,12 +1491,13 @@ describe('ImportScreen fund decisions', () => {
     await reachWith(TRANSFER_CSV, {
       state: {
         funds: EUR_FUNDS,
-        fxRateCache: [
+        fxRateSeries: [
           {
             baseCurrencyCode: 'USD',
             currencyCode: 'EUR',
             fxRateToBase: 2,
-            updatedAt: '',
+            effectiveDate: '2025-01-01',
+            confirmedAt: '',
           },
         ],
       },
@@ -1468,12 +1517,13 @@ describe('ImportScreen fund decisions', () => {
     await reachWith(TRANSFER_CSV, {
       state: {
         funds: EUR_FUNDS,
-        fxRateCache: [
+        fxRateSeries: [
           {
             baseCurrencyCode: 'USD',
             currencyCode: 'EUR',
             fxRateToBase: 2,
-            updatedAt: '',
+            effectiveDate: '2025-01-01',
+            confirmedAt: '',
           },
         ],
       },

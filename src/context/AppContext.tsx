@@ -54,7 +54,11 @@ import { bankersRound } from '../utils/math';
 import { resolveTransferCurrency } from '../utils/funds';
 import { calculateFundBalances } from '../utils/fundBalances';
 import type { FundBalance } from '../utils/fundBalances';
-import { isSuspectTransferRate, ratesForTransaction } from '../utils/fxRates';
+import {
+  currentFxRates as currentFxRatesOf,
+  isSuspectTransferRate,
+  ratesForTransaction,
+} from '../utils/fxRates';
 import { buildCategoryUsageCounts } from '../utils/suggestions';
 import type { CategoryUsageCounts } from '../utils/suggestions';
 import { toError, toErrorMessage } from '../utils/errors';
@@ -98,7 +102,11 @@ type CoreState = {
   categories: CategoryRecord[];
   funds: FundRecord[];
   settings: TransactionDataSettings;
-  fxRateCache: CurrencyFxRateRecord[];
+  /**
+   * Every dated rate held. A consumer wanting the rate to prefill or convert
+   * at reads `currentFxRates` instead.
+   */
+  fxRateSeries: CurrencyFxRateRecord[];
   filters: TransactionFilters;
   isInitialised: boolean;
   isLoading: boolean;
@@ -145,6 +153,8 @@ export type TransactionDataSelectors = {
   filteredTransactions: TransactionRecord[];
   totals: TransactionTotals;
   fundBalances: FundBalance[];
+  /** One rate per pair, under the rule on `currentFxRates`. */
+  currentFxRates: CurrencyFxRateRecord[];
   /**
    * Transfers whose recorded amounts imply a rate their currencies contradict.
    * Spans the whole history rather than the filtered view, for the same reason
@@ -250,7 +260,7 @@ export type TransactionDataAction =
         categories: CategoryRecord[];
         funds: FundRecord[];
         settings: TransactionDataSettings;
-        fxRateCache: CurrencyFxRateRecord[];
+        fxRateSeries: CurrencyFxRateRecord[];
       };
     }
   | {
@@ -269,7 +279,7 @@ export type TransactionDataAction =
   | { type: 'transaction/delete'; payload: number }
   | { type: 'categories/set-all'; payload: CategoryRecord[] }
   | { type: 'funds/set-all'; payload: FundRecord[] }
-  | { type: 'fx-cache/upsert'; payload: CurrencyFxRateRecord }
+  | { type: 'fx-series/upsert'; payload: CurrencyFxRateRecord }
   | { type: 'settings/set-base-currency'; payload: string | null }
   | { type: 'settings/set-biometric'; payload: boolean }
   | { type: 'settings/set-cred-version'; payload: number }
@@ -306,7 +316,7 @@ export const initialState: CoreState = {
     driveFolderId: null,
     exportDirectoryUri: null,
   },
-  fxRateCache: [],
+  fxRateSeries: [],
   filters: {},
   isInitialised: false,
   isLoading: false,
@@ -423,7 +433,7 @@ export const transactionDataReducer = (
         categories: action.payload.categories,
         funds: action.payload.funds,
         settings: action.payload.settings,
-        fxRateCache: action.payload.fxRateCache,
+        fxRateSeries: action.payload.fxRateSeries,
         isInitialised: true,
         isLoading: false,
         error: null,
@@ -505,18 +515,21 @@ export const transactionDataReducer = (
         ...state,
         funds: action.payload,
       };
-    case 'fx-cache/upsert': {
-      const next = state.fxRateCache.filter(
+    // Keyed like the table's primary key, so memory and disk agree on which
+    // write replaces which.
+    case 'fx-series/upsert': {
+      const next = state.fxRateSeries.filter(
         rate =>
           !(
             rate.baseCurrencyCode === action.payload.baseCurrencyCode &&
-            rate.currencyCode === action.payload.currencyCode
+            rate.currencyCode === action.payload.currencyCode &&
+            rate.effectiveDate === action.payload.effectiveDate
           ),
       );
       next.push(action.payload);
       return {
         ...state,
-        fxRateCache: next,
+        fxRateSeries: next,
       };
     }
     case 'settings/set-base-currency':
@@ -713,7 +726,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
           funds,
           settings,
           exportQueueRecords,
-          fxRateCache,
+          fxRateSeries,
         ] = await Promise.all([
           dbListTransactions(db),
           dbListCategories(db),
@@ -728,7 +741,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
           funds,
           settings,
           exportQueueRecords,
-          fxRateCache,
+          fxRateSeries,
         };
       });
 
@@ -739,7 +752,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
           categories: snapshot.categories,
           funds: snapshot.funds,
           settings: parseSettings(snapshot.settings),
-          fxRateCache: snapshot.fxRateCache,
+          fxRateSeries: snapshot.fxRateSeries,
         },
       });
       setLoadedQueueRecords(snapshot.exportQueueRecords);
@@ -852,6 +865,8 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
             rate.baseCurrencyCode,
             rate.currencyCode,
             rate.fxRateToBase,
+            rate.effectiveDate,
+            created.updatedAt,
           );
         }
         return { transaction: created, rates: derived };
@@ -859,8 +874,8 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       dispatch({ type: 'transaction/add', payload: transaction });
       rates.forEach(rate => {
         dispatch({
-          type: 'fx-cache/upsert',
-          payload: { ...rate, updatedAt: transaction.updatedAt },
+          type: 'fx-series/upsert',
+          payload: { ...rate, confirmedAt: transaction.updatedAt },
         });
       });
       return transaction;
@@ -886,6 +901,8 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
             rate.baseCurrencyCode,
             rate.currencyCode,
             rate.fxRateToBase,
+            rate.effectiveDate,
+            updated.updatedAt,
           );
         }
         return { transaction: updated, rates: derived };
@@ -893,8 +910,8 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       dispatch({ type: 'transaction/update', payload: transaction });
       rates.forEach(rate => {
         dispatch({
-          type: 'fx-cache/upsert',
-          payload: { ...rate, updatedAt: transaction.updatedAt },
+          type: 'fx-series/upsert',
+          payload: { ...rate, confirmedAt: transaction.updatedAt },
         });
       });
       return transaction;
@@ -1367,6 +1384,11 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     [state.transactions],
   );
 
+  const currentFxRates = useMemo(
+    () => currentFxRatesOf(state.fxRateSeries),
+    [state.fxRateSeries],
+  );
+
   // Independent of `filters` and `filteredTransactions`, under the rule on
   // `FundBalance`.
   const fundBalances = useMemo(
@@ -1375,13 +1397,13 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
         funds: state.funds,
         transactions: state.transactions,
         baseCurrency: state.settings.baseCurrency,
-        cachedRates: state.fxRateCache,
+        cachedRates: currentFxRates,
       }),
     [
       state.funds,
       state.transactions,
       state.settings.baseCurrency,
-      state.fxRateCache,
+      currentFxRates,
     ],
   );
 
@@ -1390,6 +1412,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       filteredTransactions,
       totals,
       fundBalances,
+      currentFxRates,
       suspectTransferIds,
       unconfirmedIds,
       hasActiveFilters: hasActiveFilters(state.filters),
@@ -1399,6 +1422,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       filteredTransactions,
       totals,
       fundBalances,
+      currentFxRates,
       suspectTransferIds,
       unconfirmedIds,
       state.filters,

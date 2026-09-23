@@ -145,15 +145,17 @@ export type DerivedRate = {
   baseCurrencyCode: string;
   currencyCode: string;
   fxRateToBase: number;
+  effectiveDate: string;
 };
 
 export type TransactionRatesInput = CounterpartRateInput &
-  SuspectTransferInput & { fxRateToBase: number };
+  SuspectTransferInput & { fxRateToBase: number; date: string };
 
 /**
  * Every rate a saved transaction is evidence for, in the order they must be
  * written: the currency it was denominated in, then the currency a transfer
- * arrived in. Empty while no base currency is configured.
+ * arrived in. Each is dated to the transaction's own day. Empty while no base
+ * currency is configured.
  *
  * Callers must apply the whole list — to storage and to any cache held
  * alongside — rather than re-testing its conditions themselves.
@@ -161,8 +163,12 @@ export type TransactionRatesInput = CounterpartRateInput &
 export const ratesForTransaction = (
   transaction: TransactionRatesInput,
 ): DerivedRate[] => {
-  const { baseCurrencyCode, currencyCode, counterpartCurrencyCode } =
-    transaction;
+  const {
+    baseCurrencyCode,
+    currencyCode,
+    counterpartCurrencyCode,
+    date: effectiveDate,
+  } = transaction;
   if (!baseCurrencyCode) {
     return [];
   }
@@ -175,6 +181,7 @@ export const ratesForTransaction = (
       baseCurrencyCode,
       currencyCode,
       fxRateToBase: transaction.fxRateToBase,
+      effectiveDate,
     });
   }
 
@@ -191,6 +198,7 @@ export const ratesForTransaction = (
       baseCurrencyCode,
       currencyCode: counterpartCurrencyCode,
       fxRateToBase: counterpartRate,
+      effectiveDate,
     });
   }
 
@@ -200,6 +208,7 @@ export const ratesForTransaction = (
 /**
  * What `baseAmount` is worth in `targetCurrency`, or null when nothing cached
  * covers the pair — which a caller must offer to the user rather than fill in.
+ * `cachedRates` holds one rate per pair, under the rule on `currentFxRates`.
  *
  * Rates are held against the base currency, so a conversion between two
  * non-base currencies resolves through it rather than needing a pair of its own.
@@ -231,3 +240,73 @@ export const convertToCurrency = (
 
   return bankersRound(baseAmount / cached.fxRateToBase, 2);
 };
+
+const pairKey = (rate: {
+  baseCurrencyCode: string;
+  currencyCode: string;
+}): string =>
+  `${rate.baseCurrencyCode.trim().toUpperCase()}|${rate.currencyCode.trim().toUpperCase()}`;
+
+const isLaterRate = (
+  candidate: CurrencyFxRateRecord,
+  held: CurrencyFxRateRecord,
+): boolean =>
+  candidate.effectiveDate !== held.effectiveDate
+    ? candidate.effectiveDate > held.effectiveDate
+    : candidate.confirmedAt > held.confirmedAt;
+
+/**
+ * Each pair's current rate: the one with the latest `effectiveDate`, and of
+ * those the latest `confirmedAt`. This rule decides what the form prefills, what
+ * import judges a rate against and what fund balances convert at. Ordering by
+ * `confirmedAt` alone would let a rate backfilled for an earlier day displace
+ * the one in force today. A future-dated rate counts as current.
+ */
+export const currentFxRates = (
+  series: readonly CurrencyFxRateRecord[],
+): CurrencyFxRateRecord[] => {
+  const current = new Map<string, CurrencyFxRateRecord>();
+  series.forEach(rate => {
+    const key = pairKey(rate);
+    const held = current.get(key);
+    if (!held || isLaterRate(rate, held)) {
+      current.set(key, rate);
+    }
+  });
+  return [...current.values()];
+};
+
+/**
+ * The rate in force for the pair on `isoDate`: the latest dated on or before
+ * it. Null when every rate held is dated later, since a rate is never applied
+ * to a day before it was known. Mirrors `getCurrencyFxRateAsOf`.
+ */
+export const rateAsOf = (
+  series: readonly CurrencyFxRateRecord[],
+  baseCurrencyCode: string,
+  currencyCode: string,
+  isoDate: string,
+): CurrencyFxRateRecord | null => {
+  const key = pairKey({ baseCurrencyCode, currencyCode });
+  let found: CurrencyFxRateRecord | null = null;
+  for (const rate of series) {
+    if (
+      pairKey(rate) === key &&
+      rate.effectiveDate <= isoDate &&
+      (found == null || isLaterRate(rate, found))
+    ) {
+      found = rate;
+    }
+  }
+  return found;
+};
+
+/**
+ * Whether `seed`, a rate about to be saved, becomes its pair's current rate,
+ * given the rate current before the save. On an equal date the newer save
+ * wins, under the rule on `currentFxRates`.
+ */
+export const becomesCurrentRate = (
+  seed: Pick<CurrencyFxRateRecord, 'effectiveDate'>,
+  current: Pick<CurrencyFxRateRecord, 'effectiveDate'> | null,
+): boolean => current == null || seed.effectiveDate >= current.effectiveDate;

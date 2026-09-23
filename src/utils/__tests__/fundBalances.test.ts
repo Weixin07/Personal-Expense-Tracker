@@ -1,5 +1,6 @@
 import { calculateFundBalances, formatFundBalance } from '../fundBalances';
 import type { FundBalance } from '../fundBalances';
+import { currentFxRates } from '../fxRates';
 import type {
   CurrencyFxRateRecord,
   FundRecord,
@@ -70,7 +71,8 @@ const rate = (
   baseCurrencyCode,
   currencyCode,
   fxRateToBase,
-  updatedAt: '2026-02-01T00:00:00.000Z',
+  effectiveDate: '2026-02-01',
+  confirmedAt: '2026-02-01T00:00:00.000Z',
 });
 
 const calculate = ({
@@ -140,6 +142,28 @@ describe('calculateFundBalances', () => {
     expect(balanceOf(balances, 1)?.byCurrency).toEqual([
       { currencyCode: 'EUR', balance: 100 },
     ]);
+  });
+
+  it('is not restated by a rate backfilled for an earlier day', () => {
+    const current = rate('EUR', 1.08);
+    const backfilled = {
+      ...rate('EUR', 1.2),
+      effectiveDate: '2025-06-01',
+      confirmedAt: '2026-08-20T00:00:00.000Z',
+    };
+    const convertAt = (cachedRates: readonly CurrencyFxRateRecord[]) =>
+      balanceOf(
+        calculate({
+          funds: [fund({ id: 1, currencyCode: 'EUR' })],
+          transactions: [expense({ type: 'income', baseAmount: 108 })],
+          cachedRates,
+        }),
+        1,
+      );
+
+    expect(convertAt(currentFxRates([backfilled, current]))).toEqual(
+      convertAt([current]),
+    );
   });
 
   it('leaves the opening balance in the fund’s own currency, unconverted', () => {

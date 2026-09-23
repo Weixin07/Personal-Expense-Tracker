@@ -98,6 +98,18 @@ migration table, not here.
 
 ### Changed
 
+- **Entering an older transaction no longer changes the rate the form suggests.** Every
+  exchange rate is now kept for the day it applies to. If you add or edit a January
+  transaction in August, its rate is saved as January's, and the form keeps suggesting the
+  most recent rate you have, just as your pot balances keep using it.
+
+- **The import review says which day each saved rate belongs to**, and whether it becomes
+  the rate the form suggests or is kept for its own date only because you already have a
+  newer one. The summary after the import says the same.
+
+- **When a file carries its own rates, the one saved is from its most recent row.** Before,
+  the first row's rate was saved.
+
 - **Each pot now shows a single figure.** Before, a pot that had received money
   in another currency showed a separate line per currency. It now reports one
   balance, in its own currency.

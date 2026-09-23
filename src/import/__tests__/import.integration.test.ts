@@ -192,7 +192,8 @@ describe('export -> import round trip', () => {
           baseCurrencyCode: 'USD',
           currencyCode: 'EUR',
           fxRateToBase: 9,
-          updatedAt: '2024-01-01T00:00:00Z',
+          effectiveDate: '2024-01-01',
+          confirmedAt: '2024-01-01T00:00:00Z',
         },
       ],
       existingTransactions: [],
@@ -395,14 +396,14 @@ describe('third-party CSV whose currencies are all foreign to the base', () => {
         baseCurrencyCode: 'MYR',
         currencyCode: 'INR',
         suggestedRate: null,
-        suggestedRateUpdatedAt: null,
+        suggestedRateEffectiveDate: null,
         rowCount: 6,
       },
       {
         baseCurrencyCode: 'MYR',
         currencyCode: 'USD',
         suggestedRate: null,
-        suggestedRateUpdatedAt: null,
+        suggestedRateEffectiveDate: null,
         rowCount: 1,
       },
     ]);
@@ -490,12 +491,16 @@ describe('third-party CSV whose currencies are all foreign to the base', () => {
       'MYR',
       'INR',
       0.056,
+      '2022-03-02',
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
     );
     expect(database.upsertCurrencyFxRate).toHaveBeenCalledWith(
       mockDb,
       'MYR',
       'USD',
       4.42,
+      '2021-12-08',
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
     );
   });
 });
@@ -897,7 +902,7 @@ describe('a cross-currency transfer whose rate is confirmed at review', () => {
         baseCurrencyCode: 'MYR',
         currencyCode: 'JPY',
         suggestedRate: null,
-        suggestedRateUpdatedAt: null,
+        suggestedRateEffectiveDate: null,
         rowCount: 1,
       },
     ]);
@@ -921,13 +926,21 @@ describe('a cross-currency transfer whose rate is confirmed at review', () => {
     const summary = await commitImport(preview);
 
     expect(summary.seededRates).toEqual([
-      { baseCurrencyCode: 'MYR', currencyCode: 'JPY', fxRateToBase: 0.032 },
+      {
+        baseCurrencyCode: 'MYR',
+        currencyCode: 'JPY',
+        fxRateToBase: 0.032,
+        effectiveDate: '2024-03-01',
+        becomesCurrent: true,
+      },
     ]);
     expect(database.upsertCurrencyFxRate).toHaveBeenCalledWith(
       mockDb,
       'MYR',
       'JPY',
       0.032,
+      '2024-03-01',
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
     );
   });
 });

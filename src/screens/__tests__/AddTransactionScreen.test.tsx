@@ -858,7 +858,8 @@ describe('funds and transfers', () => {
       baseCurrencyCode: 'USD',
       currencyCode: 'EUR',
       fxRateToBase: 2,
-      updatedAt: '',
+      effectiveDate: '2025-01-01',
+      confirmedAt: '',
     },
   ];
 
@@ -888,7 +889,7 @@ describe('funds and transfers', () => {
 
   it('seeds the amount received from the rate saved for the pair', async () => {
     renderScreen(undefined, {
-      state: { funds, fxRateCache: ratesToEur },
+      state: { funds, fxRateSeries: ratesToEur },
     });
 
     fireEvent.press(screen.getByText('Transfer'));
@@ -913,11 +914,12 @@ describe('funds and transfers', () => {
         baseCurrencyCode: 'USD',
         currencyCode: 'EUR',
         fxRateToBase: 100 / 3400,
-        updatedAt: '',
+        effectiveDate: '2025-01-01',
+        confirmedAt: '',
       },
     ];
     renderScreen(undefined, {
-      state: { funds, fxRateCache: impliedByAnEarlierTransfer },
+      state: { funds, fxRateSeries: impliedByAnEarlierTransfer },
     });
 
     fireEvent.press(screen.getByText('Transfer'));
@@ -952,7 +954,7 @@ describe('funds and transfers', () => {
         state: {
           funds: [...funds, makeFund({ id: 3, name: 'Pocket' })],
           transactions: [stored],
-          fxRateCache: ratesToEur,
+          fxRateSeries: ratesToEur,
         },
       },
     );
@@ -989,7 +991,7 @@ describe('funds and transfers', () => {
     });
     renderScreen(
       { transactionId: 8 },
-      { state: { funds, transactions: [stored], fxRateCache: ratesToEur } },
+      { state: { funds, transactions: [stored], fxRateSeries: ratesToEur } },
     );
 
     fireEvent.changeText(
@@ -1005,7 +1007,7 @@ describe('funds and transfers', () => {
 
   it('leaves a figure the user typed alone when the amount changes', async () => {
     renderScreen(undefined, {
-      state: { funds, fxRateCache: ratesToEur },
+      state: { funds, fxRateSeries: ratesToEur },
     });
 
     fireEvent.press(screen.getByText('Transfer'));
@@ -1034,7 +1036,7 @@ describe('funds and transfers', () => {
 
   it('shows the rate the two amounts imply', async () => {
     renderScreen(undefined, {
-      state: { funds, fxRateCache: ratesToEur },
+      state: { funds, fxRateSeries: ratesToEur },
     });
 
     fireEvent.press(screen.getByText('Transfer'));
@@ -1116,12 +1118,13 @@ describe('funds and transfers', () => {
     renderScreen(undefined, {
       state: {
         funds,
-        fxRateCache: [
+        fxRateSeries: [
           {
             baseCurrencyCode: 'USD',
             currencyCode: 'EUR',
             fxRateToBase: 1.1,
-            updatedAt: '',
+            effectiveDate: '2025-01-01',
+            confirmedAt: '',
           },
         ],
       },
@@ -1136,6 +1139,39 @@ describe('funds and transfers', () => {
     expect(screen.getByDisplayValue('Travel')).toBeOnTheScreen();
     expect(screen.getByLabelText('FX rate to base currency').props.value).toBe(
       '1.100000',
+    );
+  });
+
+  it('prefills the latest-dated rate, not one backfilled for an earlier day', async () => {
+    renderScreen(undefined, {
+      state: {
+        funds,
+        fxRateSeries: [
+          {
+            baseCurrencyCode: 'USD',
+            currencyCode: 'EUR',
+            fxRateToBase: 1.3,
+            effectiveDate: '2026-01-15',
+            confirmedAt: '2026-08-20T09:00:00.000Z',
+          },
+          {
+            baseCurrencyCode: 'USD',
+            currencyCode: 'EUR',
+            fxRateToBase: 1.1,
+            effectiveDate: '2026-08-10',
+            confirmedAt: '2026-08-10T09:00:00.000Z',
+          },
+        ],
+      },
+    });
+
+    fireEvent.press(screen.getByLabelText('Select fund'));
+    fireEvent.press(screen.getByLabelText('Select Travel'));
+
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText('FX rate to base currency').props.value,
+      ).toBe('1.100000'),
     );
   });
 

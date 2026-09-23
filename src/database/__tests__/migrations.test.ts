@@ -28,7 +28,7 @@ describe('migrations', () => {
   describe('latestMigrationVersion', () => {
     it('should return the latest migration version', () => {
       const version = latestMigrationVersion();
-      expect(version).toBe(12);
+      expect(version).toBe(13);
     });
   });
 
@@ -92,7 +92,7 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      expect(mockDb.transaction).toHaveBeenCalledTimes(12);
+      expect(mockDb.transaction).toHaveBeenCalledTimes(13);
     });
 
     it('should run only pending migrations', async () => {
@@ -122,7 +122,7 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      expect(mockDb.transaction).toHaveBeenCalledTimes(10);
+      expect(mockDb.transaction).toHaveBeenCalledTimes(11);
     });
 
     it('should not run any migrations if already at latest version', async () => {
@@ -141,8 +141,8 @@ describe('migrations', () => {
         rowsAffected: 0,
         rows: {
           length: 1,
-          raw: () => [{ version: 12 }],
-          item: (index: number) => (index === 0 ? { version: 12 } : null),
+          raw: () => [{ version: 13 }],
+          item: (index: number) => (index === 0 ? { version: 13 } : null),
         },
       };
 
@@ -233,7 +233,7 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      expect(mockDb.transaction).toHaveBeenCalledTimes(9);
+      expect(mockDb.transaction).toHaveBeenCalledTimes(10);
 
       const transactionCall = (mockDb.transaction as jest.Mock).mock.calls[0];
       const executor = transactionCall[0];
@@ -273,7 +273,7 @@ describe('migrations', () => {
 
       await runMigrations(mockDb);
 
-      expect(mockDb.transaction).toHaveBeenCalledTimes(12);
+      expect(mockDb.transaction).toHaveBeenCalledTimes(13);
     });
 
     it('should apply migrations in version order', async () => {
@@ -331,6 +331,7 @@ describe('migrations', () => {
         'funds-and-transfers',
         'transfer-counterpart-currency-required',
         'transaction-confirmed-flag',
+        'currency-fx-rates-dated',
       ]);
     });
 

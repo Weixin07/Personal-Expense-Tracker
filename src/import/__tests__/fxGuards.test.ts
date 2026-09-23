@@ -11,7 +11,7 @@ const suggestion = (overrides: Partial<FxSuggestion> = {}): FxSuggestion => ({
   baseCurrencyCode: 'MYR',
   currencyCode: 'INR',
   suggestedRate: null,
-  suggestedRateUpdatedAt: null,
+  suggestedRateEffectiveDate: null,
   rowCount: 1,
   ...overrides,
 });

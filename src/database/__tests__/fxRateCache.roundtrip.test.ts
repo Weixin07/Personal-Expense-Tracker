@@ -10,17 +10,24 @@ import { createTransaction } from '../repositories/transactionsRepository';
 import { createFund } from '../repositories/fundsRepository';
 import {
   getCurrencyFxRate,
+  getCurrencyFxRateAsOf,
   listCurrencyFxRates,
   upsertCurrencyFxRate,
 } from '../repositories/currencyFxRatesRepository';
-import { convertToCurrency, ratesForTransaction } from '../../utils/fxRates';
+import {
+  convertToCurrency,
+  currentFxRates,
+  rateAsOf,
+  ratesForTransaction,
+} from '../../utils/fxRates';
+import { resolveFxRateForCurrency } from '../../screens/transactionFormUtils';
 import type { NewTransactionRecord } from '../types';
 
 /**
  * The context suite mocks the driver, so it can show which rates were offered
  * to the repository but not what the column keeps or what a second write to the
  * same pair does to the first. These run the real repository against a real
- * engine carrying the v11 schema.
+ * engine carrying the current schema.
  */
 describe('the rates a saved transaction leaves behind', () => {
   let raw: DatabaseSync;
@@ -61,6 +68,8 @@ describe('the rates a saved transaction leaves behind', () => {
         rate.baseCurrencyCode,
         rate.currencyCode,
         rate.fxRateToBase,
+        rate.effectiveDate,
+        created.updatedAt,
       );
     }
     return created;
@@ -109,10 +118,11 @@ describe('the rates a saved transaction leaves behind', () => {
     const stored = (await listCurrencyFxRates(db)).map(item => [
       item.currencyCode,
       item.fxRateToBase,
+      item.effectiveDate,
     ]);
     expect(stored).toEqual([
-      ['EUR', 5],
-      ['JPY', 500 / 17000],
+      ['EUR', 5, '2025-02-01'],
+      ['JPY', 500 / 17000, '2025-02-01'],
     ]);
   });
 
@@ -158,11 +168,107 @@ describe('the rates a saved transaction leaves behind', () => {
         rate.baseCurrencyCode,
         rate.currencyCode,
         rate.fxRateToBase,
+        rate.effectiveDate,
+        created.updatedAt,
       );
     }
 
     expect((await getCurrencyFxRate(db, 'MYR', 'JPY'))?.fxRateToBase).toBe(
       500 / 16000,
     );
+  });
+
+  it('files a rate backfilled for January under January without making it the default', async () => {
+    const expense = (date: string, fxRateToBase: number) =>
+      transfer({
+        type: 'expense',
+        description: 'Dinner',
+        payee: 'Bistro',
+        date,
+        fxRateToBase,
+        baseAmount: 100 * fxRateToBase,
+        counterpartFundId: null,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
+      });
+
+    await save(expense('2026-08-10', 4.9));
+    await save(expense('2026-01-15', 4.6));
+
+    const series = await listCurrencyFxRates(db);
+    expect(rateAsOf(series, 'MYR', 'EUR', '2026-01-31')?.fxRateToBase).toBe(
+      4.6,
+    );
+    expect(
+      (await getCurrencyFxRateAsOf(db, 'MYR', 'EUR', '2026-01-31'))
+        ?.fxRateToBase,
+    ).toBe(4.6);
+    expect((await getCurrencyFxRate(db, 'MYR', 'EUR'))?.fxRateToBase).toBe(4.9);
+    expect(resolveFxRateForCurrency('EUR', 'MYR', currentFxRates(series))).toBe(
+      '4.900000',
+    );
+  });
+});
+
+describe('the rates a device holds across the v13 upgrade', () => {
+  let raw: DatabaseSync;
+
+  const V12_RATES = [
+    ['MYR', 'EUR', 4.9, '2026-08-10T09:00:00.000Z'],
+    ['MYR', 'JPY', 0.031, '2026-08-02T23:30:00.000Z'],
+    ['USD', 'EUR', 1.08, '2025-12-31T20:00:00.000Z'],
+  ] as const;
+
+  beforeEach(async () => {
+    raw = new DatabaseSync(':memory:');
+    raw.exec(`CREATE TABLE schema_migrations (
+      version INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );`);
+    for (let version = 1; version <= 12; version += 1) {
+      raw
+        .prepare('INSERT INTO schema_migrations (version, name) VALUES (?, ?)')
+        .run(version, `v${version}`);
+    }
+    raw.exec(`CREATE TABLE currency_fx_rates (
+      base_currency_code TEXT NOT NULL CHECK (LENGTH(base_currency_code) = 3),
+      currency_code TEXT NOT NULL CHECK (LENGTH(currency_code) = 3),
+      fx_rate_to_base REAL NOT NULL CHECK (fx_rate_to_base > 0),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY (base_currency_code, currency_code)
+    );`);
+    const seed = raw.prepare(
+      `INSERT INTO currency_fx_rates
+        (base_currency_code, currency_code, fx_rate_to_base, updated_at)
+        VALUES (?, ?, ?, ?)`,
+    );
+    V12_RATES.forEach(row => seed.run(...row));
+    await runMigrations(adaptNodeSqlite(raw));
+  });
+
+  afterEach(() => {
+    raw.close();
+  });
+
+  it('offers the same current rate for every pair after the upgrade as before it', async () => {
+    const current = currentFxRates(
+      await listCurrencyFxRates(adaptNodeSqlite(raw)),
+    );
+
+    expect(
+      current
+        .map(rate => [
+          rate.baseCurrencyCode,
+          rate.currencyCode,
+          rate.fxRateToBase,
+        ])
+        .sort((a, b) => String(a).localeCompare(String(b))),
+    ).toEqual(
+      V12_RATES.map(([base, currency, rate]) => [base, currency, rate]).sort(
+        (a, b) => String(a).localeCompare(String(b)),
+      ),
+    );
+    expect(resolveFxRateForCurrency('EUR', 'MYR', current)).toBe('4.900000');
   });
 });

@@ -399,6 +399,8 @@ Several migrations in the current schema make that consequential:
 
 | **12** | `transactions` gains `is_confirmed INTEGER NOT NULL DEFAULT 1`; every existing row is confirmed by the default | **Nothing harmful — the mildest entry in this table.** Reads still work; the v11 column set is a subset. Writes still work: an older insert omits `is_confirmed` and the default records the row as confirmed, which is also the right answer for a row entered by hand. |
 
+| **13** | `currency_fx_rates` rebuilt: the primary key gains `effective_date`, `confirmed_at` is added and `updated_at` dropped; every rate is carried over, dated to the local day it was last saved | **Breaks loudly at launch.** The startup load selects `updated_at`, which no longer exists, so the app shows its load-error state before any screen opens. Older inserts would also omit the `NOT NULL` `effective_date`. The fix is to reinstall the newer build. |
+
 Practical rules:
 
 - Do not distribute a build containing a new migration to anyone you may need to roll
@@ -416,6 +418,10 @@ Practical rules:
   none of them appears under Home's **Needs attention** filter. The migration adds a
   column rather than rebuilding the table, so it carries none of the row-loss risk that
   earns v10 and v11 their numbered checks below.
+- After upgrading across v13, confirm on a device holding real data that Add Transaction
+  prefills each foreign currency with the same rate as before the upgrade, that every
+  fund balance is unchanged, and that the number of saved rates matches the count taken
+  beforehand.
 
 A device that commits one migration and fails the next recovers on its own: the failure
 propagates out of `openDatabase`, the app shows its normal load-error state, and only

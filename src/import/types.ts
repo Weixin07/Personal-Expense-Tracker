@@ -117,16 +117,17 @@ export type ImportRowError = {
 
 /**
  * A distinct (base, native) currency pair that had no explicit rate in the file.
- * `suggestedRate` is the latest cached rate, or null when none is known and the
- * user must supply one. `rowCount` is how many rows of the import depend on this
- * pair, so a confirmation can state what a rate is about to affect.
+ * `suggestedRate` is the pair's current rate, under the rule on
+ * `currentFxRates`, or null when none is known and the user must supply one.
+ * `rowCount` is how many rows of the import depend on this pair, so a
+ * confirmation can state what a rate is about to affect.
  */
 export type FxSuggestion = {
   baseCurrencyCode: string;
   currencyCode: string;
   suggestedRate: number | null;
-  /** When `suggestedRate` was last saved, so its age is visible beside it. */
-  suggestedRateUpdatedAt: string | null;
+  /** The day `suggestedRate` is dated to, so its age is visible beside it. */
+  suggestedRateEffectiveDate: string | null;
   rowCount: number;
 };
 
@@ -255,6 +256,7 @@ export type ImportContext = {
    * A confirmed rate still wins either way.
    */
   useCachedRates?: boolean;
+  /** One rate per pair, under the rule on `currentFxRates`. */
   fxRateCache: readonly CurrencyFxRateRecord[];
   existingTransactions: readonly TransactionRecord[];
   existingCategories: readonly CategoryRecord[];
@@ -376,11 +378,17 @@ export type ImportPreview = {
   signConventionBypassed: boolean;
 };
 
-/** A rate an import saved as the current one for its pair. */
+/**
+ * A rate an import saves, dated to the row it was taken from. `becomesCurrent`
+ * is whether it displaces the pair's current rate, under the rule on
+ * `currentFxRates`; a rate dated before that one is kept as history only.
+ */
 export type SeededRate = {
   baseCurrencyCode: string;
   currencyCode: string;
   fxRateToBase: number;
+  effectiveDate: string;
+  becomesCurrent: boolean;
 };
 
 export type ImportSummary = {
@@ -403,9 +411,9 @@ export type ImportSummary = {
   createdCategories: number;
   createdFunds: number;
   /**
-   * Rates this import saved as the current rate for their pair, in the order
-   * they were written. Reported so a rate taken from historical rows cannot
-   * become the default for new entry unnoticed.
+   * Rates this import saved, in the order they were written. Reported so a
+   * rate taken from historical rows cannot become the default for new entry
+   * unnoticed.
    */
   seededRates: SeededRate[];
 };

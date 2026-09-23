@@ -131,8 +131,9 @@ export const computeBaseAmount = (
 
 /**
  * Resolve the FX-rate string to prefill for a given native currency.
- * Returns '1.000000' when the currency matches the base, the last cached rate
- * for the (base, currency) pair when one exists, or '' when unknown.
+ * Returns '1.000000' when the currency matches the base, the pair's rate in
+ * `cachedRates` when one exists, or '' when unknown. `cachedRates` holds one
+ * rate per pair, under the rule on `currentFxRates`.
  */
 export const resolveFxRateForCurrency = (
   currencyCode: string,
@@ -173,6 +174,7 @@ export const resolveFundCurrencySeed = (
   currencyTouched: boolean,
   currentRate: string,
   baseCurrency: string | null,
+  /** One rate per pair, under the rule on `currentFxRates`. */
   cachedRates: readonly CurrencyFxRateRecord[] = [],
 ): Pick<TransactionFormValues, 'currencyCode' | 'fxRateToBase'> | null => {
   if (currencyTouched || !fund?.currencyCode) {
@@ -194,6 +196,7 @@ export const getDefaultTransactionFormValues = (
   baseCurrency: string | null,
   categories: CategoryRecord[],
   existing?: TransactionRecord,
+  /** One rate per pair, under the rule on `currentFxRates`. */
   cachedRates: readonly CurrencyFxRateRecord[] = [],
   funds: readonly FundRecord[] = [],
 ): TransactionFormValues => {
@@ -288,6 +291,7 @@ export const resolveCounterpartAmountSeed = (
   fxRateToBase: string,
   counterpartCurrency: string | null,
   baseCurrency: string | null,
+  /** One rate per pair, under the rule on `currentFxRates`. */
   cachedRates: readonly CurrencyFxRateRecord[] = [],
 ): string | null => {
   const baseAmount = computeBaseAmount(amountNative, fxRateToBase);

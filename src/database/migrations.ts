@@ -1,4 +1,5 @@
 import type { SQLiteDatabase, Transaction } from 'react-native-sqlite-storage';
+import { localUtcOffsetModifier } from '../utils/date';
 
 export type MigrationStatement = {
   sql: string;
@@ -12,6 +13,38 @@ export type Migration = {
 };
 
 const MIGRATIONS: readonly Migration[] = [
+  {
+    version: 13,
+    name: 'currency-fx-rates-dated',
+    statements: [
+      // SQLite cannot alter a primary key, so the table is rebuilt. See
+      // sqlite.org/lang_altertable.html#otherALTER.
+      {
+        sql: `CREATE TABLE currency_fx_rates_new (
+            base_currency_code TEXT NOT NULL CHECK (LENGTH(base_currency_code) = 3),
+            currency_code TEXT NOT NULL CHECK (LENGTH(currency_code) = 3),
+            effective_date TEXT NOT NULL CHECK (LENGTH(effective_date) = 10),
+            fx_rate_to_base REAL NOT NULL CHECK (fx_rate_to_base > 0),
+            confirmed_at TEXT NOT NULL,
+            PRIMARY KEY (base_currency_code, currency_code, effective_date)
+          );`,
+      },
+      {
+        sql: `INSERT INTO currency_fx_rates_new (
+            base_currency_code, currency_code, effective_date, fx_rate_to_base, confirmed_at
+          )
+          SELECT base_currency_code, currency_code, date(updated_at, ?), fx_rate_to_base, updated_at
+          FROM currency_fx_rates;`,
+        args: [localUtcOffsetModifier()],
+      },
+      {
+        sql: `DROP TABLE currency_fx_rates;`,
+      },
+      {
+        sql: `ALTER TABLE currency_fx_rates_new RENAME TO currency_fx_rates;`,
+      },
+    ],
+  },
   {
     version: 12,
     name: 'transaction-confirmed-flag',

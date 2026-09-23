@@ -39,7 +39,8 @@ describe('transactionFormUtils', () => {
         baseCurrencyCode: 'USD',
         currencyCode: 'EUR',
         fxRateToBase: 1.1,
-        updatedAt: '',
+        effectiveDate: '2025-01-01',
+        confirmedAt: '',
       },
     ];
 
@@ -104,7 +105,8 @@ describe('transactionFormUtils', () => {
         baseCurrencyCode: 'USD',
         currencyCode: 'EUR',
         fxRateToBase: 2,
-        updatedAt: '',
+        effectiveDate: '2025-01-01',
+        confirmedAt: '',
       },
     ];
 

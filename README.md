@@ -275,24 +275,28 @@ CREATE TABLE export_queue (
 );
 ```
 
-**`currency_fx_rates`** (Last-used FX rate per currency)
+**`currency_fx_rates`** (Dated FX rates per currency pair)
 
 ```sql
 CREATE TABLE currency_fx_rates (
   base_currency_code TEXT NOT NULL CHECK (LENGTH(base_currency_code) = 3),
   currency_code TEXT NOT NULL CHECK (LENGTH(currency_code) = 3),
+  effective_date TEXT NOT NULL CHECK (LENGTH(effective_date) = 10), -- local day the rate held on
   fx_rate_to_base REAL NOT NULL CHECK (fx_rate_to_base > 0),
-  updated_at TEXT NOT NULL,
-  PRIMARY KEY (base_currency_code, currency_code)
+  confirmed_at TEXT NOT NULL,                                        -- when the user asserted it
+  PRIMARY KEY (base_currency_code, currency_code, effective_date)
 );
 ```
 
-Caches the most recently entered rate for each `(base, currency)` pair so the
-Add Transaction form can prefill it instead of requiring re-entry. A
-cross-currency transfer contributes two: the currency it left in, and the
-currency it arrived in, the latter implied by the amount received against the
-base amount. A transaction already in the base currency contributes none, since
-a currency is always worth one of itself.
+Holds every rate entered for a `(base, currency)` pair, one per day, dated to
+the transaction that carried it. The **current** rate for a pair is the one
+with the latest `effective_date`, and of those the latest `confirmed_at`: it is
+what the Add Transaction form prefills and what fund balances convert at. A rate
+backfilled for an earlier day is kept for that day's history and never
+displaces the current one. A cross-currency transfer contributes two rates: the
+currency it left in, and the currency it arrived in, the latter implied by the
+amount received against the base amount. A transaction already in the base
+currency contributes none, since a currency is always worth one of itself.
 
 The `counterpart_fund_id` index is partial (`WHERE counterpart_fund_id IS NOT
 NULL`): the column is NULL on every non-transfer row, so a full index would
@@ -754,7 +758,7 @@ PET/
 │   │   └── AppContext.tsx      # Global app state (expenses, categories, settings)
 │   ├── database/               # SQLite layer
 │   │   ├── database.ts         # Database initialization, connection
-│   │   ├── migrations.ts       # Schema migrations (v1-v12)
+│   │   ├── migrations.ts       # Schema migrations (v1-v13)
 │   │   ├── snapshot.ts         # Pre-migration database copy (WAL-checkpointed)
 │   │   ├── seeding.ts          # Default data seeding
 │   │   ├── repositories/       # Data access layer

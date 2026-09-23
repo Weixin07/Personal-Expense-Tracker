@@ -14,6 +14,9 @@ import type {
 import * as database from '../../database';
 import type { CategoryRecord } from '../../database';
 import { makeImportPreview } from '../../__tests__/test-utils/importFixtures';
+import { makeFxRate } from '../../__tests__/test-utils/fxRateFixtures';
+import { currentFxRates } from '../../utils/fxRates';
+import { implausibleRates } from '../fxGuards';
 
 jest.mock('../../database');
 
@@ -233,7 +236,8 @@ describe('previewImport', () => {
           baseCurrencyCode: 'USD',
           currencyCode: 'EUR',
           fxRateToBase: 1.1,
-          updatedAt: '2024-01-01T00:00:00Z',
+          effectiveDate: '2024-01-01',
+          confirmedAt: '2024-01-01T00:00:00Z',
         },
       ],
     };
@@ -245,7 +249,7 @@ describe('previewImport', () => {
         baseCurrencyCode: 'USD',
         currencyCode: 'EUR',
         suggestedRate: 1.1,
-        suggestedRateUpdatedAt: '2024-01-01T00:00:00Z',
+        suggestedRateEffectiveDate: '2024-01-01',
         rowCount: 1,
       },
     ]);
@@ -262,7 +266,7 @@ describe('previewImport', () => {
         baseCurrencyCode: 'USD',
         currencyCode: 'EUR',
         suggestedRate: null,
-        suggestedRateUpdatedAt: null,
+        suggestedRateEffectiveDate: null,
         rowCount: 1,
       },
     ]);
@@ -289,7 +293,8 @@ describe('previewImport', () => {
           baseCurrencyCode: 'USD',
           currencyCode: 'EUR',
           fxRateToBase: 1.1,
-          updatedAt: '2024-01-01T00:00:00Z',
+          effectiveDate: '2024-01-01',
+          confirmedAt: '2024-01-01T00:00:00Z',
         },
       ],
       manualFxRates: { 'USD|EUR': 1.2 },
@@ -723,7 +728,8 @@ describe('previewImport suspect derived rates', () => {
           baseCurrencyCode: 'MYR',
           currencyCode: 'USD',
           fxRateToBase: 4.2,
-          updatedAt: '2024-01-01T00:00:00Z',
+          effectiveDate: '2024-01-01',
+          confirmedAt: '2024-01-01T00:00:00Z',
         },
       ],
     });
@@ -756,6 +762,90 @@ describe('previewImport suspect derived rates', () => {
   });
 });
 
+describe('previewImport guards against a dated series', () => {
+  const MAPPING: FieldMapping = {
+    description: 0,
+    amountNative: 1,
+    currencyCode: 2,
+    baseAmount: 3,
+    date: 4,
+  };
+  const HEAD = 'description,amount,currency,converted,date\r\n';
+  // 1120.72 / 15 derives about 74.7 INR per USD.
+  const derivedRow = `${HEAD}Dinner,15,USD,1120.72,2021-12-08\r\n`;
+  const inrPerUsd = (fxRateToBase: number, effectiveDate: string) =>
+    makeFxRate({
+      baseCurrencyCode: 'INR',
+      currencyCode: 'USD',
+      fxRateToBase,
+      effectiveDate,
+    });
+  const withSeries = (
+    series: Parameters<typeof currentFxRates>[0],
+  ): ImportContext => ({
+    ...baseCtx,
+    baseCurrency: 'INR',
+    fxRateCache: currentFxRates(series),
+  });
+
+  it('accepts a derived rate the current rate agrees with, whatever an older one said', () => {
+    const result = previewImport(
+      derivedRow,
+      MAPPING,
+      'iso',
+      withSeries([inrPerUsd(4.2, '2020-01-01'), inrPerUsd(70, '2024-01-01')]),
+    );
+
+    expect(result.suspectDerivedRates).toEqual([]);
+  });
+
+  it('reports a derived rate the current rate contradicts, whatever an older one said', () => {
+    const result = previewImport(
+      derivedRow,
+      MAPPING,
+      'iso',
+      withSeries([inrPerUsd(70, '2020-01-01'), inrPerUsd(4.2, '2024-01-01')]),
+    );
+
+    expect(result.suspectDerivedRates).toHaveLength(1);
+  });
+
+  it('still reports parity when no rate for the pair is held', () => {
+    const result = previewImport(
+      `${HEAD}Brownie,50,USD,50,2022-03-02\r\n`,
+      MAPPING,
+      'iso',
+      withSeries([]),
+    );
+
+    expect(result.suspectDerivedRates).toEqual([
+      { baseCurrencyCode: 'INR', currencyCode: 'USD', rate: 1, rowCount: 1 },
+    ]);
+  });
+
+  it('queries an entered rate against the current rate, not an older one', () => {
+    const result = previewImport(
+      `${HEADER}Paris,10,EUR,,2024-01-01,Food,Cafe,USD\r\n`,
+      APP_MAPPING,
+      'iso',
+      {
+        ...baseCtx,
+        useCachedRates: false,
+        fxRateCache: currentFxRates([
+          makeFxRate({ fxRateToBase: 1.1, effectiveDate: '2020-01-01' }),
+          makeFxRate({ fxRateToBase: 11, effectiveDate: '2024-01-01' }),
+        ]),
+      },
+    );
+
+    expect(result.fxReview[0].suggestedRate).toBe(11);
+    expect(implausibleRates(result.fxReview, { 'USD|EUR': 12 })).toEqual([]);
+    expect(implausibleRates(result.fxReview, { 'USD|EUR': 1.05 })).toHaveLength(
+      1,
+    );
+  });
+});
+
 describe('previewImport saved-rate consent', () => {
   const cached: ImportContext = {
     ...baseCtx,
@@ -764,7 +854,8 @@ describe('previewImport saved-rate consent', () => {
         baseCurrencyCode: 'USD',
         currencyCode: 'EUR',
         fxRateToBase: 1.1,
-        updatedAt: '2024-01-01T00:00:00Z',
+        effectiveDate: '2024-01-01',
+        confirmedAt: '2024-01-01T00:00:00Z',
       },
     ],
   };
@@ -794,9 +885,7 @@ describe('previewImport saved-rate consent', () => {
     });
 
     expect(result.fxReview[0].suggestedRate).toBe(1.1);
-    expect(result.fxReview[0].suggestedRateUpdatedAt).toBe(
-      '2024-01-01T00:00:00Z',
-    );
+    expect(result.fxReview[0].suggestedRateEffectiveDate).toBe('2024-01-01');
   });
 
   it('lets a confirmed rate through with the cache rejected', () => {
@@ -849,7 +938,8 @@ describe('previewImport base currency guard', () => {
           baseCurrencyCode: 'INR',
           currencyCode: 'USD',
           fxRateToBase: 74.7,
-          updatedAt: '',
+          effectiveDate: '2025-01-01',
+          confirmedAt: '',
         },
       ],
     });
@@ -996,6 +1086,7 @@ describe('commitImport', () => {
     );
     (database.createTransactionsBulk as jest.Mock).mockResolvedValue(0);
     (database.upsertCurrencyFxRate as jest.Mock).mockResolvedValue(undefined);
+    (database.getCurrencyFxRate as jest.Mock).mockResolvedValue(null);
   });
 
   const previewWith = (): ImportPreview =>
@@ -1054,6 +1145,8 @@ describe('commitImport', () => {
       'USD',
       'EUR',
       1.1,
+      '2024-01-01',
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
     );
     expect(summary).toEqual({
       insertedExpenses: 1,
@@ -1065,7 +1158,13 @@ describe('commitImport', () => {
       createdFunds: 0,
       insertedTransfers: 0,
       seededRates: [
-        { baseCurrencyCode: 'USD', currencyCode: 'EUR', fxRateToBase: 1.1 },
+        {
+          baseCurrencyCode: 'USD',
+          currencyCode: 'EUR',
+          fxRateToBase: 1.1,
+          effectiveDate: '2024-01-01',
+          becomesCurrent: true,
+        },
       ],
     });
   });
@@ -1399,6 +1498,8 @@ describe('commitImport', () => {
         'USD',
         'EUR',
         1.1,
+        '2024-01-01',
+        expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
       );
     });
 
@@ -1440,7 +1541,44 @@ describe('commitImport', () => {
       expect(insertedRecords()[0].baseAmount).toBe(110);
     });
 
-    it('reports the rates it saved as current', async () => {
+    it('reports the rates it saved, dated to their latest row', async () => {
+      (database.getCategoryByName as jest.Mock).mockResolvedValue({
+        id: 3,
+        name: 'Food',
+        type: 'both',
+        createdAt: '',
+        updatedAt: '',
+      });
+      const preview = makeImportPreview({
+        valid: [
+          prepared(2, { currencyCode: 'EUR', date: '2024-03-01' }),
+          prepared(3, { currencyCode: 'EUR' }),
+          prepared(4, { currencyCode: 'GBP' }),
+        ],
+        totalRows: 3,
+      });
+
+      const summary = await commitImport(preview);
+
+      expect(summary.seededRates).toEqual([
+        {
+          baseCurrencyCode: 'USD',
+          currencyCode: 'EUR',
+          fxRateToBase: 1.1,
+          effectiveDate: '2024-03-01',
+          becomesCurrent: true,
+        },
+        {
+          baseCurrencyCode: 'USD',
+          currencyCode: 'GBP',
+          fxRateToBase: 1.1,
+          effectiveDate: '2024-01-01',
+          becomesCurrent: true,
+        },
+      ]);
+    });
+
+    it('stamps every rate one import saves with the same confirmation time', async () => {
       (database.getCategoryByName as jest.Mock).mockResolvedValue({
         id: 3,
         name: 'Food',
@@ -1451,18 +1589,60 @@ describe('commitImport', () => {
       const preview = makeImportPreview({
         valid: [
           prepared(2, { currencyCode: 'EUR' }),
-          prepared(3, { currencyCode: 'EUR' }),
-          prepared(4, { currencyCode: 'GBP' }),
+          prepared(3, { currencyCode: 'GBP' }),
         ],
-        totalRows: 3,
+        totalRows: 2,
+      });
+
+      await commitImport(preview);
+
+      const stamps = (
+        database.upsertCurrencyFxRate as jest.Mock
+      ).mock.calls.map(call => call[5]);
+      expect(stamps).toHaveLength(2);
+      expect(stamps[0]).toBe(stamps[1]);
+    });
+
+    it('says a rate dated before the saved one is kept for its date only', async () => {
+      (database.getCategoryByName as jest.Mock).mockResolvedValue({
+        id: 3,
+        name: 'Food',
+        type: 'both',
+        createdAt: '',
+        updatedAt: '',
+      });
+      (database.getCurrencyFxRate as jest.Mock).mockImplementation(
+        async (_db: unknown, _base: string, currency: string) =>
+          currency === 'EUR'
+            ? {
+                baseCurrencyCode: 'USD',
+                currencyCode: 'EUR',
+                fxRateToBase: 1.2,
+                effectiveDate: '2024-06-01',
+                confirmedAt: '2024-06-01T00:00:00.000Z',
+              }
+            : null,
+      );
+      const preview = makeImportPreview({
+        valid: [
+          prepared(2, { currencyCode: 'EUR' }),
+          prepared(3, { currencyCode: 'GBP' }),
+        ],
+        totalRows: 2,
       });
 
       const summary = await commitImport(preview);
 
-      expect(summary.seededRates).toEqual([
-        { baseCurrencyCode: 'USD', currencyCode: 'EUR', fxRateToBase: 1.1 },
-        { baseCurrencyCode: 'USD', currencyCode: 'GBP', fxRateToBase: 1.1 },
+      expect(
+        summary.seededRates.map(rate => [
+          rate.currencyCode,
+          rate.becomesCurrent,
+        ]),
+      ).toEqual([
+        ['EUR', false],
+        ['GBP', true],
       ]);
+      expect(database.upsertCurrencyFxRate).toHaveBeenCalledTimes(2);
     });
 
     it('saves nothing for a row already in its base currency', async () => {
@@ -1957,7 +2137,8 @@ describe('fund rules on import', () => {
             baseCurrencyCode: 'USD',
             currencyCode: 'EUR',
             fxRateToBase: 2,
-            updatedAt: '',
+            effectiveDate: '2025-01-01',
+            confirmedAt: '',
           },
         ],
       }),
@@ -2011,7 +2192,7 @@ describe('fund rules on import', () => {
         baseCurrencyCode: 'USD',
         currencyCode: 'EUR',
         suggestedRate: null,
-        suggestedRateUpdatedAt: null,
+        suggestedRateEffectiveDate: null,
         rowCount: 1,
       },
     ]);
@@ -2076,7 +2257,8 @@ describe('fund rules on import', () => {
             baseCurrencyCode: 'USD',
             currencyCode: 'EUR',
             fxRateToBase: 0.5,
-            updatedAt: '',
+            effectiveDate: '2025-01-01',
+            confirmedAt: '',
           },
         ],
       }),
@@ -2140,7 +2322,8 @@ describe('fund rules on import', () => {
             baseCurrencyCode: 'USD',
             currencyCode: 'EUR',
             fxRateToBase: 2,
-            updatedAt: '',
+            effectiveDate: '2025-01-01',
+            confirmedAt: '',
           },
         ],
       }),
@@ -2165,6 +2348,7 @@ describe('ratesToSeed', () => {
       baseAmount: 500,
       counterpartAmount: 17000,
       counterpartCurrencyCode: 'JPY',
+      date: '2025-02-01',
       ...overrides,
     },
     fxRateSource,
@@ -2173,24 +2357,44 @@ describe('ratesToSeed', () => {
 
   it('saves what a confirmed transfer says about the destination currency', () => {
     expect(ratesToSeed([candidate({}, 'column', 'manual')])).toEqual([
-      { baseCurrencyCode: 'MYR', currencyCode: 'EUR', fxRateToBase: 5 },
+      {
+        baseCurrencyCode: 'MYR',
+        currencyCode: 'EUR',
+        fxRateToBase: 5,
+        effectiveDate: '2025-02-01',
+        becomesCurrent: false,
+      },
       {
         baseCurrencyCode: 'MYR',
         currencyCode: 'JPY',
         fxRateToBase: 500 / 17000,
+        effectiveDate: '2025-02-01',
+        becomesCurrent: false,
       },
     ]);
   });
 
   it('treats a received amount the file supplied as history', () => {
     expect(ratesToSeed([candidate({}, 'column', 'column')])).toEqual([
-      { baseCurrencyCode: 'MYR', currencyCode: 'EUR', fxRateToBase: 5 },
+      {
+        baseCurrencyCode: 'MYR',
+        currencyCode: 'EUR',
+        fxRateToBase: 5,
+        effectiveDate: '2025-02-01',
+        becomesCurrent: false,
+      },
     ]);
   });
 
   it('does not write a saved rate back over itself', () => {
     expect(ratesToSeed([candidate({}, 'column', 'cached')])).toEqual([
-      { baseCurrencyCode: 'MYR', currencyCode: 'EUR', fxRateToBase: 5 },
+      {
+        baseCurrencyCode: 'MYR',
+        currencyCode: 'EUR',
+        fxRateToBase: 5,
+        effectiveDate: '2025-02-01',
+        becomesCurrent: false,
+      },
     ]);
   });
 
@@ -2200,7 +2404,13 @@ describe('ratesToSeed', () => {
         candidate({ counterpartCurrencyCode: 'EUR' }, 'column', 'parity'),
       ]),
     ).toEqual([
-      { baseCurrencyCode: 'MYR', currencyCode: 'EUR', fxRateToBase: 5 },
+      {
+        baseCurrencyCode: 'MYR',
+        currencyCode: 'EUR',
+        fxRateToBase: 5,
+        effectiveDate: '2025-02-01',
+        becomesCurrent: false,
+      },
     ]);
   });
 
@@ -2222,28 +2432,60 @@ describe('ratesToSeed', () => {
       baseCurrencyCode: 'MYR',
       currencyCode: 'JPY',
       fxRateToBase: 500 / 17000,
+      effectiveDate: '2025-02-01',
+      becomesCurrent: false,
     });
   });
 
-  it('keeps the first row when two carry the pair on equal evidence', () => {
+  const yenExpense = (
+    date: string,
+    fxRateToBase: number,
+    fxRateSource: PreparedTransaction['fxRateSource'] = 'column',
+  ) =>
+    candidate(
+      {
+        type: 'expense',
+        currencyCode: 'JPY',
+        fxRateToBase,
+        date,
+        counterpartAmount: null,
+        counterpartCurrencyCode: null,
+      },
+      fxRateSource,
+    );
+
+  it('saves the rate of the latest row, dated to that row', () => {
     const rates = ratesToSeed([
-      candidate({
-        type: 'expense',
-        currencyCode: 'JPY',
-        fxRateToBase: 0.02,
-        counterpartAmount: null,
-        counterpartCurrencyCode: null,
-      }),
-      candidate({
-        type: 'expense',
-        currencyCode: 'JPY',
-        fxRateToBase: 0.03,
-        counterpartAmount: null,
-        counterpartCurrencyCode: null,
-      }),
+      yenExpense('2026-01-15', 0.02),
+      yenExpense('2026-06-01', 0.04),
+      yenExpense('2026-03-01', 0.03),
     ]);
     expect(rates).toEqual([
-      { baseCurrencyCode: 'MYR', currencyCode: 'JPY', fxRateToBase: 0.02 },
+      {
+        baseCurrencyCode: 'MYR',
+        currencyCode: 'JPY',
+        fxRateToBase: 0.04,
+        effectiveDate: '2026-06-01',
+        becomesCurrent: false,
+      },
+    ]);
+  });
+
+  it('takes the later row when two on the same day carry the pair', () => {
+    const rates = ratesToSeed([
+      yenExpense('2026-06-01', 0.02),
+      yenExpense('2026-06-01', 0.03),
+    ]);
+    expect(rates.map(rate => rate.fxRateToBase)).toEqual([0.03]);
+  });
+
+  it('lets better evidence outrank a later date', () => {
+    const rates = ratesToSeed([
+      yenExpense('2026-01-15', 0.02, 'manual'),
+      yenExpense('2026-06-01', 0.04, 'column'),
+    ]);
+    expect(rates.map(rate => [rate.fxRateToBase, rate.effectiveDate])).toEqual([
+      [0.02, '2026-01-15'],
     ]);
   });
 
