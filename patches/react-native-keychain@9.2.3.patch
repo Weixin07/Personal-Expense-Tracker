@@ -1,0 +1,33 @@
+diff --git a/android/src/main/java/com/oblador/keychain/DeviceAvailability.kt b/android/src/main/java/com/oblador/keychain/DeviceAvailability.kt
+index 4cda18d2a0b02fb8e242cd4a670790223f623388..54b4bfc74bf78cc44a7f1c88dea3daf48c61b22b 100644
+--- a/android/src/main/java/com/oblador/keychain/DeviceAvailability.kt
++++ b/android/src/main/java/com/oblador/keychain/DeviceAvailability.kt
+@@ -31,6 +31,11 @@ object DeviceAvailability {
+     return context.packageManager.hasSystemFeature(PackageManager.FEATURE_IRIS)
+   }
+ 
++  fun isDeviceSecure(context: Context): Boolean {
++    val km = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
++    return km.isDeviceSecure
++  }
++
+   /** Check is permissions granted for biometric things. */
+   @JvmStatic
+   fun isPermissionsGranted(context: Context): Boolean {
+diff --git a/android/src/main/java/com/oblador/keychain/KeychainModule.kt b/android/src/main/java/com/oblador/keychain/KeychainModule.kt
+index 7a2c67933f0da85edd38686f48c2bf37bfdf17e4..9e7bd8933c668caff12536ce845a9853e38fa61e 100644
+--- a/android/src/main/java/com/oblador/keychain/KeychainModule.kt
++++ b/android/src/main/java/com/oblador/keychain/KeychainModule.kt
+@@ -167,7 +167,11 @@ class KeychainModule(reactContext: ReactApplicationContext) :
+     try {
+       val startTime = System.nanoTime()
+       Log.v(KEYCHAIN_MODULE, "warming up started at $startTime")
+-      val best = cipherStorageForCurrentAPILevel as CipherStorageBase
++      // Keystore refuses authentication-bound keys without a secure lock screen.
++      val best =
++        getCipherStorageForCurrentAPILevel(
++          DeviceAvailability.isDeviceSecure(reactApplicationContext)
++        ) as CipherStorageBase
+       val instance = best.getCachedInstance()
+       val isSecure = best.supportsSecureHardware()
+       val requiredLevel =

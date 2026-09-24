@@ -6,10 +6,13 @@ import {
   biometricCredentialExists,
 } from '../useBiometricGate';
 import { PIN_LOCKOUT_ATTEMPTS } from '../../security/lockoutPolicy';
+import NativeAppPinCrypto from '../../security/NativeAppPinCrypto';
 
 const BIOMETRIC_SERVICE = 'expense-tracker-biometric-gate';
 const APP_PIN_SERVICE = 'expense-tracker-app-pin';
 const LOCKOUT_SERVICE = 'expense-tracker-app-pin-lockout';
+
+const isDeviceSecure = NativeAppPinCrypto.isDeviceSecure as jest.Mock;
 
 let appStateHandler: ((status: string) => void) | undefined;
 const emitAppState = (status: string): void => appStateHandler?.(status);
@@ -78,6 +81,7 @@ beforeEach(() => {
   (Keychain.getSupportedBiometryType as jest.Mock).mockResolvedValue(
     'Fingerprint',
   );
+  isDeviceSecure.mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -439,7 +443,7 @@ describe('useBiometricGate', () => {
     });
   });
 
-  /** Under the rule on `biometryUsable`, an entry here would unlock itself. */
+  /** Under the rule on `biometryCreatable`, an entry here would unlock itself. */
   describe('when no biometric is enrolled', () => {
     beforeEach(() => {
       (Keychain.getSupportedBiometryType as jest.Mock).mockResolvedValue(null);
@@ -505,6 +509,86 @@ describe('useBiometricGate', () => {
         expect(result.current.biometricsAvailable).toBe(false),
       );
     });
+  });
+
+  const biometricCalls = (mock: unknown, argIndex: number) =>
+    (mock as jest.Mock).mock.calls.filter(
+      args => args[argIndex]?.service === BIOMETRIC_SERVICE,
+    );
+
+  /**
+   * A fingerprint is still reported; the lock screen alone rules the credential
+   * out, under the rule on `biometryCreatable`.
+   */
+  describe('when no secure lock screen is set', () => {
+    beforeEach(() => {
+      isDeviceSecure.mockResolvedValue(false);
+    });
+
+    it('requests no authentication-bound key and resolves', async () => {
+      const { result } = renderHook(() => useBiometricGate({ enabled: true }));
+      await act(async () => {
+        await expect(
+          result.current.ensureCredential(),
+        ).resolves.toBeUndefined();
+      });
+      expect(biometricCalls(Keychain.setGenericPassword, 2)).toHaveLength(0);
+    });
+
+    it('distrusts a credential left from before the lock was removed', async () => {
+      stubCredential(BIOMETRIC_SERVICE, {
+        username: 'expense-tracker',
+        password: 'biometric-lock',
+      });
+      const { result } = renderHook(() =>
+        useBiometricGate({ enabled: true, isInitialised: true }),
+      );
+      await waitFor(() => expect(result.current.isLocked).toBe(true));
+      await waitFor(() =>
+        expect(result.current.biometricsAvailable).toBe(false),
+      );
+      expect(biometricCalls(Keychain.getGenericPassword, 0)).toHaveLength(0);
+      expect(result.current.isLocked).toBe(true);
+    });
+  });
+
+  describe('when the lock-screen probe cannot answer', () => {
+    beforeEach(() => {
+      isDeviceSecure.mockRejectedValue(new Error('keyguard down'));
+    });
+
+    it('rejects without touching the existing credential', async () => {
+      const { result } = renderHook(() => useBiometricGate({ enabled: true }));
+      await act(async () => {
+        await expect(result.current.ensureCredential()).rejects.toThrow();
+      });
+      expect(biometricCalls(Keychain.resetGenericPassword, 0)).toHaveLength(0);
+      expect(biometricCalls(Keychain.setGenericPassword, 2)).toHaveLength(0);
+    });
+
+    it('keeps trusting a stored credential', async () => {
+      stubCredential(BIOMETRIC_SERVICE, {
+        username: 'expense-tracker',
+        password: 'biometric-lock',
+      });
+      const { result } = renderHook(() =>
+        useBiometricGate({ enabled: true, isInitialised: true }),
+      );
+      await waitFor(() =>
+        expect(result.current.biometricsAvailable).toBe(true),
+      );
+    });
+  });
+
+  it('keeps the credential when the biometry probe fails during setup', async () => {
+    (Keychain.getSupportedBiometryType as jest.Mock).mockRejectedValue(
+      new Error('keystore unavailable'),
+    );
+    const { result } = renderHook(() => useBiometricGate({ enabled: true }));
+    await act(async () => {
+      await expect(result.current.ensureCredential()).rejects.toThrow();
+    });
+    expect(biometricCalls(Keychain.resetGenericPassword, 0)).toHaveLength(0);
   });
 
   describe('when the gate is on with no PIN', () => {

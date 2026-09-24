@@ -3,6 +3,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import * as Keychain from 'react-native-keychain';
 import { toErrorMessage } from '../utils/errors';
 import { calibrateIterations } from '../security/pinCalibration';
+import { secureLockScreenState } from '../security/deviceSecurity';
 import {
   EMPTY_LOCKOUT_STATE,
   evaluateLockout,
@@ -53,25 +54,65 @@ export type UseBiometricGateResult = {
   applyEnabledState: (enabled: boolean) => void;
 };
 
-/**
- * Whether a biometric can actually authenticate. With none enrolled,
- * `react-native-keychain` stores the credential under a no-auth cipher and
- * returns it unchallenged, so an entry would make the gate unlock itself. The
- * device passcode does not change this — the library's storage choice looks at
- * enrolled biometrics only.
- */
-const biometryUsable = async (): Promise<boolean> =>
-  (await Keychain.getSupportedBiometryType()) !== null;
+type BiometryCreatable = 'yes' | 'impossible' | 'unknown';
 
+/**
+ * Whether the biometric credential may be created. It needs an enrolled
+ * biometric: with none, `react-native-keychain` stores it under a no-auth cipher
+ * and returns it unchallenged, so the gate would unlock itself. It also needs a
+ * secure lock screen, without which Keystore refuses the authentication-bound
+ * key. `'unknown'` means a probe could not answer, which is neither consent nor
+ * proof of impossibility.
+ */
+const biometryCreatable = async (): Promise<BiometryCreatable> => {
+  const [lockScreen, enrolled] = await Promise.all([
+    secureLockScreenState(),
+    Keychain.getSupportedBiometryType().then(
+      type => type !== null,
+      () => null,
+    ),
+  ]);
+  if (lockScreen === false || enrolled === false) {
+    return 'impossible';
+  }
+  if (lockScreen === null || enrolled === null) {
+    return 'unknown';
+  }
+  return 'yes';
+};
+
+/**
+ * Whether an existing credential may be trusted, under the rule on
+ * `biometryCreatable`. Only a definite "no lock screen" distrusts it: treating
+ * an unanswered probe as one would drop a biometric-only install with no PIN
+ * into PIN enrolment without authenticating.
+ */
+const biometryTrustable = async (): Promise<boolean> => {
+  const [lockScreen, biometryType] = await Promise.all([
+    secureLockScreenState(),
+    Keychain.getSupportedBiometryType(),
+  ]);
+  return lockScreen !== false && biometryType !== null;
+};
+
+/**
+ * @throws when a probe cannot answer, leaving any existing credential in place
+ * so a transient failure is retried rather than treated as impossible.
+ */
 const ensureBiometricCredential = async (): Promise<void> => {
+  const creatable = await biometryCreatable();
+  if (creatable === 'unknown') {
+    throw new Error('Could not determine whether biometrics can be set up.');
+  }
   try {
     await Keychain.resetGenericPassword({
       service: BIOMETRIC_KEYCHAIN_SERVICE,
     });
   } catch {
-    // Best-effort pre-clear before the credential is re-created below.
+    // Best-effort: a stale credential is cleared whether or not a new one can
+    // be created below.
   }
-  if (!(await biometryUsable())) {
+  if (creatable === 'impossible') {
     return;
   }
   try {
@@ -132,7 +173,7 @@ export const useBiometricGate = ({
     try {
       const [hasCredential, usable] = await Promise.all([
         biometricCredentialExists(),
-        biometryUsable(),
+        biometryTrustable(),
       ]);
       setBiometricsAvailable(hasCredential && usable);
     } catch {

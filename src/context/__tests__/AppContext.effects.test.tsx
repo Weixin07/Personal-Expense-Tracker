@@ -33,6 +33,7 @@ import * as exportModule from '../../export';
 import * as importModule from '../../import';
 import * as storageAccess from '../../security/storageAccess';
 import { isAppLockError } from '../../security/appLockError';
+import NativeAppPinCrypto from '../../security/NativeAppPinCrypto';
 import { computePresetRange } from '../../screens/homeUtils';
 import { localIsoDate } from '../../utils/date';
 import type { TransactionRecord, CategoryRecord } from '../../database';
@@ -125,6 +126,13 @@ const Capture: React.FC = () => {
   return null;
 };
 
+const isDeviceSecure = NativeAppPinCrypto.isDeviceSecure as jest.Mock;
+
+const biometricWrites = () =>
+  (Keychain.setGenericPassword as jest.Mock).mock.calls.filter(
+    ([, , options]) => options?.service === BIOMETRIC_SERVICE,
+  );
+
 const renderProvider = async () => {
   renderWithProviders(
     <TransactionDataProvider>
@@ -143,6 +151,7 @@ beforeEach(() => {
   (Keychain.getSupportedBiometryType as jest.Mock).mockResolvedValue(
     'Fingerprint',
   );
+  isDeviceSecure.mockResolvedValue(true);
   (mockDb.withDatabase as jest.Mock).mockImplementation(
     (cb: (database: unknown) => unknown) => Promise.resolve(cb({})),
   );
@@ -480,9 +489,9 @@ describe('TransactionDataProvider effects', () => {
   });
 
   /**
-   * A device with no TEE or no screen lock cannot hold the biometric
-   * credential. The PIN is a complete unlock path on its own, so the gate must
-   * still go on for exactly the users the fallback exists to serve.
+   * A device with no TEE cannot hold the biometric credential. The PIN is a
+   * complete unlock path on its own, so the gate must still go on for exactly
+   * the users the fallback exists to serve.
    */
   it('enables the gate PIN-only when the biometric credential cannot be created', async () => {
     stubPinExists(true);
@@ -502,6 +511,46 @@ describe('TransactionDataProvider effects', () => {
       'true',
     );
     (Keychain.setGenericPassword as jest.Mock).mockResolvedValue(true);
+  });
+
+  it('enables the gate PIN-only with no keychain attempt when no screen lock is set', async () => {
+    stubPinExists(true);
+    isDeviceSecure.mockResolvedValue(false);
+    await renderProvider();
+
+    await act(async () => {
+      await ctx.actions.setBiometricGateEnabled(true);
+    });
+
+    expect(ctx.state.settings.biometricGateEnabled).toBe(true);
+    expect(ctx.state.error).toBeNull();
+    expect(biometricWrites()).toHaveLength(0);
+  });
+
+  /**
+   * An unanswered lock-screen probe must not read as "no biometrics": for an
+   * install with the gate on and no PIN, that would turn the lock screen into
+   * PIN enrolment and a way to turn the lock off, without authenticating.
+   */
+  it('keeps a biometric-only install locked when the lock-screen probe fails', async () => {
+    isDeviceSecure.mockRejectedValue(new Error('keyguard down'));
+    (Keychain.hasGenericPassword as jest.Mock).mockImplementation(
+      ({ service }: { service: string }) =>
+        Promise.resolve(service === BIOMETRIC_SERVICE),
+    );
+    mockDb.getAllSettings.mockResolvedValue([
+      { key: 'biometric_gate_enabled', value: 'true' },
+      { key: 'biometric_cred_version', value: '2' },
+    ]);
+    await renderProvider();
+
+    await waitFor(() =>
+      expect(ctx.state.biometric.biometricsAvailable).toBe(true),
+    );
+    expect(ctx.state.biometric.isLocked).toBe(true);
+    expect(ctx.state.pinSetupRequired).toBe(false);
+    expect(screen.queryByText('Set an app PIN')).toBeNull();
+    expect(screen.queryByText('Turn the lock off')).toBeNull();
   });
 
   it('still refuses to enable without a PIN, whatever the biometric hardware does', async () => {
@@ -1046,6 +1095,41 @@ describe('TransactionDataProvider effects', () => {
     await renderProvider();
     await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
     expect(Keychain.setGenericPassword).not.toHaveBeenCalled();
+  });
+
+  it('counts the refresh done when the device has no secure lock screen', async () => {
+    isDeviceSecure.mockResolvedValue(false);
+    mockDb.getAllSettings.mockResolvedValue([
+      { key: 'biometric_gate_enabled', value: 'true' },
+    ]);
+    await renderProvider();
+    await waitFor(() =>
+      expect(mockDb.setSetting).toHaveBeenCalledWith(
+        expect.anything(),
+        'biometric_cred_version',
+        '2',
+      ),
+    );
+    expect(biometricWrites()).toHaveLength(0);
+  });
+
+  it('retries the refresh next launch when the lock-screen probe cannot answer', async () => {
+    isDeviceSecure.mockRejectedValue(new Error('keyguard down'));
+    mockDb.getAllSettings.mockResolvedValue([
+      { key: 'biometric_gate_enabled', value: 'true' },
+    ]);
+    await renderProvider();
+    await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
+    expect(mockDb.setSetting).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'biometric_cred_version',
+      '2',
+    );
+    expect(
+      (Keychain.resetGenericPassword as jest.Mock).mock.calls.filter(
+        ([options]) => options?.service === BIOMETRIC_SERVICE,
+      ),
+    ).toHaveLength(0);
   });
 
   it('does not bump the version when the credential refresh fails', async () => {

@@ -1118,9 +1118,9 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
           try {
             await ensureBiometricCredential();
           } catch {
-            // A device with no TEE or no screen lock cannot hold the biometric
-            // credential at all. The PIN verified above is a complete unlock
-            // path on its own, so the gate still goes on.
+            // No TEE, an unanswered device probe or another Keystore failure
+            // leaves no biometric credential. The PIN verified above is a
+            // complete unlock path on its own, so the gate still goes on.
           }
         } else {
           await clearBiometricCredential();

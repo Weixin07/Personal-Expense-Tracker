@@ -95,7 +95,8 @@
   "pnpm": {
     "patchedDependencies": {
       "react-native-config": "patches/react-native-config.patch",
-      "react-native-sqlite-storage@6.0.1": "patches/react-native-sqlite-storage@6.0.1.patch"
+      "react-native-sqlite-storage@6.0.1": "patches/react-native-sqlite-storage@6.0.1.patch",
+      "react-native-keychain@9.2.3": "patches/react-native-keychain@9.2.3.patch"
     }
   }
 }

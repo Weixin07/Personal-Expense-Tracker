@@ -866,7 +866,13 @@ This app prioritizes **local security** (device protection) over **network secur
 prompting, so the lock would open itself. A device passcode does not change this — the library's
 storage choice looks at enrolled biometrics alone. The app therefore checks
 `getSupportedBiometryType()` before creating that credential **and** before trusting one, and
-falls back to the PIN when it reports none. **The app PIN is the factor that is always enforced.**
+falls back to the PIN when it reports none.
+
+**It also requires a secure lock screen** (a device PIN, pattern or password), because Android
+Keystore refuses to create an authentication-bound key without one. The app asks the platform
+(`KeyguardManager.isDeviceSecure`) and skips creating the credential when there is none. If that
+check cannot answer, the app neither creates a credential nor stops trusting an existing one.
+**The app PIN is the factor that is always enforced.**
 
 **What the app lock does not protect.** The lock guards the **UI**, not the database file. The
 SQLite file is not encrypted at rest, so a rooted device or a forensic extraction reads it
@@ -910,12 +916,12 @@ resets on the process restart the counter exists to survive.
 
 #### 2. Android Keystore (Secure Token Storage)
 
-**Token Storage:**
+**What is stored:**
 
-- OAuth tokens stored via `react-native-keychain`
-- Service name: `google-drive-auth`
-- Accessibility: `WHEN_UNLOCKED_THIS_DEVICE_ONLY`
-- Security level: `SECURE_HARDWARE` (if available)
+- OAuth tokens are **not** stored by the app. Google Sign-In (Play services) holds them, and
+  `src/security/googleAuth.ts` asks it for a current token on each use
+- The app lock's entries are stored via `react-native-keychain`: the app PIN, its lockout
+  counter, and the biometric credential
 
 **Keystore Properties:**
 
@@ -938,9 +944,14 @@ resets on the process restart the counter exists to survive.
 
 **Where the biometric credential cannot be created or cannot authenticate** — no secure
 hardware, no screen lock set, or no biometric enrolled — the lock still switches on once a PIN
-exists, and the unlock screen opens straight on the PIN field. Biometric enrolment is best-effort at that point, never a
+exists, and the unlock screen opens straight on the PIN field. With no screen lock set the app
+does not attempt the credential at all. Biometric enrolment is best-effort at that point, never a
 precondition: requiring it would deny the lock to exactly the devices the PIN fallback was
 added for.
+
+**Setting up a screen lock or a fingerprint later does not bring biometric unlock back on its
+own.** Turn the app lock off and on again in Settings to enrol it. Turning the lock off also
+clears the app PIN, so a new one is set on the way back on.
 
 **Auto-lock presets:** Immediately / 1 / 5 / 15 / 30 minutes / Never, stored in
 `app_settings.auto_lock_minutes` and defaulting to 5. They govern **background idle only** —

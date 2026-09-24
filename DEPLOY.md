@@ -287,30 +287,30 @@ below (each is a place R8 can strip a needed symbol): OAuth/Drive, SQLite, Keych
 biometric, SAF export, and the offline queue. Also confirm icons and themed UI render
 (resource shrinking can remove name-resolved resources).
 
-1. App launches; pick a base currency.
-2. Add, edit, and delete an expense; totals update correctly.
-3. **Time of day** — a new entry prefills today's date and the current clock time, both in
-   device-local terms (check near midnight if the device is not on UTC). Enter a time, clear
-   it, and re-edit it; confirm same-day rows sort newest-first by time and that rows with no
-   time still appear. Export, then re-import, and confirm the times survive the round trip.
-4. Filter by date preset / custom range / category.
-5. Manage categories (add a custom one, use it on an expense).
-6. **Google Drive export** — Settings → sign in with Google → grant the `drive.file`
-   consent → export → confirm a CSV appears in the "Expense Tracker Backups" folder.
-7. **Offline queue** — disable network, add an expense, queue an export; re-enable network
-   and confirm it auto-uploads.
-8. **Biometric lock** (if supported) — enable it (this now requires setting an app PIN first),
-   background the app past the configured auto-lock time, confirm the unlock prompt. Then fully
-   kill the app and relaunch; confirm the unlock prompt appears on cold start, and that the
-   device-credential (PIN/passcode) fallback unlocks if biometrics fail. Re-enroll a biometric
-   (add a fingerprint/face), relaunch, and confirm the device-passcode path still unlocks (the
-   credential must not hard-lock). Finally, with the gate enabled, simulate a settings-read
-   failure and confirm the app still locks (fail-closed).
+1.  App launches; pick a base currency.
+2.  Add, edit, and delete an expense; totals update correctly.
+3.  **Time of day** — a new entry prefills today's date and the current clock time, both in
+    device-local terms (check near midnight if the device is not on UTC). Enter a time, clear
+    it, and re-edit it; confirm same-day rows sort newest-first by time and that rows with no
+    time still appear. Export, then re-import, and confirm the times survive the round trip.
+4.  Filter by date preset / custom range / category.
+5.  Manage categories (add a custom one, use it on an expense).
+6.  **Google Drive export** — Settings → sign in with Google → grant the `drive.file`
+    consent → export → confirm a CSV appears in the "Expense Tracker Backups" folder.
+7.  **Offline queue** — disable network, add an expense, queue an export; re-enable network
+    and confirm it auto-uploads.
+8.  **Biometric lock** (if supported) — enable it (this now requires setting an app PIN first),
+    background the app past the configured auto-lock time, confirm the unlock prompt. Then fully
+    kill the app and relaunch; confirm the unlock prompt appears on cold start, and that the
+    device-credential (PIN/passcode) fallback unlocks if biometrics fail. Re-enroll a biometric
+    (add a fingerprint/face), relaunch, and confirm the device-passcode path still unlocks (the
+    credential must not hard-lock). Finally, with the gate enabled, simulate a settings-read
+    failure and confirm the app still locks (fail-closed).
 
-9. **Auto-lock presets** — for each of Immediately / 1 / 5 / 15 / 30, background the app for
-   just under and just over the setting and confirm the lock fires only past it. Set **Never**
-   and confirm idle never locks, **then kill and relaunch and confirm it still locks on cold
-   start** — the presets govern background idle only.
+9.  **Auto-lock presets** — for each of Immediately / 1 / 5 / 15 / 30, background the app for
+    just under and just over the setting and confirm the lock fires only past it. Set **Never**
+    and confirm idle never locks, **then kill and relaunch and confirm it still locks on cold
+    start** — the presets govern background idle only.
 
 10. **App PIN, throttling and lockout** — these paths run against real Keystore hardware and
     are only mocked in Jest, so they must be exercised on a device:
@@ -340,13 +340,28 @@ biometric, SAF export, and the offline queue. Also confirm icons and themed UI r
     This is the case the PIN fallback exists for, so a regression here removes the feature for
     exactly the users who need it.
 
-    **The load-bearing check: the lock must not open itself.** Background the app past the
-    auto-lock time and confirm it stays locked until the PIN is entered. With no biometric
-    enrolled, `react-native-keychain` stores the gate credential under a no-auth cipher and hands
-    it back unchallenged, so a regression here shows up as the unlock screen appearing and then
-    vanishing on its own — which reads as the lock working. Watch for
-    `Selected storage: KeystoreAESGCM_NoAuth` in logcat alongside a successful unlock with no
-    prompt; that combination is the bug. Then enrol a fingerprint and confirm the prompt returns.
+        **The load-bearing check: the lock must not open itself.** Background the app past the
+        auto-lock time and confirm it stays locked until the PIN is entered. With no biometric
+        enrolled, `react-native-keychain` stores the gate credential under a no-auth cipher and hands
+        it back unchallenged, so a regression here shows up as the unlock screen appearing and then
+        vanishing on its own — which reads as the lock working. Watch for
+        `Selected storage: KeystoreAESGCM_NoAuth` in logcat alongside a successful unlock with no
+        prompt; that combination is the bug. Then enrol a fingerprint and confirm the prompt returns.
+
+        **No keychain key error without a screen lock.** On a device or emulator with **no screen
+        lock**, cold-start the **release** build with
+        `adb logcat -s RNKeychainManager:E CipherStorageBase:E` running, once with the app lock off
+        and once with it on. Neither run may log `Secure lock screen must be enabled to create keys
+
+    requiring user authentication`. `No entry found for service: …`lines are expected and
+    harmless. The hardest case is a **fingerprint still enrolled with no screen lock**: the
+    Settings app wipes fingerprints when the lock is removed, and so does
+   `adb shell locksettings clear`on API 36, so there is no reliable recipe for it; the
+   `PET_API_28`emulator is in this state. Confirm you have it before relying on the check:
+   `adb shell dumpsys fingerprint`must show a`count`of 1 or more, and
+   `adb shell locksettings verify`must succeed without a credential.`react-native-keychain`
+    reports a biometric there, and only the app's lock-screen check and the patched warm-up keep
+    it from requesting a key Keystore will refuse.
 
 ### Reference device for the PIN check
 
@@ -541,6 +556,12 @@ no bump can clear it today.
 The on-device smoke that gates the keychain/vector-icons bumps is described in
 `doc-temp/TEST_ON_PHONE_REMOTELY.md` (DB CRUD + migration, biometric cold-start gate,
 OAuth → Drive export, CSV export/share).
+
+> **`react-native-keychain` is patched.** `patches/react-native-keychain@9.2.3.patch` makes the
+> library's start-up warm-up choose a biometric cipher only when the device has a secure lock
+> screen (`KeyguardManager.isDeviceSecure`); without one, Keystore refuses the key and the warm-up
+> logs an error on every cold start. On any keychain bump, re-roll or drop the patch first. The
+> key in `pnpm.patchedDependencies` is version-pinned, so pnpm refuses the install until then.
 
 > **First-party native code (`AppPinCrypto`).** The app PIN's key derivation and salt come from
 > a TurboModule in `android/app/src/main/java/com/expensetracker/pincrypto/`, wrapping the

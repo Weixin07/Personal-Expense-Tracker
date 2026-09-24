@@ -239,6 +239,7 @@ jest.mock('./src/security/NativeAppPinCrypto', () => {
             ).toString('base64'),
           ),
       ),
+      isDeviceSecure: jest.fn(() => Promise.resolve(true)),
     },
   };
 });

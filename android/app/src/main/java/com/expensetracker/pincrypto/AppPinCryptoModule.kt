@@ -1,5 +1,7 @@
 package com.expensetracker.pincrypto
 
+import android.app.KeyguardManager
+import android.content.Context
 import android.util.Base64
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -10,9 +12,10 @@ import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.PBEKeySpec
 
 /**
- * PBKDF2 and secure random for the app PIN. Both methods resolve on a
- * background thread: at the calibrated iteration count a derivation takes
- * roughly a quarter second, and it sits on the unlock path.
+ * PBKDF2 and secure random for the app PIN, plus whether the device has a
+ * secure lock screen. The crypto methods resolve on a background thread: at the
+ * calibrated iteration count a derivation takes roughly a quarter second, and
+ * it sits on the unlock path.
  */
 class AppPinCryptoModule(reactContext: ReactApplicationContext) :
     NativeAppPinCryptoSpec(reactContext) {
@@ -64,6 +67,26 @@ class AppPinCryptoModule(reactContext: ReactApplicationContext) :
         // lifetime short rather than relying on this.
         spec?.clearPassword()
       }
+    }
+  }
+
+  /**
+   * `isDeviceSecure`, not `isKeyguardSecure`: the latter also answers true for a
+   * locked SIM, which does not satisfy Keystore's secure-lock-screen
+   * precondition for authentication-bound keys.
+   */
+  override fun isDeviceSecure(promise: Promise) {
+    try {
+      val keyguard =
+          reactApplicationContext.getSystemService(Context.KEYGUARD_SERVICE)
+              as KeyguardManager?
+      if (keyguard == null) {
+        promise.reject(ERROR_CODE, "KeyguardManager unavailable")
+        return
+      }
+      promise.resolve(keyguard.isDeviceSecure)
+    } catch (error: Exception) {
+      promise.reject(ERROR_CODE, error.message, error)
     }
   }
 
