@@ -331,7 +331,10 @@ biometric, SAF export, and the offline queue. Also confirm icons and themed UI r
     confirm the set-a-PIN prompt appears **before anything else is reachable**, and that
     **declining it turns the app lock off** rather than leaving it on with no way in. Confirm too
     that no "Use PIN instead" is offered at the lock — there is no PIN to type — and that entering
-    into a PIN field, if a regression puts one back, does not consume attempts.
+    into a PIN field, if a regression puts one back, does not consume attempts. **Use screen lock
+    instead** is offered beside **Try again**, and confirming the screen lock leads to the same
+    set-a-PIN prompt; cancelling a biometric prompt shows _"Not unlocked. Tap Try again or use your
+    screen lock."_, never a `code: 13` string.
 
 12. **Hardware without a usable biometric** — on a device or emulator with **no biometric
     enrolled** (a PIN-only screen lock counts, as does no screen lock at all), confirm the lock
@@ -340,28 +343,69 @@ biometric, SAF export, and the offline queue. Also confirm icons and themed UI r
     This is the case the PIN fallback exists for, so a regression here removes the feature for
     exactly the users who need it.
 
-        **The load-bearing check: the lock must not open itself.** Background the app past the
-        auto-lock time and confirm it stays locked until the PIN is entered. With no biometric
-        enrolled, `react-native-keychain` stores the gate credential under a no-auth cipher and hands
-        it back unchallenged, so a regression here shows up as the unlock screen appearing and then
-        vanishing on its own — which reads as the lock working. Watch for
-        `Selected storage: KeystoreAESGCM_NoAuth` in logcat alongside a successful unlock with no
-        prompt; that combination is the bug. Then enrol a fingerprint and confirm the prompt returns.
+         **The load-bearing check: the lock must not open itself.** Background the app past the
+         auto-lock time and confirm it stays locked until the PIN is entered. With no biometric
+         enrolled, `react-native-keychain` stores the gate credential under a no-auth cipher and hands
+         it back unchallenged, so a regression here shows up as the unlock screen appearing and then
+         vanishing on its own — which reads as the lock working. Watch for
+         `Selected storage: KeystoreAESGCM_NoAuth` in logcat alongside a successful unlock with no
+         prompt; that combination is the bug. Then enrol a fingerprint and confirm the prompt returns.
 
-        **No keychain key error without a screen lock.** On a device or emulator with **no screen
-        lock**, cold-start the **release** build with
-        `adb logcat -s RNKeychainManager:E CipherStorageBase:E` running, once with the app lock off
-        and once with it on. Neither run may log `Secure lock screen must be enabled to create keys
+         **No keychain key error without a screen lock.** On a device or emulator with **no screen
+         lock**, cold-start the **release** build with
+         `adb logcat -s RNKeychainManager:E CipherStorageBase:E` running, once with the app lock off
+         and once with it on. Neither run may log `Secure lock screen must be enabled to create keys
 
     requiring user authentication`. `No entry found for service: …`lines are expected and
-    harmless. The hardest case is a **fingerprint still enrolled with no screen lock**: the
-    Settings app wipes fingerprints when the lock is removed, and so does
-   `adb shell locksettings clear`on API 36, so there is no reliable recipe for it; the
-   `PET_API_28`emulator is in this state. Confirm you have it before relying on the check:
-   `adb shell dumpsys fingerprint`must show a`count`of 1 or more, and
-   `adb shell locksettings verify`must succeed without a credential.`react-native-keychain`
+ harmless. The hardest case is a **fingerprint still enrolled with no screen lock**: the
+ Settings app wipes fingerprints when the lock is removed, and so does
+`adb shell locksettings clear`on API 36, so there is no reliable recipe for it; the
+`PET_API_28`emulator is in this state. Confirm you have it before relying on the check:
+`adb shell dumpsys fingerprint`must show a`count`of 1 or more, and
+`adb shell locksettings verify`must succeed without a credential.`react-native-keychain`
     reports a biometric there, and only the app's lock-screen check and the patched warm-up keep
     it from requesting a key Keystore will refuse.
+
+    **PIN-less install loses its screen lock.** It must stay locked. On `PET_API_28` (or any
+    device with the app lock on and **no app PIN** — a build predating the PIN, upgraded):
+    1. Remove the screen lock and cold-start. Confirm **Screen lock needed**, with no "Turn the
+       lock off" and no set-a-PIN prompt.
+    2. Tap **Open settings**: it lands on security settings, or on the app's details page on OEM
+       builds without that screen.
+    3. Set a screen lock and return **without restarting the app**. The screen changes to
+       **Confirm it's you**.
+    4. Confirm the screen lock. Only now do the set-a-PIN prompt and "Turn the lock off" appear.
+    5. Re-enrol a fingerprint, cold-start and let the biometric prompt fail on the key Android
+       invalidated when the lock was removed; **Use screen lock instead** still gets in.
+    6. Repeat step 4 under Auto-lock **Immediately** and confirm the app does not re-lock on
+       returning from the system prompt.
+    7. Kill the app from recents while the system prompt is showing, reopen it, and confirm it
+       is locked and the prompt can be shown again.
+
+    A debug APK built before the screen-lock prompt existed, running newer JavaScript, keeps a
+    PIN-less install locked with _"Couldn't show the screen lock prompt."_ — rebuild the APK.
+
+    **Nothing behind the lock screen is reachable.** With the lock screen showing:
+    1. `adb shell uiautomator dump --compressed --windows /sdcard/uic.xml` (drop `--windows` on
+       API 28, whose `uiautomator` doesn't support it) lists only the lock screen's own elements,
+       never _Open settings_ or _Add transaction_. The plain dump includes views hidden from
+       accessibility and lists them regardless, so use `--compressed`.
+    2. With a hardware keyboard (or `adb shell input keyevent KEYCODE_TAB`), Tab and the arrow
+       keys cycle only through the lock screen's controls, and Enter, Escape and Back leave it up.
+       In a debug build, the development warnings badge also takes focus; it doesn't exist in
+       release.
+    3. **On a physical device**, turn on TalkBack and swipe through the lock screen in both
+       directions. Focus must never reach the app behind it. `adb` can't drive TalkBack gestures,
+       so this step can't run on an emulator.
+
+    **Nothing is reachable before the lock engages.** Cold-start the app while hammering the
+    Settings gear from the moment of launch, with the lock on and no PIN (the most exposed state):
+    `adb shell "am start -n <package>/.MainActivity; for i in $(seq 1 150); do input tap <gear x> <gear y>; done"`.
+    Settings must never open. Before the fix, it opened behind _Screen lock needed_.
+
+    **Turning the lock off asks for the PIN.** In Settings, switch the app lock off. A wrong PIN
+    shows _"Incorrect PIN, or too many attempts."_ and leaves the lock on; the right PIN turns it
+    off and removes the PIN.
 
 ### Reference device for the PIN check
 

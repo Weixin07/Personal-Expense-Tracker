@@ -23,6 +23,7 @@ const APP_PIN_CRYPTO_REQUIRED_METHODS = [
   'randomBytesBase64',
   'pbkdf2Sha256Base64',
   'isDeviceSecure',
+  'confirmDeviceCredential',
 ] as const;
 
 /**

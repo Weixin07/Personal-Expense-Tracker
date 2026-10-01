@@ -5,7 +5,7 @@
   "packageManager": "pnpm@9.12.1",
   "codegenConfig": {
     "name": "AppPinCryptoSpec",
-    "type": "modules",
+    "type": "all",
     "jsSrcsDir": "src/security",
     "android": {
       "javaPackageName": "com.expensetracker.pincrypto"

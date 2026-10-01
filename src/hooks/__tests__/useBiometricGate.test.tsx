@@ -22,7 +22,9 @@ const emitAppState = (status: string): void => appStateHandler?.(status);
  * the lockout counter — so a bare mockResolvedValue would answer whichever
  * happened to be read first. Each is stubbed by its own service.
  */
-type StoredCredential = { username: string; password: string } | false;
+type StoredCredential =
+  | { username: string; password: string; storage?: string }
+  | false;
 let credentialsByService: Record<string, StoredCredential>;
 
 const stubCredential = (service: string, value: StoredCredential): void => {
@@ -103,6 +105,7 @@ describe('useBiometricGate', () => {
     stubCredential(BIOMETRIC_SERVICE, {
       username: 'expense-tracker',
       password: 'biometric-lock',
+      storage: 'KeystoreAESGCM',
     });
     const { result } = renderHook(() => useBiometricGate({ enabled: true }));
     let outcome = false;
@@ -125,21 +128,35 @@ describe('useBiometricGate', () => {
     expect(result.current.lastError).toBeTruthy();
   });
 
-  it('records a failed authentication attempt', async () => {
-    (Keychain.getGenericPassword as jest.Mock).mockImplementation(
-      ({ service }: { service: string }) =>
-        service === BIOMETRIC_SERVICE
-          ? Promise.reject(new Error('denied'))
-          : Promise.resolve(false),
-    );
-    const { result } = renderHook(() => useBiometricGate({ enabled: true }));
-    let outcome = true;
-    await act(async () => {
-      outcome = await result.current.unlockWithBiometrics();
-    });
-    expect(outcome).toBe(false);
-    expect(result.current.lastError).toBe('denied');
-  });
+  it.each([
+    ['with a PIN', true, 'Not unlocked. Tap Try again or use your PIN.'],
+    [
+      'without a PIN',
+      false,
+      'Not unlocked. Tap Try again or use your screen lock.',
+    ],
+  ])(
+    'reports a failed biometric read in fixed words, %s',
+    async (_label, hasPin, message) => {
+      if (hasPin) {
+        await storePin('846207');
+      }
+      (Keychain.getGenericPassword as jest.Mock).mockImplementation(
+        ({ service }: { service: string }) =>
+          service === BIOMETRIC_SERVICE
+            ? Promise.reject(new Error('code: 13, msg: Cancel'))
+            : Promise.resolve(credentialsByService[service] ?? false),
+      );
+      const { result } = renderHook(() => useBiometricGate({ enabled: true }));
+      await waitFor(() => expect(result.current.pinStored).toBe(hasPin));
+      let outcome = true;
+      await act(async () => {
+        outcome = await result.current.unlockWithBiometrics();
+      });
+      expect(outcome).toBe(false);
+      expect(result.current.lastError).toBe(message);
+    },
+  );
 
   it('creates a keychain credential on ensureCredential', async () => {
     const { result } = renderHook(() => useBiometricGate({ enabled: true }));
@@ -168,6 +185,7 @@ describe('useBiometricGate', () => {
     stubCredential(BIOMETRIC_SERVICE, {
       username: 'expense-tracker',
       password: 'biometric-lock',
+      storage: 'KeystoreAESGCM',
     });
     await expect(biometricCredentialExists()).resolves.toBe(true);
     expect(Keychain.hasGenericPassword).toHaveBeenCalled();
@@ -197,10 +215,11 @@ describe('useBiometricGate', () => {
     stubCredential(BIOMETRIC_SERVICE, {
       username: 'expense-tracker',
       password: 'biometric-lock',
+      storage: 'KeystoreAESGCM',
     });
     await storePin('846207');
-    // The entry exists but the read comes back empty, which is what a cancelled
-    // prompt looks like; the other services must still answer normally.
+    // The entry exists but its read comes back empty, so the prompt cannot
+    // unlock; the other services must still answer normally.
     (Keychain.getGenericPassword as jest.Mock).mockImplementation(
       ({ service }: { service: string }) =>
         Promise.resolve(
@@ -434,6 +453,7 @@ describe('useBiometricGate', () => {
       stubCredential(BIOMETRIC_SERVICE, {
         username: 'expense-tracker',
         password: 'biometric-lock',
+        storage: 'KeystoreAESGCM',
       });
       await storePin('846207');
       const { result } = renderHook(() =>
@@ -467,6 +487,7 @@ describe('useBiometricGate', () => {
       stubCredential(BIOMETRIC_SERVICE, {
         username: 'expense-tracker',
         password: 'biometric-lock',
+        storage: 'KeystoreAESGCM',
       });
       const { result } = renderHook(() =>
         useBiometricGate({ enabled: true, isInitialised: true }),
@@ -480,6 +501,7 @@ describe('useBiometricGate', () => {
       stubCredential(BIOMETRIC_SERVICE, {
         username: 'expense-tracker',
         password: 'biometric-lock',
+        storage: 'KeystoreAESGCM',
       });
       const { result } = renderHook(() =>
         useBiometricGate({ enabled: true, isInitialised: true }),
@@ -539,6 +561,7 @@ describe('useBiometricGate', () => {
       stubCredential(BIOMETRIC_SERVICE, {
         username: 'expense-tracker',
         password: 'biometric-lock',
+        storage: 'KeystoreAESGCM',
       });
       const { result } = renderHook(() =>
         useBiometricGate({ enabled: true, isInitialised: true }),
@@ -570,6 +593,7 @@ describe('useBiometricGate', () => {
       stubCredential(BIOMETRIC_SERVICE, {
         username: 'expense-tracker',
         password: 'biometric-lock',
+        storage: 'KeystoreAESGCM',
       });
       const { result } = renderHook(() =>
         useBiometricGate({ enabled: true, isInitialised: true }),
@@ -603,6 +627,7 @@ describe('useBiometricGate', () => {
       stubCredential(BIOMETRIC_SERVICE, {
         username: 'expense-tracker',
         password: 'biometric-lock',
+        storage: 'KeystoreAESGCM',
       });
       const { result } = renderHook(() =>
         useBiometricGate({ enabled: true, isInitialised: true }),
@@ -665,6 +690,7 @@ describe('useBiometricGate', () => {
       stubCredential(BIOMETRIC_SERVICE, {
         username: 'expense-tracker',
         password: 'biometric-lock',
+        storage: 'KeystoreAESGCM',
       });
       const { result } = renderHook(() =>
         useBiometricGate({ enabled: true, isInitialised: true }),
@@ -791,5 +817,434 @@ describe('useBiometricGate', () => {
         await waitFor(() => expect(result.current.isLocked).toBe(true));
       },
     );
+  });
+});
+
+describe('useBiometricGate device-credential unlock', () => {
+  const confirmCredential =
+    NativeAppPinCrypto.confirmDeviceCredential as jest.Mock;
+
+  beforeEach(() => {
+    confirmCredential.mockReset();
+    confirmCredential.mockResolvedValue(false);
+  });
+
+  const lockedHook = async (autoLockMinutes?: number | null) => {
+    const rendered = renderHook(() =>
+      useBiometricGate({ enabled: true, isInitialised: true, autoLockMinutes }),
+    );
+    await waitFor(() => expect(rendered.result.current.isLocked).toBe(true));
+    await waitFor(() =>
+      expect(rendered.result.current.pinStored).not.toBeNull(),
+    );
+    return rendered;
+  };
+
+  it('unlocks and authenticates the session on a confirmed screen lock', async () => {
+    confirmCredential.mockResolvedValue(true);
+    const { result } = await lockedHook();
+    expect(result.current.sessionAuthenticated).toBe(false);
+    let outcome: string | undefined;
+    await act(async () => {
+      outcome = await result.current.unlockWithDeviceCredential();
+    });
+    expect(outcome).toBe('authenticated');
+    expect(result.current.isLocked).toBe(false);
+    expect(result.current.sessionAuthenticated).toBe(true);
+    expect(Keychain.resetGenericPassword).toHaveBeenCalledWith({
+      service: LOCKOUT_SERVICE,
+    });
+  });
+
+  it('stays locked on a dismissed prompt, without counting a PIN failure', async () => {
+    await storePin('846207');
+    const { result } = await lockedHook();
+    await act(async () => {
+      await result.current.unlockWithDeviceCredential();
+    });
+    expect(result.current.isLocked).toBe(true);
+    expect(result.current.sessionAuthenticated).toBe(false);
+    expect(result.current.lastError).toBe(
+      "Not confirmed. Tap Confirm it's you to try again.",
+    );
+    expect(Keychain.setGenericPassword).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ service: LOCKOUT_SERVICE }),
+    );
+  });
+
+  it('asks for a screen lock when the device has none', async () => {
+    confirmCredential.mockRejectedValue(
+      Object.assign(new Error('none'), { code: 'no_device_credential' }),
+    );
+    const { result } = await lockedHook();
+    await act(async () => {
+      await result.current.unlockWithDeviceCredential();
+    });
+    expect(result.current.isLocked).toBe(true);
+    expect(result.current.lastError).toBe('Set a screen lock first.');
+  });
+
+  it('stays locked when the installed binary predates the prompt', async () => {
+    const native = NativeAppPinCrypto as unknown as {
+      confirmDeviceCredential?: jest.Mock;
+    };
+    native.confirmDeviceCredential = undefined;
+    try {
+      const { result } = await lockedHook();
+      await act(async () => {
+        await result.current.unlockWithDeviceCredential();
+      });
+      expect(result.current.isLocked).toBe(true);
+      expect(result.current.lastError).toBe(
+        "Couldn't show the screen lock prompt. Try again.",
+      );
+    } finally {
+      native.confirmDeviceCredential = confirmCredential;
+    }
+  });
+
+  it('is not re-locked by its own trip through the system prompt', async () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    let finish: (confirmed: boolean) => void = () => undefined;
+    confirmCredential.mockImplementation(
+      () => new Promise<boolean>(resolve => (finish = resolve)),
+    );
+    const { result } = await lockedHook(0);
+    const nonceBefore = result.current.backgroundNonce;
+
+    let pending: Promise<unknown> = Promise.resolve();
+    act(() => {
+      pending = result.current.unlockWithDeviceCredential();
+    });
+    act(() => emitAppState('background'));
+    nowSpy.mockReturnValue(1_000_000 + 60 * 1000);
+    act(() => emitAppState('active'));
+    await act(async () => {
+      finish(true);
+      await pending;
+    });
+    act(() => emitAppState('active'));
+
+    expect(result.current.isLocked).toBe(false);
+    expect(result.current.backgroundNonce).toBe(nonceBefore);
+  });
+
+  it('does not stack a screen-lock prompt on the biometric prompt', async () => {
+    stubCredential(BIOMETRIC_SERVICE, {
+      username: 'expense-tracker',
+      password: 'biometric-lock',
+      storage: 'KeystoreAESGCM',
+    });
+    let finishBiometric: (value: false) => void = () => undefined;
+    (Keychain.getGenericPassword as jest.Mock).mockImplementation(
+      ({ service }: { service: string }) =>
+        service === BIOMETRIC_SERVICE
+          ? new Promise(resolve => (finishBiometric = resolve))
+          : Promise.resolve(credentialsByService[service] ?? false),
+    );
+    const { result } = renderHook(() =>
+      useBiometricGate({ enabled: true, isInitialised: true }),
+    );
+    await waitFor(() =>
+      expect(Keychain.getGenericPassword).toHaveBeenCalledWith(
+        expect.objectContaining({ service: BIOMETRIC_SERVICE }),
+      ),
+    );
+
+    let outcome: string | undefined;
+    await act(async () => {
+      outcome = await result.current.unlockWithDeviceCredential();
+    });
+
+    expect(outcome).toBe('unavailable');
+    expect(confirmCredential).not.toHaveBeenCalled();
+    expect(result.current.isLocked).toBe(true);
+    await act(async () => {
+      finishBiometric(false);
+    });
+  });
+
+  it('does not stack a biometric prompt on the screen-lock prompt', async () => {
+    let finish: (confirmed: boolean) => void = () => undefined;
+    confirmCredential.mockImplementation(
+      () => new Promise<boolean>(resolve => (finish = resolve)),
+    );
+    const { result } = await lockedHook();
+    let pending: Promise<unknown> = Promise.resolve();
+    act(() => {
+      pending = result.current.unlockWithDeviceCredential();
+    });
+    stubCredential(BIOMETRIC_SERVICE, {
+      username: 'expense-tracker',
+      password: 'biometric-lock',
+      storage: 'KeystoreAESGCM',
+    });
+    const readsBefore = (Keychain.getGenericPassword as jest.Mock).mock.calls
+      .length;
+    await act(async () => {
+      await result.current.refreshAvailability();
+    });
+    const biometricReads = (Keychain.getGenericPassword as jest.Mock).mock.calls
+      .slice(readsBefore)
+      .filter(([options]) => options?.service === BIOMETRIC_SERVICE);
+    expect(result.current.biometricsAvailable).toBe(true);
+    expect(biometricReads).toHaveLength(0);
+    await act(async () => {
+      finish(false);
+      await pending;
+    });
+  });
+});
+
+describe('useBiometricGate session authentication', () => {
+  it('starts unauthenticated, before any unlock', () => {
+    const { result } = renderHook(() => useBiometricGate({ enabled: true }));
+    expect(result.current.isLocked).toBe(false);
+    expect(result.current.sessionAuthenticated).toBe(false);
+  });
+
+  it('is set by a biometric unlock and cleared by the idle re-lock', async () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    stubCredential(BIOMETRIC_SERVICE, {
+      username: 'expense-tracker',
+      password: 'biometric-lock',
+      storage: 'KeystoreAESGCM',
+    });
+    const { result } = renderHook(() => useBiometricGate({ enabled: true }));
+    await act(async () => {
+      await result.current.unlockWithBiometrics();
+    });
+    expect(result.current.sessionAuthenticated).toBe(true);
+
+    stubCredential(BIOMETRIC_SERVICE, false);
+    act(() => emitAppState('background'));
+    nowSpy.mockReturnValue(1_000_000 + 6 * 60 * 1000);
+    act(() => emitAppState('active'));
+    expect(result.current.isLocked).toBe(true);
+    expect(result.current.sessionAuthenticated).toBe(false);
+  });
+
+  it('is cleared by the cold-start lock', async () => {
+    await storePin('846207');
+    const { result, rerender } = renderHook(
+      ({ isInitialised }: { isInitialised: boolean }) =>
+        useBiometricGate({ enabled: true, isInitialised }),
+      { initialProps: { isInitialised: false } },
+    );
+    await act(async () => {
+      await result.current.unlockWithPin('846207');
+    });
+    expect(result.current.sessionAuthenticated).toBe(true);
+
+    rerender({ isInitialised: true });
+
+    await waitFor(() => expect(result.current.isLocked).toBe(true));
+    expect(result.current.sessionAuthenticated).toBe(false);
+  });
+
+  it('is set by a PIN unlock', async () => {
+    await storePin('846207');
+    const { result } = renderHook(() => useBiometricGate({ enabled: true }));
+    await act(async () => {
+      await result.current.unlockWithPin('846207');
+    });
+    expect(result.current.sessionAuthenticated).toBe(true);
+  });
+
+  it('is cleared when the gate is switched', async () => {
+    await storePin('846207');
+    const { result } = renderHook(() => useBiometricGate({ enabled: true }));
+    await act(async () => {
+      await result.current.unlockWithPin('846207');
+    });
+    act(() => result.current.applyEnabledState(false));
+    expect(result.current.sessionAuthenticated).toBe(false);
+  });
+
+  it('is not set when the gate is off and nothing was authenticated', async () => {
+    const { result } = renderHook(() => useBiometricGate({ enabled: false }));
+    await act(async () => {
+      await result.current.unlockWithBiometrics();
+    });
+    expect(result.current.sessionAuthenticated).toBe(false);
+  });
+});
+
+describe('useBiometricGate availability on return to the app', () => {
+  it('probes the credential, biometry and screen lock again', async () => {
+    const { result } = renderHook(() => useBiometricGate({ enabled: true }));
+    await waitFor(() => expect(result.current.secureLockScreen).toBe(true));
+    jest.clearAllMocks();
+    isDeviceSecure.mockResolvedValue(false);
+
+    act(() => emitAppState('background'));
+    act(() => emitAppState('active'));
+
+    await waitFor(() => expect(result.current.secureLockScreen).toBe(false));
+    expect(Keychain.hasGenericPassword).toHaveBeenCalled();
+    expect(Keychain.getSupportedBiometryType).toHaveBeenCalled();
+    expect(isDeviceSecure).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves the probes alone while the gate is off', async () => {
+    const { result } = renderHook(() => useBiometricGate({ enabled: false }));
+    await waitFor(() => expect(result.current.secureLockScreen).toBe(true));
+    jest.clearAllMocks();
+    act(() => emitAppState('background'));
+    act(() => emitAppState('active'));
+    expect(isDeviceSecure).not.toHaveBeenCalled();
+  });
+
+  it('leaves the probes alone while a biometric prompt is showing', async () => {
+    stubCredential(BIOMETRIC_SERVICE, {
+      username: 'expense-tracker',
+      password: 'biometric-lock',
+      storage: 'KeystoreAESGCM',
+    });
+    let finishBiometric: (value: false) => void = () => undefined;
+    (Keychain.getGenericPassword as jest.Mock).mockImplementation(
+      ({ service }: { service: string }) =>
+        service === BIOMETRIC_SERVICE
+          ? new Promise(resolve => (finishBiometric = resolve))
+          : Promise.resolve(credentialsByService[service] ?? false),
+    );
+    renderHook(() => useBiometricGate({ enabled: true, isInitialised: true }));
+    await waitFor(() =>
+      expect(Keychain.getGenericPassword).toHaveBeenCalledWith(
+        expect.objectContaining({ service: BIOMETRIC_SERVICE }),
+      ),
+    );
+    isDeviceSecure.mockClear();
+
+    act(() => emitAppState('background'));
+    act(() => emitAppState('active'));
+
+    expect(isDeviceSecure).not.toHaveBeenCalled();
+    await act(async () => {
+      finishBiometric(false);
+    });
+  });
+
+  it('probes the screen lock once per refresh', async () => {
+    const { result } = renderHook(() => useBiometricGate({ enabled: true }));
+    await waitFor(() => expect(result.current.secureLockScreen).toBe(true));
+    jest.clearAllMocks();
+    await act(async () => {
+      await result.current.refreshAvailability();
+    });
+    expect(isDeviceSecure).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('useBiometricGate credential read without a prompt', () => {
+  const stubUnboundCredential = (): void => {
+    stubCredential(BIOMETRIC_SERVICE, {
+      username: 'expense-tracker',
+      password: 'biometric-lock',
+      storage: Keychain.STORAGE_TYPE.AES_GCM_NO_AUTH,
+    });
+    (Keychain.resetGenericPassword as jest.Mock).mockImplementation(
+      ({ service }: { service: string }) => {
+        delete credentialsByService[service];
+        return Promise.resolve(true);
+      },
+    );
+  };
+
+  it.each([
+    [
+      'without a PIN',
+      false,
+      'Not unlocked. Tap Try again or use your screen lock.',
+    ],
+    ['with a PIN', true, 'Not unlocked. Tap Try again or use your PIN.'],
+  ])(
+    'stays locked and discards the credential, %s',
+    async (_label, hasPin, message) => {
+      if (hasPin) {
+        await storePin('846207');
+      }
+      stubUnboundCredential();
+      const { result } = renderHook(() =>
+        useBiometricGate({ enabled: true, isInitialised: true }),
+      );
+      await waitFor(() =>
+        expect(result.current.biometricsAvailable).toBe(false),
+      );
+      expect(Keychain.getGenericPassword).toHaveBeenCalledWith(
+        expect.objectContaining({ service: BIOMETRIC_SERVICE }),
+      );
+      expect(Keychain.resetGenericPassword).toHaveBeenCalledWith({
+        service: BIOMETRIC_SERVICE,
+      });
+      expect(result.current.isLocked).toBe(true);
+      expect(result.current.sessionAuthenticated).toBe(false);
+      expect(result.current.lastError).toBe(message);
+    },
+  );
+
+  it('still unlocks through an authentication-bound credential', async () => {
+    stubCredential(BIOMETRIC_SERVICE, {
+      username: 'expense-tracker',
+      password: 'biometric-lock',
+      storage: 'KeystoreAESGCM',
+    });
+    const { result } = renderHook(() =>
+      useBiometricGate({ enabled: true, isInitialised: true }),
+    );
+    await waitFor(() => expect(result.current.sessionAuthenticated).toBe(true));
+    expect(result.current.isLocked).toBe(false);
+    expect(Keychain.resetGenericPassword).not.toHaveBeenCalledWith({
+      service: BIOMETRIC_SERVICE,
+    });
+  });
+});
+
+describe('useBiometricGate confirmAppPin', () => {
+  it('confirms the stored PIN and clears the throttle', async () => {
+    await storePin('846207');
+    const { result } = renderHook(() => useBiometricGate({ enabled: true }));
+    let confirmed = false;
+    await act(async () => {
+      confirmed = await result.current.confirmAppPin('846207');
+    });
+    expect(confirmed).toBe(true);
+    expect(Keychain.resetGenericPassword).toHaveBeenCalledWith({
+      service: LOCKOUT_SERVICE,
+    });
+  });
+
+  it('refuses a wrong PIN and counts it toward the lockout', async () => {
+    await storePin('846207');
+    const { result } = renderHook(() => useBiometricGate({ enabled: true }));
+    let confirmed = true;
+    await act(async () => {
+      confirmed = await result.current.confirmAppPin('135792');
+    });
+    expect(confirmed).toBe(false);
+    expect(Keychain.setGenericPassword).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ service: LOCKOUT_SERVICE }),
+    );
+  });
+
+  it('refuses without checking while the throttle holds', async () => {
+    await storePin('846207');
+    stubCredential(LOCKOUT_SERVICE, {
+      username: 'lockout',
+      password: JSON.stringify({
+        consecutiveFailures: PIN_LOCKOUT_ATTEMPTS,
+        nextAllowedAt: Date.now() + 60 * 60 * 1000,
+      }),
+    });
+    const { result } = renderHook(() => useBiometricGate({ enabled: true }));
+    let confirmed = true;
+    await act(async () => {
+      confirmed = await result.current.confirmAppPin('846207');
+    });
+    expect(confirmed).toBe(false);
   });
 });

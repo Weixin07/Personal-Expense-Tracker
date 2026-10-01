@@ -1,4 +1,4 @@
-export type AppLockErrorKind = 'pin-required';
+export type AppLockErrorKind = 'pin-required' | 'not-authenticated';
 
 export class AppLockError extends Error {
   readonly kind: AppLockErrorKind;

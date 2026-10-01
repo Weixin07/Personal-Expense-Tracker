@@ -98,6 +98,11 @@ migration table, not here.
 
 ### Changed
 
+- **Turning the app lock off now asks for your app PIN**, the same as changing it.
+
+- **When fingerprint or face unlock doesn't go through, the lock screen now tells you what to do
+  next** instead of showing a technical error.
+
 - **Entering an older transaction no longer changes the rate the form suggests.** Every
   exchange rate is now kept for the day it applies to. If you add or edit a January
   transaction in August, its rate is saved as January's, and the form keeps suggesting the

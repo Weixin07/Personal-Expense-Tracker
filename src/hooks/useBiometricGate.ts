@@ -3,7 +3,13 @@ import { AppState, type AppStateStatus } from 'react-native';
 import * as Keychain from 'react-native-keychain';
 import { toErrorMessage } from '../utils/errors';
 import { calibrateIterations } from '../security/pinCalibration';
-import { secureLockScreenState } from '../security/deviceSecurity';
+import {
+  confirmDeviceCredential,
+  secureLockScreenState,
+  type DeviceCredentialOutcome,
+  type SecureLockScreen,
+} from '../security/deviceSecurity';
+import { GATE_MESSAGES } from '../security/gateMessages';
 import {
   EMPTY_LOCKOUT_STATE,
   evaluateLockout,
@@ -42,10 +48,21 @@ export type UseBiometricGateResult = {
   unlockWithPin: (pin: string) => Promise<boolean>;
   setAppPin: (pin: string) => Promise<void>;
   changeAppPin: (currentPin: string, nextPin: string) => Promise<boolean>;
+  confirmAppPin: (pin: string) => Promise<boolean>;
   appPinUsable: () => Promise<boolean>;
   biometricsAvailable: boolean | null;
   pinUsable: boolean | null;
   pinStored: boolean | null;
+  secureLockScreen: SecureLockScreen;
+  /**
+   * True only after a biometric, PIN or device-credential unlock succeeded
+   * since the gate last locked. Being unlocked is not enough: the hook starts
+   * unlocked, before the cold-start lock lands.
+   */
+  sessionAuthenticated: boolean;
+  /** Unlocks on `'authenticated'` only, under the rule on `DeviceCredentialOutcome`. */
+  unlockWithDeviceCredential: () => Promise<DeviceCredentialOutcome>;
+  refreshAvailability: () => Promise<void>;
   backgroundNonce: number;
   clearError: () => void;
   ensureCredential: () => Promise<void>;
@@ -83,16 +100,27 @@ const biometryCreatable = async (): Promise<BiometryCreatable> => {
 
 /**
  * Whether an existing credential may be trusted, under the rule on
- * `biometryCreatable`. Only a definite "no lock screen" distrusts it: treating
- * an unanswered probe as one would drop a biometric-only install with no PIN
- * into PIN enrolment without authenticating.
+ * `biometryCreatable`. Only a definite "no lock screen" distrusts it, so an
+ * unanswered probe leaves a working credential in use.
  */
-const biometryTrustable = async (): Promise<boolean> => {
-  const [lockScreen, biometryType] = await Promise.all([
-    secureLockScreenState(),
-    Keychain.getSupportedBiometryType(),
-  ]);
-  return lockScreen !== false && biometryType !== null;
+const biometryTrustable = (
+  lockScreen: SecureLockScreen,
+  biometryType: Keychain.BIOMETRY_TYPE | null,
+): boolean => lockScreen !== false && biometryType !== null;
+
+const readWasAuthenticated = (
+  credentials: false | Keychain.UserCredentials,
+): boolean =>
+  credentials !== false &&
+  credentials.storage === Keychain.STORAGE_TYPE.AES_GCM;
+
+const CREDENTIAL_FAILURE_MESSAGES: Record<
+  Exclude<DeviceCredentialOutcome, 'authenticated'>,
+  string
+> = {
+  cancelled: GATE_MESSAGES.credentialCancelled,
+  'no-credential': GATE_MESSAGES.credentialNoLock,
+  unavailable: GATE_MESSAGES.credentialUnavailable,
 };
 
 /**
@@ -158,8 +186,12 @@ export const useBiometricGate = ({
   >(null);
   const [pinUsable, setPinUsable] = useState<boolean | null>(null);
   const [pinStored, setPinStored] = useState<boolean | null>(null);
+  const [secureLockScreen, setSecureLockScreen] =
+    useState<SecureLockScreen>(null);
+  const [sessionAuthenticated, setSessionAuthenticated] = useState(false);
   const lastBackgroundAtRef = useRef<number | null>(null);
   const biometricPromptInFlightRef = useRef(false);
+  const deviceCredentialInFlightRef = useRef(false);
   const coldStartEvaluatedRef = useRef(false);
 
   const refreshLockout = useCallback(async (): Promise<LockoutStatus> => {
@@ -170,15 +202,19 @@ export const useBiometricGate = ({
   }, []);
 
   const refreshBiometricAvailability = useCallback(async (): Promise<void> => {
+    const lockScreen = await secureLockScreenState();
+    setSecureLockScreen(lockScreen);
     try {
-      const [hasCredential, usable] = await Promise.all([
+      const [hasCredential, biometryType] = await Promise.all([
         biometricCredentialExists(),
-        biometryTrustable(),
+        Keychain.getSupportedBiometryType(),
       ]);
-      setBiometricsAvailable(hasCredential && usable);
+      setBiometricsAvailable(
+        hasCredential && biometryTrustable(lockScreen, biometryType),
+      );
     } catch {
-      // Fail toward the PIN, which always works, rather than toward a prompt
-      // that may resolve without authenticating.
+      // Fail toward the PIN or, with none, the device credential — never
+      // toward a prompt that may resolve without authenticating.
       setBiometricsAvailable(false);
     }
   }, []);
@@ -190,12 +226,18 @@ export const useBiometricGate = ({
     setPinStored(stored);
   }, []);
 
+  const refreshAvailability = useCallback(async (): Promise<void> => {
+    await Promise.all([
+      refreshBiometricAvailability(),
+      refreshPinAvailability(),
+    ]);
+  }, [refreshBiometricAvailability, refreshPinAvailability]);
+
   // The throttle must be inherited from Keystore on a restart rather than reset.
   useEffect(() => {
     void refreshLockout();
-    void refreshBiometricAvailability();
-    void refreshPinAvailability();
-  }, [refreshLockout, refreshBiometricAvailability, refreshPinAvailability]);
+    void refreshAvailability();
+  }, [refreshLockout, refreshAvailability]);
 
   /**
    * The policy expires by comparing against the clock, so without this nothing
@@ -239,23 +281,60 @@ export const useBiometricGate = ({
           description: 'Use biometrics or device credentials',
         },
       });
-      const success = Boolean(credentials);
-      if (success) {
+      if (readWasAuthenticated(credentials)) {
         await clearLockout();
         await refreshLockout();
         setIsLocked(false);
         setLastError(null);
-      } else {
-        setLastError(
-          'Authentication cancelled. Tap Try again or use your PIN.',
-        );
+        setSessionAuthenticated(true);
+        return true;
       }
-      return success;
-    } catch (error) {
-      setLastError(toErrorMessage(error));
-      return false;
+      if (credentials) {
+        await Keychain.resetGenericPassword({
+          service: BIOMETRIC_KEYCHAIN_SERVICE,
+        });
+        await refreshBiometricAvailability();
+      }
+    } catch {
+      // Reported through the fixed copy below, under the rule on
+      // `GATE_MESSAGES`.
     }
-  }, [enabled, refreshLockout]);
+    setLastError(
+      pinStored === false
+        ? GATE_MESSAGES.biometricNotUnlockedNoPin
+        : GATE_MESSAGES.biometricNotUnlockedWithPin,
+    );
+    return false;
+  }, [enabled, pinStored, refreshBiometricAvailability, refreshLockout]);
+
+  const unlockWithDeviceCredential =
+    useCallback(async (): Promise<DeviceCredentialOutcome> => {
+      if (
+        biometricPromptInFlightRef.current ||
+        deviceCredentialInFlightRef.current
+      ) {
+        return 'unavailable';
+      }
+      deviceCredentialInFlightRef.current = true;
+      try {
+        const outcome = await confirmDeviceCredential();
+        if (outcome !== 'authenticated') {
+          setLastError(CREDENTIAL_FAILURE_MESSAGES[outcome]);
+          return outcome;
+        }
+        await clearLockout();
+        await refreshLockout();
+        setIsLocked(false);
+        setLastError(null);
+        setSessionAuthenticated(true);
+        return outcome;
+      } catch {
+        setLastError(GATE_MESSAGES.credentialUnavailable);
+        return 'unavailable';
+      } finally {
+        deviceCredentialInFlightRef.current = false;
+      }
+    }, [refreshLockout]);
 
   const unlockWithPin = useCallback(
     async (pin: string): Promise<boolean> => {
@@ -269,6 +348,7 @@ export const useBiometricGate = ({
           await refreshLockout();
           setIsLocked(false);
           setLastError(null);
+          setSessionAuthenticated(true);
           return true;
         }
         await chargeFailure();
@@ -313,6 +393,23 @@ export const useBiometricGate = ({
     [chargeFailure, refreshLockout, setAppPin],
   );
 
+  const confirmAppPin = useCallback(
+    async (pin: string): Promise<boolean> => {
+      const status = await refreshLockout();
+      if (!status.allowed) {
+        return false;
+      }
+      if (!(await verifyPin(pin))) {
+        await chargeFailure();
+        return false;
+      }
+      await clearLockout();
+      await refreshLockout();
+      return true;
+    },
+    [chargeFailure, refreshLockout],
+  );
+
   const appPinUsable = useCallback(() => pinCredentialUsable(), []);
 
   const clearError = useCallback(() => {
@@ -349,11 +446,17 @@ export const useBiometricGate = ({
     biometricPromptInFlightRef.current = false;
     setIsLocked(false);
     setLastError(null);
+    setSessionAuthenticated(false);
   }, []);
 
   useEffect(() => {
     const timeoutMs = idleTimeoutMs(autoLockMinutes);
     const handleAppStateChange = (nextState: AppStateStatus) => {
+      // The system screen-lock prompt is its own activity, so it backgrounds
+      // the app; counting that would re-lock it the moment it opens.
+      if (deviceCredentialInFlightRef.current) {
+        return;
+      }
       if (nextState === 'active') {
         const last = lastBackgroundAtRef.current;
         if (enabled && last !== null && timeoutMs !== null) {
@@ -361,9 +464,14 @@ export const useBiometricGate = ({
           if (elapsed >= timeoutMs) {
             setIsLocked(true);
             setLastError(null);
+            setSessionAuthenticated(false);
           }
         }
         lastBackgroundAtRef.current = null;
+        // A screen lock or biometric may have changed in Settings meanwhile.
+        if (enabled && !biometricPromptInFlightRef.current) {
+          void refreshAvailability();
+        }
       } else if (nextState === 'background' || nextState === 'inactive') {
         lastBackgroundAtRef.current = Date.now();
         setBackgroundNonce(current => current + 1);
@@ -374,7 +482,7 @@ export const useBiometricGate = ({
       handleAppStateChange,
     );
     return () => subscription.remove();
-  }, [enabled, autoLockMinutes]);
+  }, [enabled, autoLockMinutes, refreshAvailability]);
 
   // Unconditional: the auto-lock presets govern background idle only, so Never
   // still locks on a cold start.
@@ -385,6 +493,7 @@ export const useBiometricGate = ({
     coldStartEvaluatedRef.current = true;
     if (enabled) {
       setIsLocked(true);
+      setSessionAuthenticated(false);
     }
   }, [enabled, isInitialised]);
 
@@ -407,7 +516,15 @@ export const useBiometricGate = ({
     if (!biometricsAvailable) {
       return;
     }
-    if (biometricPromptInFlightRef.current) {
+    // A failed prompt's message names the fallback, which depends on whether
+    // a PIN is stored.
+    if (pinStored === null) {
+      return;
+    }
+    if (
+      biometricPromptInFlightRef.current ||
+      deviceCredentialInFlightRef.current
+    ) {
       return;
     }
     biometricPromptInFlightRef.current = true;
@@ -422,6 +539,7 @@ export const useBiometricGate = ({
     lockoutHydrated,
     lockout.allowed,
     biometricsAvailable,
+    pinStored,
     unlockWithBiometrics,
   ]);
 
@@ -433,10 +551,15 @@ export const useBiometricGate = ({
     unlockWithPin,
     setAppPin,
     changeAppPin,
+    confirmAppPin,
     appPinUsable,
     biometricsAvailable,
     pinUsable,
     pinStored,
+    secureLockScreen,
+    sessionAuthenticated,
+    unlockWithDeviceCredential,
+    refreshAvailability,
     backgroundNonce,
     clearError,
     ensureCredential,

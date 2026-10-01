@@ -866,13 +866,24 @@ This app prioritizes **local security** (device protection) over **network secur
 prompting, so the lock would open itself. A device passcode does not change this — the library's
 storage choice looks at enrolled biometrics alone. The app therefore checks
 `getSupportedBiometryType()` before creating that credential **and** before trusting one, and
-falls back to the PIN when it reports none.
+falls back to the PIN when it reports none. **A biometric read counts only when it comes from the
+authentication-bound cipher** (`KeystoreAESGCM`). A credential stored any other way, as builds
+before the PIN could on a phone with no biometric enrolled, is discarded on first read, and the
+PIN or the screen lock is asked for instead.
 
 **It also requires a secure lock screen** (a device PIN, pattern or password), because Android
 Keystore refuses to create an authentication-bound key without one. The app asks the platform
 (`KeyguardManager.isDeviceSecure`) and skips creating the credential when there is none. If that
 check cannot answer, the app neither creates a credential nor stops trusting an existing one.
 **The app PIN is the factor that is always enforced.**
+
+**With the lock on and no app PIN, the device screen lock is always a way in.** Next to the
+biometric prompt the lock screen offers **Use screen lock instead**; where no biometric can work,
+confirming the screen lock is the only way in. With no screen lock at all, the app asks for one
+to be set first and stays locked until then. Setting a PIN, or turning the lock off, is offered
+only after one of those succeeds. **This confirmation is event-bound, not bound to a key** (OWASP
+MASTG's distinction): on a phone with no screen lock, whoever holds it can set one and confirm
+it. Removing the original screen lock already required the owner's device credential.
 
 **What the app lock does not protect.** The lock guards the **UI**, not the database file. The
 SQLite file is not encrypted at rest, so a rooted device or a forensic extraction reads it
@@ -940,7 +951,7 @@ resets on the process restart the counter exists to survive.
 4. The lock is enforced even if settings fail to load, whenever **either** credential exists (fail-closed)
 5. User authenticates with a biometric, the device credential, or the app PIN
 6. Modal blocks UI until authentication succeeds — so where the lock is on but no PIN is set, the
-   modal offers enrolment instead of an unlock it could never accept
+   modal offers enrolment only after a biometric or the device screen lock has authenticated
 
 **Where the biometric credential cannot be created or cannot authenticate** — no secure
 hardware, no screen lock set, or no biometric enrolled — the lock still switches on once a PIN
@@ -959,7 +970,19 @@ the app still locks on a cold start under every preset, `Never` included. An unr
 unrecognised stored value falls back to 5 rather than to `Never`: a garbage read of a security
 control fails toward the stricter behaviour.
 
-**Implementation:** `src/context/AppContext.tsx` (Modal-in-Provider) + `src/hooks/useBiometricGate.ts` (cold-start hydration latch + AppState listener + Keychain via `react-native-keychain`)
+**The lock screen seals the app beneath it.** While it shows, the app is hidden from screen
+readers and other accessibility services, and a native container
+(`android/app/src/main/java/com/expensetracker/applock/FocusBlockView.kt`, which uses
+`FOCUS_BLOCK_DESCENDANTS`) keeps keyboard and D-pad focus from reaching anything behind it. The lock
+screen stays an overlay inside the app's own window. A separate native dialog window was tried,
+and Android closes it on the Escape key without telling JavaScript.
+
+**Turning the lock off in Settings asks for the current app PIN**, with the same throttle as
+changing it. **Setting a PIN is refused** while settings are still loading, and while the lock is
+on and the session hasn't authenticated. **Nothing of the app renders until settings have
+loaded**, so no screen is reachable before the app knows whether the lock is on.
+
+**Implementation:** `src/context/AppContext.tsx` (Modal-in-Provider, inside `FocusBlockView`) + `src/hooks/useBiometricGate.ts` (cold-start hydration latch + AppState listener + Keychain via `react-native-keychain`)
 
 **Biometric Storage:**
 

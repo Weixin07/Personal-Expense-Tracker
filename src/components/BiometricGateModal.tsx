@@ -10,20 +10,24 @@ import {
   useTheme,
 } from 'react-native-paper';
 import type { LockoutStatus } from '../hooks';
+import type { GatePresentation } from '../security/gatePresentation';
 import PinEntryDialog from './PinEntryDialog';
 
 export type BiometricGateModalProps = {
+  presentation: Exclude<GatePresentation, 'hidden'>;
   lastError: string | null;
   lockout: LockoutStatus;
   /** `null` while the probe is in flight; `false` on a device with no credential. */
   biometricsAvailable: boolean | null;
   pinUsable: boolean | null;
-  /** The gate is on but holds no PIN, so enrolment replaces the unlock prompt. */
-  pinSetupRequired: boolean;
   onRetry: () => void;
   onSubmitPin: (pin: string) => Promise<boolean>;
   onSetUpPin: (pin: string) => Promise<void>;
   onDeclineSetup: () => Promise<void>;
+  /** Never rejects; a failure arrives as `lastError`. */
+  onConfirmCredential: () => Promise<unknown>;
+  onOpenScreenLockSettings: () => Promise<void>;
+  onCheckAgain: () => Promise<void>;
 };
 
 const styles = StyleSheet.create({
@@ -47,15 +51,18 @@ const formatWait = (retryAtMs: number): string => {
 };
 
 export const BiometricGateModal: React.FC<BiometricGateModalProps> = ({
+  presentation,
   lastError,
   lockout,
   biometricsAvailable,
   pinUsable,
-  pinSetupRequired,
   onRetry,
   onSubmitPin,
   onSetUpPin,
   onDeclineSetup,
+  onConfirmCredential,
+  onOpenScreenLockSettings,
+  onCheckAgain,
 }) => {
   const theme = useTheme();
   const biometricsUnavailable = biometricsAvailable === false;
@@ -105,6 +112,29 @@ export const BiometricGateModal: React.FC<BiometricGateModalProps> = ({
     [onSetUpPin],
   );
 
+  const handleDeclineSetup = useCallback(async () => {
+    setSubmitting(true);
+    setSetupError(null);
+    try {
+      await onDeclineSetup();
+    } catch (error) {
+      setSetupError(
+        error instanceof Error ? error.message : 'Could not turn the lock off.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }, [onDeclineSetup]);
+
+  const runPending = useCallback(async (action: () => Promise<unknown>) => {
+    setSubmitting(true);
+    try {
+      await action();
+    } finally {
+      setSubmitting(false);
+    }
+  }, []);
+
   const waiting = !lockout.allowed && lockout.retryAtMs !== null;
 
   // Re-renders the remaining time once a second. The hook owns re-enabling the
@@ -119,16 +149,16 @@ export const BiometricGateModal: React.FC<BiometricGateModalProps> = ({
   }, [waiting]);
 
   /**
-   * An install that predates the PIN reaches Settings only through this modal,
-   * so enrolment is offered here, with the decline that turns the lock off.
+   * The only route to Settings for an install with no PIN, so enrolment and
+   * its decline are offered here, once the session has authenticated.
    */
-  if (pinSetupRequired) {
+  if (presentation === 'enrol') {
     return (
       <PinEntryDialog
         visible
         mode="enrol"
         dismissable={false}
-        onDismiss={() => void onDeclineSetup()}
+        onDismiss={() => void handleDeclineSetup()}
         onSubmit={handleSetUpPin}
         title="Set an app PIN"
         description="The app lock now needs a PIN so you can still get in when biometrics are unavailable. Turning the lock off instead leaves your data unprotected until you set one."
@@ -139,6 +169,86 @@ export const BiometricGateModal: React.FC<BiometricGateModalProps> = ({
       />
     );
   }
+
+  const errorLine = lastError ? (
+    <Text
+      variant="bodySmall"
+      style={[styles.modalError, { color: theme.colors.error }]}
+    >
+      {lastError}
+    </Text>
+  ) : null;
+
+  if (presentation === 'set-screen-lock') {
+    return (
+      <Portal>
+        <Modal
+          visible
+          dismissable={false}
+          contentContainerStyle={containerStyle}
+        >
+          <Text variant="titleLarge" style={styles.modalTitle}>
+            Screen lock needed
+          </Text>
+          <Text variant="bodyMedium" style={styles.modalBody}>
+            {
+              "The app lock needs your phone's screen lock to confirm it's you. Set a PIN, pattern or password in Android settings, then come back."
+            }
+          </Text>
+          {errorLine}
+          <Button
+            mode="contained"
+            onPress={() => void runPending(onOpenScreenLockSettings)}
+            disabled={submitting}
+            accessibilityLabel="Open screen lock settings"
+          >
+            Open settings
+          </Button>
+          <Button
+            mode="text"
+            onPress={() => void runPending(onCheckAgain)}
+            disabled={submitting}
+            style={styles.spacer}
+            accessibilityLabel="Check for a screen lock again"
+          >
+            Check again
+          </Button>
+        </Modal>
+      </Portal>
+    );
+  }
+
+  if (presentation === 'confirm-credential') {
+    return (
+      <Portal>
+        <Modal
+          visible
+          dismissable={false}
+          contentContainerStyle={containerStyle}
+        >
+          <Text variant="titleLarge" style={styles.modalTitle}>
+            Unlock required
+          </Text>
+          <Text variant="bodyMedium" style={styles.modalBody}>
+            Confirm your screen lock to continue.
+          </Text>
+          {errorLine}
+          <Button
+            mode="contained"
+            onPress={() => void runPending(onConfirmCredential)}
+            loading={submitting}
+            disabled={submitting}
+            accessibilityLabel="Confirm your screen lock"
+          >
+            {"Confirm it's you"}
+          </Button>
+        </Modal>
+      </Portal>
+    );
+  }
+
+  const noPin = presentation === 'unlock-no-pin';
+  const pinOffered = !noPin && pinVisible;
 
   return (
     <Portal>
@@ -169,16 +279,9 @@ export const BiometricGateModal: React.FC<BiometricGateModalProps> = ({
           </Text>
         ) : null}
 
-        {lastError ? (
-          <Text
-            variant="bodySmall"
-            style={[styles.modalError, { color: theme.colors.error }]}
-          >
-            {lastError}
-          </Text>
-        ) : null}
+        {errorLine}
 
-        {pinVisible && !waiting ? (
+        {pinOffered && !waiting ? (
           <>
             <TextInput
               label="App PIN"
@@ -210,17 +313,30 @@ export const BiometricGateModal: React.FC<BiometricGateModalProps> = ({
           </>
         ) : null}
 
-        {!pinVisible || (waiting && !biometricsUnavailable) ? (
+        {!pinOffered || (waiting && !biometricsUnavailable) ? (
           <Button
             mode="contained"
             onPress={onRetry}
+            disabled={submitting}
             accessibilityLabel="Try biometrics again"
           >
             Try again
           </Button>
         ) : null}
 
-        {!waiting && !biometricsUnavailable && pinUsable !== false ? (
+        {noPin ? (
+          <Button
+            mode="text"
+            onPress={() => void runPending(onConfirmCredential)}
+            disabled={submitting}
+            style={styles.spacer}
+            accessibilityLabel="Use screen lock instead"
+          >
+            Use screen lock instead
+          </Button>
+        ) : null}
+
+        {!noPin && !waiting && !biometricsUnavailable && pinUsable !== false ? (
           <Button
             mode="text"
             onPress={() => setPinRequested(current => !current)}

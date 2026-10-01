@@ -240,6 +240,7 @@ jest.mock('./src/security/NativeAppPinCrypto', () => {
           ),
       ),
       isDeviceSecure: jest.fn(() => Promise.resolve(true)),
+      confirmDeviceCredential: jest.fn(() => Promise.resolve(false)),
     },
   };
 });

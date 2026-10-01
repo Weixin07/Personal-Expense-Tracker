@@ -43,15 +43,18 @@ const renderModal = (
 ) =>
   renderWithProviders(
     <BiometricGateModal
+      presentation="unlock"
       lastError={null}
       lockout={allowed}
       biometricsAvailable
       pinUsable
-      pinSetupRequired={false}
       onRetry={jest.fn()}
       onSubmitPin={jest.fn().mockResolvedValue(true)}
       onSetUpPin={jest.fn().mockResolvedValue(undefined)}
       onDeclineSetup={jest.fn().mockResolvedValue(undefined)}
+      onConfirmCredential={jest.fn().mockResolvedValue('cancelled')}
+      onOpenScreenLockSettings={jest.fn().mockResolvedValue(undefined)}
+      onCheckAgain={jest.fn().mockResolvedValue(undefined)}
       {...overrides}
     />,
   );
@@ -143,11 +146,14 @@ describe('BiometricGateModal', () => {
         lastError: null,
         biometricsAvailable: true,
         pinUsable: true,
-        pinSetupRequired: false,
+        presentation: 'unlock' as const,
         onRetry,
         onSubmitPin: jest.fn().mockResolvedValue(false),
         onSetUpPin: jest.fn().mockResolvedValue(undefined),
         onDeclineSetup: jest.fn().mockResolvedValue(undefined),
+        onConfirmCredential: jest.fn().mockResolvedValue('cancelled'),
+        onOpenScreenLockSettings: jest.fn().mockResolvedValue(undefined),
+        onCheckAgain: jest.fn().mockResolvedValue(undefined),
       };
       const view = renderWithProviders(
         <BiometricGateModal {...props} lockout={allowed} />,
@@ -183,11 +189,14 @@ describe('BiometricGateModal remount discards entry', () => {
       lockout: allowed,
       biometricsAvailable: true,
       pinUsable: true,
-      pinSetupRequired: false,
+      presentation: 'unlock' as const,
       onRetry: jest.fn(),
       onSubmitPin: jest.fn().mockResolvedValue(true),
       onSetUpPin: jest.fn().mockResolvedValue(undefined),
       onDeclineSetup: jest.fn().mockResolvedValue(undefined),
+      onConfirmCredential: jest.fn().mockResolvedValue('cancelled'),
+      onOpenScreenLockSettings: jest.fn().mockResolvedValue(undefined),
+      onCheckAgain: jest.fn().mockResolvedValue(undefined),
     };
     const { rerender } = renderWithProviders(
       <BiometricGateModal key={0} {...props} />,
@@ -263,15 +272,32 @@ describe('BiometricGateModal attempts remaining', () => {
   });
 });
 
-describe('BiometricGateModal when the gate has no PIN yet', () => {
-  const upgrading = { pinSetupRequired: true };
+describe('BiometricGateModal locked with no PIN, biometrics possible', () => {
+  const noPin = { presentation: 'unlock-no-pin' as const, pinUsable: false };
 
-  it('offers only biometrics until they unlock, with no PIN to switch to', () => {
-    renderModal({ pinUsable: false });
-    expect(screen.getByLabelText('Try biometrics again')).toBeOnTheScreen();
+  it('offers biometrics and the screen lock, with no PIN to switch to', () => {
+    const onRetry = jest.fn();
+    const onConfirmCredential = jest.fn().mockResolvedValue('cancelled');
+    renderModal({ ...noPin, onRetry, onConfirmCredential });
     expect(screen.queryByLabelText('Use PIN instead')).toBeNull();
+    expect(screen.queryByLabelText('App PIN')).toBeNull();
     expect(screen.queryByText('Turn the lock off')).toBeNull();
+    expect(screen.queryByText('Set an app PIN')).toBeNull();
+    fireEvent.press(screen.getByLabelText('Try biometrics again'));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    fireEvent.press(screen.getByLabelText('Use screen lock instead'));
+    expect(onConfirmCredential).toHaveBeenCalledTimes(1);
   });
+
+  it('keeps the screen lock on offer with the probe still in flight', () => {
+    renderModal({ ...noPin, biometricsAvailable: null });
+    expect(screen.getByLabelText('Use screen lock instead')).toBeOnTheScreen();
+    expect(screen.queryByLabelText('App PIN')).toBeNull();
+  });
+});
+
+describe('BiometricGateModal when the gate has no PIN yet', () => {
+  const upgrading = { presentation: 'enrol' as const };
 
   it('offers enrolment instead of a PIN field nothing can satisfy', () => {
     renderModal(upgrading);
@@ -324,6 +350,99 @@ describe('BiometricGateModal when the gate has no PIN yet', () => {
     fireEvent.press(screen.getByLabelText('Set PIN'));
     await waitFor(() =>
       expect(screen.getByText('keystore full')).toBeOnTheScreen(),
+    );
+  });
+});
+
+describe('BiometricGateModal when no biometric can stand in for a missing PIN', () => {
+  it('asks for the screen lock and nothing else', () => {
+    const onConfirmCredential = jest.fn().mockResolvedValue('cancelled');
+    renderModal({
+      presentation: 'confirm-credential',
+      biometricsAvailable: false,
+      pinUsable: false,
+      onConfirmCredential,
+    });
+    expect(
+      screen.getByText('Confirm your screen lock to continue.'),
+    ).toBeOnTheScreen();
+    expect(screen.queryByText('Turn the lock off')).toBeNull();
+    expect(screen.queryByText('Set an app PIN')).toBeNull();
+    expect(screen.queryByLabelText('App PIN')).toBeNull();
+    expect(screen.queryByLabelText('Try biometrics again')).toBeNull();
+    fireEvent.press(screen.getByLabelText('Confirm your screen lock'));
+    expect(onConfirmCredential).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows why the last confirmation did not unlock', () => {
+    renderModal({
+      presentation: 'confirm-credential',
+      lastError: "Not confirmed. Tap Confirm it's you to try again.",
+    });
+    expect(
+      screen.getByText("Not confirmed. Tap Confirm it's you to try again."),
+    ).toBeOnTheScreen();
+  });
+
+  it('holds the button while the prompt is showing', async () => {
+    let finish: (value: unknown) => void = () => undefined;
+    const onConfirmCredential = jest.fn(
+      () => new Promise(resolve => (finish = resolve)),
+    );
+    renderModal({ presentation: 'confirm-credential', onConfirmCredential });
+    fireEvent.press(screen.getByLabelText('Confirm your screen lock'));
+    fireEvent.press(screen.getByLabelText('Confirm your screen lock'));
+    expect(onConfirmCredential).toHaveBeenCalledTimes(1);
+    finish('cancelled');
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText('Confirm your screen lock'),
+      ).not.toBeDisabled(),
+    );
+  });
+});
+
+describe('BiometricGateModal on a device with no screen lock', () => {
+  const noLock = { presentation: 'set-screen-lock' as const };
+
+  it('asks for a screen lock and offers no way past it', () => {
+    renderModal(noLock);
+    expect(screen.getByText('Screen lock needed')).toBeOnTheScreen();
+    expect(
+      screen.getByText(
+        "The app lock needs your phone's screen lock to confirm it's you. Set a PIN, pattern or password in Android settings, then come back.",
+      ),
+    ).toBeOnTheScreen();
+    expect(screen.queryByText('Turn the lock off')).toBeNull();
+    expect(screen.queryByText('Set an app PIN')).toBeNull();
+    expect(screen.queryByLabelText('App PIN')).toBeNull();
+    expect(screen.queryByLabelText('Confirm your screen lock')).toBeNull();
+  });
+
+  it('opens the screen lock settings', async () => {
+    const onOpenScreenLockSettings = jest.fn().mockResolvedValue(undefined);
+    renderModal({ ...noLock, onOpenScreenLockSettings });
+    fireEvent.press(screen.getByLabelText('Open screen lock settings'));
+    await waitFor(() => expect(onOpenScreenLockSettings).toHaveBeenCalled());
+  });
+
+  it('checks again on request', async () => {
+    const onCheckAgain = jest.fn().mockResolvedValue(undefined);
+    renderModal({ ...noLock, onCheckAgain });
+    fireEvent.press(screen.getByLabelText('Check for a screen lock again'));
+    await waitFor(() => expect(onCheckAgain).toHaveBeenCalled());
+  });
+});
+
+describe('BiometricGateModal decline refused by the provider', () => {
+  it('shows the refusal instead of rejecting unhandled', async () => {
+    const onDeclineSetup = jest
+      .fn()
+      .mockRejectedValue(new Error('Unlock the app first.'));
+    renderModal({ presentation: 'enrol', onDeclineSetup });
+    fireEvent.press(screen.getByText('Turn the lock off'));
+    await waitFor(() =>
+      expect(screen.getByText('Unlock the app first.')).toBeOnTheScreen(),
     );
   });
 });

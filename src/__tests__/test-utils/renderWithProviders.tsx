@@ -82,6 +82,7 @@ export const makeContextState = (
       biometricsAvailable: true,
       pinUsable: true,
     },
+    gatePresentation: 'hidden',
     pinSetupRequired: false,
     ...rest,
     settings: {
@@ -129,6 +130,7 @@ export const makeContextActions = (
   setAutoLockMinutes: jest.fn().mockResolvedValue(undefined),
   setAppPin: jest.fn().mockResolvedValue(undefined),
   changeAppPin: jest.fn().mockResolvedValue(true),
+  turnOffAppLock: jest.fn().mockResolvedValue(true),
   appPinUsable: jest.fn().mockResolvedValue(true),
   completePinSetup: jest.fn().mockResolvedValue(undefined),
   declinePinSetup: jest.fn().mockResolvedValue(undefined),
@@ -145,6 +147,9 @@ export const makeContextActions = (
   importTransactions: jest.fn().mockResolvedValue(makeImportSummary()),
   unlockWithBiometrics: jest.fn().mockResolvedValue(true),
   unlockWithPin: jest.fn().mockResolvedValue(true),
+  unlockWithDeviceCredential: jest.fn().mockResolvedValue('cancelled'),
+  openScreenLockSettings: jest.fn().mockResolvedValue(undefined),
+  refreshLockAvailability: jest.fn().mockResolvedValue(undefined),
   ...overrides,
 });
 

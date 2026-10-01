@@ -38,6 +38,7 @@ const SettingsScreen: React.FC = () => {
       setAutoLockMinutes,
       setAppPin,
       changeAppPin,
+      turnOffAppLock,
       appPinUsable,
       setBaseCurrency,
       setDriveFolderId,
@@ -75,19 +76,7 @@ const SettingsScreen: React.FC = () => {
       return;
     }
     if (settings.biometricGateEnabled) {
-      Alert.alert(
-        'Turn off the app lock?',
-        'Your app PIN will be removed. You will need to set a new one to turn the lock back on.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Turn off',
-            onPress: () => {
-              void setBiometricGateEnabled(false);
-            },
-          },
-        ],
-      );
+      setPinDialogMode('verify');
       return;
     }
     void setBiometricGateEnabled(true);
@@ -97,7 +86,13 @@ const SettingsScreen: React.FC = () => {
     setPinBusy(true);
     setPinError(null);
     try {
-      if (pinDialogMode === 'change') {
+      if (pinDialogMode === 'verify') {
+        const turnedOff = await turnOffAppLock(pin);
+        if (!turnedOff) {
+          setPinError('Incorrect PIN, or too many attempts.');
+          return;
+        }
+      } else if (pinDialogMode === 'change') {
         const changed = await changeAppPin(currentPin ?? '', pin);
         if (!changed) {
           setPinError('Current PIN is incorrect, or too many attempts.');
@@ -388,7 +383,16 @@ const SettingsScreen: React.FC = () => {
         mode={pinDialogMode ?? 'enrol'}
         onDismiss={closePinDialog}
         onSubmit={handlePinSubmit}
-        description={`${PIN_MIN_LENGTH} to ${PIN_MAX_LENGTH} digits. Avoid runs and repeats.`}
+        {...(pinDialogMode === 'verify'
+          ? {
+              title: 'Turn off the app lock?',
+              description:
+                'Enter your app PIN. It will be removed, and you will need to set a new one to turn the lock back on.',
+              submitLabel: 'Turn off',
+            }
+          : {
+              description: `${PIN_MIN_LENGTH} to ${PIN_MAX_LENGTH} digits. Avoid runs and repeats.`,
+            })}
         busy={pinBusy}
         errorMessage={pinError}
       />

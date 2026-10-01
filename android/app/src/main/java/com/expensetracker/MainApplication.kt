@@ -6,6 +6,7 @@ import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
+import com.expensetracker.applock.AppLockPackage
 import com.expensetracker.pincrypto.AppPinCryptoPackage
 
 class MainApplication : Application(), ReactApplication {
@@ -19,7 +20,11 @@ class MainApplication : Application(), ReactApplication {
         getDefaultReactHost(
             context = applicationContext,
             // Packages in this app rather than a node_modules dependency are not autolinked.
-            packageList = PackageList(this).packages.apply { add(AppPinCryptoPackage()) },
+            packageList =
+                PackageList(this).packages.apply {
+                  add(AppPinCryptoPackage())
+                  add(AppLockPackage())
+                },
             jsMainModulePath = "index",
             useDevSupport = BuildConfig.DEBUG,
         )

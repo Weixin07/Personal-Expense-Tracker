@@ -90,12 +90,16 @@ describe('SettingsScreen', () => {
     expect(setBiometricGateEnabled).toHaveBeenCalledWith(true);
   });
 
-  const renderWithGateOn = (setBiometricGateEnabled: jest.Mock) => {
+  const renderWithGateOn = (
+    setBiometricGateEnabled: jest.Mock,
+    turnOffAppLock: jest.Mock = jest.fn().mockResolvedValue(true),
+  ) => {
     mockedUseExpenseData.mockReturnValue(
       makeContextValue({
         state: { settings: { biometricGateEnabled: true } },
         actions: {
           setBiometricGateEnabled,
+          turnOffAppLock,
           appPinUsable: jest.fn().mockResolvedValue(true),
         },
       }),
@@ -103,18 +107,7 @@ describe('SettingsScreen', () => {
     renderWithProviders(<SettingsScreen />);
   };
 
-  const pressAlertButton = (alertSpy: jest.SpyInstance, text: string) => {
-    const buttons = alertSpy.mock.calls[alertSpy.mock.calls.length - 1][2] as {
-      text: string;
-      onPress?: () => void;
-    }[];
-    buttons.find(button => button.text === text)?.onPress?.();
-  };
-
-  it('warns that turning the lock off removes the PIN, then turns it off', async () => {
-    const setBiometricGateEnabled = jest.fn().mockResolvedValue(undefined);
-    const alertSpy = jest.spyOn(Alert, 'alert');
-    renderWithGateOn(setBiometricGateEnabled);
+  const startTurningOff = async (): Promise<void> => {
     await waitFor(() =>
       expect(screen.getByLabelText('Change app PIN')).toBeOnTheScreen(),
     );
@@ -123,29 +116,51 @@ describe('SettingsScreen', () => {
       'valueChange',
       false,
     );
-    expect(alertSpy).toHaveBeenCalledWith(
-      'Turn off the app lock?',
-      expect.stringContaining('PIN will be removed'),
-      expect.any(Array),
+  };
+
+  it('asks for the current PIN, warning it will be removed, then turns the lock off', async () => {
+    const setBiometricGateEnabled = jest.fn();
+    const turnOffAppLock = jest.fn().mockResolvedValue(true);
+    const alertSpy = jest.spyOn(Alert, 'alert');
+    renderWithGateOn(setBiometricGateEnabled, turnOffAppLock);
+    await startTurningOff();
+    expect(screen.getByText('Turn off the app lock?')).toBeOnTheScreen();
+    expect(screen.getByText(/It will be removed/)).toBeOnTheScreen();
+    expect(alertSpy).not.toHaveBeenCalled();
+    fireEvent.changeText(screen.getByLabelText('PIN'), '846207');
+    fireEvent.press(screen.getByLabelText('Turn off'));
+    await waitFor(() => expect(turnOffAppLock).toHaveBeenCalledWith('846207'));
+    await waitFor(() =>
+      expect(screen.queryByText('Turn off the app lock?')).toBeNull(),
     );
     expect(setBiometricGateEnabled).not.toHaveBeenCalled();
-    pressAlertButton(alertSpy, 'Turn off');
-    expect(setBiometricGateEnabled).toHaveBeenCalledWith(false);
+  });
+
+  it('keeps the lock on and says so when the PIN is refused', async () => {
+    const setBiometricGateEnabled = jest.fn();
+    const turnOffAppLock = jest.fn().mockResolvedValue(false);
+    renderWithGateOn(setBiometricGateEnabled, turnOffAppLock);
+    await startTurningOff();
+    fireEvent.changeText(screen.getByLabelText('PIN'), '111111');
+    fireEvent.press(screen.getByLabelText('Turn off'));
+    await waitFor(() =>
+      expect(
+        screen.getByText('Incorrect PIN, or too many attempts.'),
+      ).toBeOnTheScreen(),
+    );
+    expect(setBiometricGateEnabled).not.toHaveBeenCalled();
   });
 
   it('leaves the lock on when turning it off is cancelled', async () => {
     const setBiometricGateEnabled = jest.fn();
-    const alertSpy = jest.spyOn(Alert, 'alert');
-    renderWithGateOn(setBiometricGateEnabled);
+    const turnOffAppLock = jest.fn();
+    renderWithGateOn(setBiometricGateEnabled, turnOffAppLock);
+    await startTurningOff();
+    fireEvent.press(screen.getByText('Cancel'));
     await waitFor(() =>
-      expect(screen.getByLabelText('Change app PIN')).toBeOnTheScreen(),
+      expect(screen.queryByText('Turn off the app lock?')).toBeNull(),
     );
-    fireEvent(
-      screen.getByLabelText('Toggle biometric lock'),
-      'valueChange',
-      false,
-    );
-    pressAlertButton(alertSpy, 'Cancel');
+    expect(turnOffAppLock).not.toHaveBeenCalled();
     expect(setBiometricGateEnabled).not.toHaveBeenCalled();
   });
 

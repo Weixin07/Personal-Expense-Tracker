@@ -7,6 +7,8 @@ import React, {
   useReducer,
   useState,
 } from 'react';
+import { StyleSheet } from 'react-native';
+import { ActivityIndicator, Surface } from 'react-native-paper';
 import type { UploadPendingExportsResult } from '../export';
 import { commitImport } from '../import';
 import type {
@@ -71,6 +73,7 @@ import {
 } from '../hooks';
 import type { BiometricGateState, ExportQueueItem } from '../hooks';
 import { BiometricGateModal } from '../components/BiometricGateModal';
+import FocusBlockView from '../security/FocusBlockViewNativeComponent';
 import {
   autoLockMinutesFromToken,
   autoLockMinutesToToken,
@@ -78,6 +81,14 @@ import {
 } from '../constants/autoLockPresets';
 import { pinCredentialExists } from '../security/pinCredential';
 import { AppLockError } from '../security/appLockError';
+import {
+  openScreenLockSettings,
+  type DeviceCredentialOutcome,
+} from '../security/deviceSecurity';
+import {
+  gatePresentation as deriveGatePresentation,
+  type GatePresentation,
+} from '../security/gatePresentation';
 
 export type { ExportQueueItem } from '../hooks';
 export type {
@@ -116,7 +127,11 @@ type CoreState = {
 export type TransactionDataState = CoreState & {
   exportQueue: ExportQueueItem[];
   biometric: BiometricGateState;
-  /** The gate is on but holds no PIN — an install predating the PIN fallback. */
+  gatePresentation: GatePresentation;
+  /**
+   * The session has authenticated but the gate holds no usable PIN, so one is
+   * offered; `gatePresentation` is `'enrol'`.
+   */
   pinSetupRequired: boolean;
 };
 
@@ -228,21 +243,42 @@ export type TransactionDataActions = {
   ) => Promise<ImportSummary>;
   unlockWithBiometrics: () => Promise<boolean>;
   unlockWithPin: (pin: string) => Promise<boolean>;
-  /** Enrolment. Rejects a PIN failing `validatePin`. */
+  /**
+   * Enrolment. Rejects a PIN failing `validatePin`.
+   *
+   * @throws AppLockError of kind `not-authenticated` before settings load, or
+   * while the gate is on and the session has not authenticated.
+   */
   setAppPin: (pin: string) => Promise<void>;
   /**
    * Rotation. Verifies `currentPin` under the same throttle the unlock modal
    * uses, so this cannot become an unthrottled guessing oracle.
    */
   changeAppPin: (currentPin: string, nextPin: string) => Promise<boolean>;
+  /**
+   * Turns the gate off once `currentPin` verifies, throttled under the rule on
+   * `changeAppPin`. Resolves `false` when the PIN is refused.
+   */
+  turnOffAppLock: (currentPin: string) => Promise<boolean>;
   appPinUsable: () => Promise<boolean>;
   /**
    * Sets the PIN an existing gate-on install was missing, unlocks through it,
    * then records the upgrade.
+   *
+   * @throws AppLockError of kind `not-authenticated` before the session has
+   * authenticated.
    */
   completePinSetup: (pin: string) => Promise<void>;
-  /** Turns the gate off, because it has no unlock path without a PIN. */
+  /**
+   * Turns the gate off, because it has no unlock path without a PIN.
+   *
+   * @throws AppLockError of kind `not-authenticated` before the session has
+   * authenticated.
+   */
   declinePinSetup: () => Promise<void>;
+  unlockWithDeviceCredential: () => Promise<DeviceCredentialOutcome>;
+  openScreenLockSettings: () => Promise<void>;
+  refreshLockAvailability: () => Promise<void>;
 };
 
 export type TransactionDataContextValue = {
@@ -296,6 +332,11 @@ const DRIVE_FOLDER_ID_KEY = 'drive_folder_id';
 const EXPORT_DIRECTORY_URI_KEY = 'export_directory_uri';
 
 const BIOMETRIC_CRED_VERSION = 2;
+
+const styles = StyleSheet.create({
+  app: { flex: 1 },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+});
 
 /**
  * Marks an install as having been offered a PIN. Nothing reads it to decide
@@ -787,12 +828,17 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     lockout: biometricLockout,
     unlockWithBiometrics,
     unlockWithPin,
-    setAppPin,
+    setAppPin: writeAppPin,
     changeAppPin,
+    confirmAppPin,
     appPinUsable,
     biometricsAvailable,
     pinUsable,
     pinStored,
+    secureLockScreen,
+    sessionAuthenticated,
+    unlockWithDeviceCredential,
+    refreshAvailability: refreshLockAvailability,
     backgroundNonce: biometricBackgroundNonce,
     clearError: clearBiometricError,
     ensureCredential: ensureBiometricCredential,
@@ -841,15 +887,18 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     ensureBiometricCredential,
   ]);
 
-  // `null` is the window before the probe lands; prompting then would flash an
-  // enrolment dialog at a user who already has a PIN.
-  const pinSetupRequired =
-    state.isInitialised &&
-    state.error === null &&
-    state.settings.biometricGateEnabled &&
-    pinUsable === false &&
-    (!biometricIsLocked ||
-      (biometricsAvailable === false && pinStored === false));
+  const gatePresentation = deriveGatePresentation({
+    isInitialised: state.isInitialised,
+    hasError: state.error !== null,
+    gateEnabled: state.settings.biometricGateEnabled,
+    isLocked: biometricIsLocked,
+    sessionAuthenticated,
+    pinUsable,
+    pinStored,
+    biometricsAvailable,
+    secureLockScreen,
+  });
+  const pinSetupRequired = gatePresentation === 'enrol';
 
   const createTransaction = useCallback<
     TransactionDataActions['createTransaction']
@@ -1161,20 +1210,55 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     ],
   );
 
+  const turnOffAppLock = useCallback<TransactionDataActions['turnOffAppLock']>(
+    async currentPin => {
+      if (!(await confirmAppPin(currentPin))) {
+        return false;
+      }
+      await setBiometricGateEnabled(false);
+      return true;
+    },
+    [confirmAppPin, setBiometricGateEnabled],
+  );
+
+  const setAppPin = useCallback<TransactionDataActions['setAppPin']>(
+    async pin => {
+      if (
+        !state.isInitialised ||
+        (state.settings.biometricGateEnabled && !sessionAuthenticated)
+      ) {
+        throw new AppLockError('not-authenticated', 'Unlock the app first.');
+      }
+      await writeAppPin(pin);
+    },
+    [
+      state.isInitialised,
+      state.settings.biometricGateEnabled,
+      sessionAuthenticated,
+      writeAppPin,
+    ],
+  );
+
   const declinePinSetup = useCallback<
     TransactionDataActions['declinePinSetup']
   >(async () => {
+    if (!sessionAuthenticated) {
+      throw new AppLockError('not-authenticated', 'Unlock the app first.');
+    }
     await setBiometricGateEnabled(false);
     await withDatabase(db =>
       dbSetSetting(db, APP_PIN_VERSION_KEY, String(APP_PIN_VERSION)),
     );
-  }, [setBiometricGateEnabled]);
+  }, [sessionAuthenticated, setBiometricGateEnabled]);
 
   const completePinSetup = useCallback<
     TransactionDataActions['completePinSetup']
   >(
     async pin => {
-      await setAppPin(pin);
+      if (!sessionAuthenticated) {
+        throw new AppLockError('not-authenticated', 'Unlock the app first.');
+      }
+      await writeAppPin(pin);
       // Unlocking through the normal verify rather than clearing the lock
       // directly, so a Keystore write that silently failed surfaces here
       // instead of at the next launch.
@@ -1183,7 +1267,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
         dbSetSetting(db, APP_PIN_VERSION_KEY, String(APP_PIN_VERSION)),
       );
     },
-    [setAppPin, unlockWithPin],
+    [sessionAuthenticated, writeAppPin, unlockWithPin],
   );
 
   const setAutoLockMinutes = useCallback<
@@ -1460,9 +1544,13 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       unlockWithPin,
       setAppPin,
       changeAppPin,
+      turnOffAppLock,
       appPinUsable,
       completePinSetup,
       declinePinSetup,
+      unlockWithDeviceCredential,
+      openScreenLockSettings,
+      refreshLockAvailability,
       setAutoLockMinutes,
     }),
     [
@@ -1494,9 +1582,12 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       unlockWithPin,
       setAppPin,
       changeAppPin,
+      turnOffAppLock,
       appPinUsable,
       completePinSetup,
       declinePinSetup,
+      unlockWithDeviceCredential,
+      refreshLockAvailability,
       setAutoLockMinutes,
     ],
   );
@@ -1512,6 +1603,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
         biometricsAvailable,
         pinUsable,
       },
+      gatePresentation,
       pinSetupRequired,
     }),
     [
@@ -1522,6 +1614,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       biometricLockout,
       biometricsAvailable,
       pinUsable,
+      gatePresentation,
       pinSetupRequired,
     ],
   );
@@ -1537,20 +1630,37 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
 
   return (
     <TransactionDataContext.Provider value={value}>
-      {children}
-      {state.settings.biometricGateEnabled &&
-      (biometricIsLocked || pinSetupRequired) ? (
+      <FocusBlockView
+        style={styles.app}
+        collapsable={false}
+        blocked={gatePresentation !== 'hidden'}
+        importantForAccessibility={
+          gatePresentation === 'hidden' ? 'auto' : 'no-hide-descendants'
+        }
+      >
+        {state.isInitialised ? (
+          children
+        ) : (
+          <Surface style={styles.loading}>
+            <ActivityIndicator animating size="large" />
+          </Surface>
+        )}
+      </FocusBlockView>
+      {gatePresentation !== 'hidden' ? (
         <BiometricGateModal
           key={biometricBackgroundNonce}
+          presentation={gatePresentation}
           lastError={biometricLastError}
           lockout={biometricLockout}
           biometricsAvailable={biometricsAvailable}
           pinUsable={pinUsable}
-          pinSetupRequired={pinSetupRequired}
           onRetry={() => void unlockWithBiometrics()}
           onSubmitPin={unlockWithPin}
           onSetUpPin={completePinSetup}
           onDeclineSetup={declinePinSetup}
+          onConfirmCredential={unlockWithDeviceCredential}
+          onOpenScreenLockSettings={openScreenLockSettings}
+          onCheckAgain={refreshLockAvailability}
         />
       ) : null}
     </TransactionDataContext.Provider>
