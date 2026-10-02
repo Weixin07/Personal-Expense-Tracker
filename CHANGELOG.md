@@ -147,3 +147,9 @@ migration table, not here.
 - When one import file carries two different rates for the same currency pair,
   the one you confirmed at the review step is the one saved. Previously
   whichever row came first won.
+
+### Security
+
+- **A confirmation or settings dialog left open when the app locked could still be used from the
+  lock screen.** Tapping its button could, for example, delete a category or change the auto-lock
+  setting without unlocking. Now nothing you tap in it takes effect until you unlock.

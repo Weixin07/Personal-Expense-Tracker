@@ -889,7 +889,9 @@ it. Removing the original screen lock already required the owner's device creden
 SQLite file is not encrypted at rest, so a rooted device or a forensic extraction reads it
 whatever the lock is set to. Full-database encryption was considered and declined; the lock's
 job is to stop someone picking up an unlocked phone, not to survive an attacker with the
-storage in hand.
+storage in hand. A system confirmation that was already open when the app locked stays on
+screen above the lock: its buttons do nothing until you unlock, but its text, such as a category's
+name, can be read.
 
 **A forgotten PIN cannot be recovered.** With the app lock on, a PIN is required, and there is
 no reset path by design — the app has no account, no server, and nothing to prove identity

@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { AppState, Text } from 'react-native';
+import { Portal } from 'react-native-paper';
 import NetInfo from '@react-native-community/netinfo';
 import * as Keychain from 'react-native-keychain';
 
@@ -33,6 +34,7 @@ import * as exportModule from '../../export';
 import * as importModule from '../../import';
 import * as storageAccess from '../../security/storageAccess';
 import { isAppLockError } from '../../security/appLockError';
+import { TRANSACTION_ACTION_LOCK_POLICY } from '../../security/actionLockPolicy';
 import NativeAppPinCrypto from '../../security/NativeAppPinCrypto';
 import { computePresetRange } from '../../screens/homeUtils';
 import { localIsoDate } from '../../utils/date';
@@ -913,11 +915,10 @@ describe('TransactionDataProvider effects', () => {
         </TransactionDataProvider>,
       );
       await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
-      const appRoot = view.UNSAFE_getByType(Capture).parent;
-      expect(appRoot?.props.importantForAccessibility).toBe(
+      const appRoot = view.UNSAFE_getByProps({ blocked: true });
+      expect(appRoot.props.importantForAccessibility).toBe(
         'no-hide-descendants',
       );
-      expect(appRoot?.props.blocked).toBe(true);
       expect(screen.getByText('Unlock required')).toBeOnTheScreen();
     });
 
@@ -930,15 +931,15 @@ describe('TransactionDataProvider effects', () => {
         </TransactionDataProvider>,
       );
       await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(false));
-      const appRoot = view.UNSAFE_getByType(Capture).parent;
-      expect(appRoot?.props.importantForAccessibility).toBe('auto');
-      expect(appRoot?.props.blocked).toBe(false);
+      const appRoot = view.UNSAFE_getByProps({ blocked: false });
+      expect(appRoot.props.importantForAccessibility).toBe('auto');
     });
 
     it('turns the lock off only once the current PIN verifies', async () => {
-      stubPinExists(true);
+      stubKeychain({ biometricRead: true, pinPassword: STORED_PIN_RECORD });
       mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
       await renderProvider();
+      await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(false));
       let turnedOff = true;
       await act(async () => {
         turnedOff = await ctx.actions.turnOffAppLock('135792');
@@ -1278,6 +1279,416 @@ describe('TransactionDataProvider effects', () => {
         changed = await ctx.actions.changeAppPin('111213', '846207');
       });
       expect(changed).toBe(false);
+    });
+
+    describe('while the app is locked', () => {
+      let nowSpy: jest.SpyInstance | null = null;
+
+      afterEach(() => {
+        nowSpy?.mockRestore();
+        nowSpy = null;
+      });
+      const LOCKOUT_SERVICE = 'expense-tracker-app-pin-lockout';
+
+      const clearWriteMocks = (): void => {
+        [...Object.values(mockDb), ...Object.values(mockExport)].forEach(fn => {
+          if (jest.isMockFunction(fn)) {
+            fn.mockClear();
+          }
+        });
+        mockImport.commitImport.mockClear();
+        mockStorage.requestDirectorySelection.mockClear();
+        (Keychain.setGenericPassword as jest.Mock).mockClear();
+      };
+
+      const renderLocked = async (
+        tree: React.ReactElement = (
+          <TransactionDataProvider>
+            <Capture />
+          </TransactionDataProvider>
+        ),
+      ) => {
+        stubKeychain({ biometricRead: false, pinPassword: STORED_PIN_RECORD });
+        mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+        const view = renderWithProviders(tree);
+        await waitFor(() => expect(ctx?.state.biometric.isLocked).toBe(true));
+        await waitFor(() =>
+          expect(ctx.state.biometric.lastError).not.toBeNull(),
+        );
+        clearWriteMocks();
+        return view;
+      };
+
+      /** Renders unlocked; `lock` then locks through the background timeout. */
+      const renderUnlocked = async () => {
+        stubKeychain({ biometricRead: true, pinPassword: STORED_PIN_RECORD });
+        mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+        const addEventListenerSpy = jest.spyOn(AppState, 'addEventListener');
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+        nowSpy = clock;
+        await renderProvider();
+        await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(false));
+        const lock = async (): Promise<void> => {
+          const changeCalls = addEventListenerSpy.mock.calls.filter(
+            call => call[0] === 'change',
+          );
+          const handler = changeCalls[changeCalls.length - 1][1] as (
+            status: string,
+          ) => void;
+          stubKeychain({
+            biometricRead: false,
+            pinPassword: STORED_PIN_RECORD,
+          });
+          act(() => handler('background'));
+          clock.mockReturnValue(1_000_000 + 6 * 60 * 1000);
+          act(() => handler('active'));
+          expect(ctx.state.biometric.isLocked).toBe(true);
+          await waitFor(() =>
+            expect(ctx.state.biometric.lastError).not.toBeNull(),
+          );
+          clearWriteMocks();
+        };
+        return { lock };
+      };
+
+      const settle = async (call: () => Promise<unknown>): Promise<unknown> => {
+        let outcome: unknown;
+        await act(async () => {
+          outcome = await call().catch((e: unknown) => e);
+        });
+        return outcome;
+      };
+
+      it.each<[string, () => Promise<unknown>, () => unknown[]]>([
+        [
+          'createTransaction',
+          () =>
+            ctx.actions.createTransaction({
+              type: 'expense',
+              description: 'Coffee',
+              payee: 'Corner Cafe',
+              amountNative: 3.5,
+              currencyCode: 'USD',
+              fxRateToBase: 1,
+              baseAmount: 3.5,
+              baseCurrencyCode: 'USD',
+              date: '2025-01-10',
+              time: null,
+              categoryId: null,
+              fundId: 1,
+              counterpartFundId: null,
+              counterpartAmount: null,
+              counterpartCurrencyCode: null,
+              notes: null,
+              isConfirmed: true,
+            }),
+          () => [mockDb.createTransaction],
+        ],
+        [
+          'updateTransaction',
+          () => ctx.actions.updateTransaction({ ...transaction }),
+          () => [mockDb.updateTransaction],
+        ],
+        [
+          'deleteTransaction',
+          () => ctx.actions.deleteTransaction(1),
+          () => [mockDb.deleteTransaction],
+        ],
+        [
+          'setTransactionConfirmed',
+          () => ctx.actions.setTransactionConfirmed(1, false),
+          () => [mockDb.setTransactionConfirmed],
+        ],
+        [
+          'createCategory',
+          () => ctx.actions.createCategory({ name: 'Food', type: 'both' }),
+          () => [mockDb.createCategory],
+        ],
+        [
+          'updateCategory',
+          () =>
+            ctx.actions.updateCategory({ id: 1, name: 'Fuel', type: 'both' }),
+          () => [mockDb.updateCategory],
+        ],
+        [
+          'deleteCategory',
+          () => ctx.actions.deleteCategory(1),
+          () => [mockDb.deleteCategory],
+        ],
+        [
+          'createFund',
+          () =>
+            ctx.actions.createFund({
+              name: 'Travel',
+              currencyCode: null,
+              openingBalance: 0,
+              notes: null,
+            }),
+          () => [mockDb.createFund],
+        ],
+        [
+          'updateFund',
+          () =>
+            ctx.actions.updateFund({
+              id: 3,
+              name: 'Trips',
+              currencyCode: null,
+              openingBalance: 0,
+              notes: null,
+            }),
+          () => [mockDb.updateFund],
+        ],
+        [
+          'deleteFund',
+          () => ctx.actions.deleteFund(1),
+          () => [mockDb.deleteFund],
+        ],
+        [
+          'setBaseCurrency',
+          () => ctx.actions.setBaseCurrency('EUR'),
+          () => [mockDb.setSetting],
+        ],
+        [
+          'setBiometricGateEnabled',
+          () => ctx.actions.setBiometricGateEnabled(false),
+          () => [mockDb.setSetting],
+        ],
+        [
+          'setAutoLockMinutes',
+          () => ctx.actions.setAutoLockMinutes(null),
+          () => [mockDb.setSetting],
+        ],
+        [
+          'setDriveFolderId',
+          () => ctx.actions.setDriveFolderId('f'),
+          () => [mockDb.setSetting],
+        ],
+        [
+          'setExportDirectoryUri',
+          () => ctx.actions.setExportDirectoryUri('content://x'),
+          () => [mockDb.setSetting],
+        ],
+        [
+          'queueExport',
+          () => ctx.actions.queueExport(),
+          () => [
+            mockDb.insertExportQueueItem,
+            mockStorage.requestDirectorySelection,
+          ],
+        ],
+        [
+          'retryExport',
+          () => ctx.actions.retryExport('q1'),
+          () => [mockDb.updateExportQueueStatus],
+        ],
+        [
+          'removeExport',
+          () => ctx.actions.removeExport('q1'),
+          () => [mockDb.removeExportQueueItem],
+        ],
+        [
+          'clearCompletedExports',
+          () => ctx.actions.clearCompletedExports(),
+          () => [mockDb.clearCompletedExportQueueItems],
+        ],
+        [
+          'importTransactions',
+          () => ctx.actions.importTransactions(emptyPreview),
+          () => [mockImport.commitImport],
+        ],
+        [
+          'changeAppPin',
+          () => ctx.actions.changeAppPin('111213', '846207'),
+          () => [Keychain.setGenericPassword as jest.Mock],
+        ],
+        [
+          'turnOffAppLock',
+          () => ctx.actions.turnOffAppLock('846207'),
+          () => [Keychain.setGenericPassword as jest.Mock, mockDb.setSetting],
+        ],
+      ])('refuses %s without writing', async (_name, call, spies) => {
+        await renderLocked();
+        const outcome = await settle(call);
+        expect(isAppLockError(outcome, 'locked')).toBe(true);
+        spies().forEach(spy => expect(spy).not.toHaveBeenCalled());
+        expect(ctx.state.error).toBeNull();
+        expect(ctx.state.isLoading).toBe(false);
+      });
+
+      it('refuses actions captured before the lock', async () => {
+        const { lock } = await renderUnlocked();
+        const staleDelete = ctx.actions.deleteCategory;
+        const staleAutoLock = ctx.actions.setAutoLockMinutes;
+        await lock();
+
+        const deleted = await settle(() => staleDelete(1));
+        const autoLock = await settle(() => staleAutoLock(null));
+
+        expect(isAppLockError(deleted, 'locked')).toBe(true);
+        expect(isAppLockError(autoLock, 'locked')).toBe(true);
+        expect(mockDb.deleteCategory).not.toHaveBeenCalled();
+        expect(mockDb.setSetting).not.toHaveBeenCalledWith(
+          expect.anything(),
+          'auto_lock_minutes',
+          expect.anything(),
+        );
+      });
+
+      it('lets a captured action through again once unlocked', async () => {
+        const { lock } = await renderUnlocked();
+        const staleDelete = ctx.actions.deleteCategory;
+        await lock();
+
+        stubKeychain({ biometricRead: true, pinPassword: STORED_PIN_RECORD });
+        await act(async () => {
+          await ctx.actions.unlockWithBiometrics();
+        });
+        expect(ctx.state.biometric.isLocked).toBe(false);
+
+        await act(async () => {
+          await staleDelete(1);
+        });
+        expect(mockDb.deleteCategory).toHaveBeenCalledWith(
+          expect.anything(),
+          1,
+        );
+      });
+
+      it('refuses an interactive upload but allows a non-interactive one', async () => {
+        await renderLocked();
+        const interactive = await settle(() =>
+          ctx.actions.uploadQueuedExports({ interactive: true }),
+        );
+        expect(isAppLockError(interactive, 'locked')).toBe(true);
+        expect(mockExport.uploadPendingExports).not.toHaveBeenCalled();
+
+        await act(async () => {
+          await ctx.actions.uploadQueuedExports();
+        });
+        expect(mockExport.uploadPendingExports).toHaveBeenCalledWith({
+          interactive: false,
+        });
+      });
+
+      it('keeps the automatic upload running', async () => {
+        mockDb.listExportQueue.mockResolvedValue([
+          queueRecord({ status: 'pending', lastError: null }),
+        ]);
+        await renderLocked();
+        const netListener = (NetInfo.addEventListener as jest.Mock).mock
+          .calls[0][0] as (info: {
+          isConnected: boolean;
+          isInternetReachable: boolean;
+        }) => void;
+        act(() =>
+          netListener({ isConnected: true, isInternetReachable: true }),
+        );
+        await waitFor(() =>
+          expect(mockExport.uploadPendingExports).toHaveBeenCalledWith({
+            interactive: false,
+          }),
+        );
+      });
+
+      it('still reads data and answers PIN availability', async () => {
+        await renderLocked();
+        await act(async () => {
+          await ctx.actions.refresh();
+        });
+        expect(mockDb.listTransactions).toHaveBeenCalled();
+        await expect(ctx.actions.appPinUsable()).resolves.toBe(true);
+      });
+
+      it('ignores filter and error changes without throwing', async () => {
+        await renderLocked();
+        const lastError = ctx.state.biometric.lastError;
+        act(() => {
+          ctx.actions.setFilters({ query: 'x' });
+          ctx.actions.clearFilters();
+          ctx.actions.clearError();
+        });
+        expect(ctx.state.filters).toEqual({});
+        expect(ctx.state.biometric.lastError).toBe(lastError);
+      });
+
+      it('spends no PIN attempt on a refused change or turn-off', async () => {
+        await renderLocked();
+        await settle(() => ctx.actions.changeAppPin('111213', '846207'));
+        await settle(() => ctx.actions.turnOffAppLock('846207'));
+        expect(Keychain.setGenericPassword).not.toHaveBeenCalledWith(
+          expect.anything(),
+          expect.anything(),
+          expect.objectContaining({ service: LOCKOUT_SERVICE }),
+        );
+      });
+
+      it('lets an authenticated enrolment decline turn the lock off', async () => {
+        stubKeychain({ biometricRead: true, pinPassword: null });
+        mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+        await renderProvider();
+        await waitFor(() => expect(ctx.state.pinSetupRequired).toBe(true));
+        await act(async () => {
+          await ctx.actions.declinePinSetup();
+        });
+        expect(mockDb.setSetting).toHaveBeenCalledWith(
+          expect.anything(),
+          'biometric_gate_enabled',
+          'false',
+        );
+      });
+
+      it('keeps a filter a child sets as it mounts on a cold start', async () => {
+        const FilterProbe: React.FC = () => {
+          const { setFilters } = useTransactionData().actions;
+          useEffect(() => {
+            setFilters({ startDate: '2025-01-01' });
+          }, [setFilters]);
+          return null;
+        };
+        await renderLocked(
+          <TransactionDataProvider>
+            <Capture />
+            <FilterProbe />
+          </TransactionDataProvider>,
+        );
+        expect(ctx.state.filters.startDate).toBe('2025-01-01');
+      });
+
+      it('classifies every action in the lock policy', async () => {
+        await renderProvider();
+        expect(Object.keys(ctx.actions).sort()).toEqual(
+          Object.keys(TRANSACTION_ACTION_LOCK_POLICY).sort(),
+        );
+      });
+
+      it('renders screen dialogs inside the seal and the lock screen outside it', async () => {
+        const view = await renderLocked(
+          <TransactionDataProvider>
+            <Capture />
+            <Portal>
+              <Text>sealed dialog</Text>
+            </Portal>
+          </TransactionDataProvider>,
+        );
+        const sealedRoot = view.UNSAFE_getByProps({ blocked: true });
+        const isInside = (node: { parent: unknown } | null): boolean => {
+          let current = node as { parent: unknown } | null;
+          while (current) {
+            if (current === sealedRoot) {
+              return true;
+            }
+            current = current.parent as { parent: unknown } | null;
+          }
+          return false;
+        };
+        expect(screen.queryByText('sealed dialog')).toBeNull();
+        expect(
+          isInside(
+            screen.getByText('sealed dialog', { includeHiddenElements: true }),
+          ),
+        ).toBe(true);
+        expect(isInside(screen.getByText('Unlock required'))).toBe(false);
+      });
     });
   });
 

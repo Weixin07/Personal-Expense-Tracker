@@ -3,12 +3,13 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useState,
 } from 'react';
 import { StyleSheet } from 'react-native';
-import { ActivityIndicator, Surface } from 'react-native-paper';
+import { ActivityIndicator, Portal, Surface } from 'react-native-paper';
 import type { UploadPendingExportsResult } from '../export';
 import { commitImport } from '../import';
 import type {
@@ -80,7 +81,11 @@ import {
   DEFAULT_AUTO_LOCK_MINUTES,
 } from '../constants/autoLockPresets';
 import { pinCredentialExists } from '../security/pinCredential';
-import { AppLockError } from '../security/appLockError';
+import { AppLockError, UNLOCK_FIRST_MESSAGE } from '../security/appLockError';
+import {
+  createActionLockGuard,
+  TRANSACTION_ACTION_LOCK_POLICY,
+} from '../security/actionLockPolicy';
 import {
   openScreenLockSettings,
   type DeviceCredentialOutcome,
@@ -191,6 +196,12 @@ export type TransactionDataSelectors = {
   categoryUsageCounts: CategoryUsageCounts;
 };
 
+/**
+ * While the app is locked, actions marked `guarded` in
+ * `TRANSACTION_ACTION_LOCK_POLICY` reject under the rule on `AppLockErrorKind`,
+ * `uploadQueuedExports` rejects only when interactive, the synchronous filter
+ * and error actions are ignored, and the unlock paths run as normal.
+ */
 export type TransactionDataActions = {
   refresh: () => Promise<void>;
   createTransaction: (
@@ -851,6 +862,11 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     autoLockMinutes: state.settings.autoLockMinutes,
   });
 
+  const [lockGuard] = useState(createActionLockGuard);
+  useLayoutEffect(() => {
+    lockGuard.setLocked(biometricIsLocked);
+  }, [lockGuard, biometricIsLocked]);
+
   useEffect(() => {
     if (state.error !== null) {
       return;
@@ -1227,7 +1243,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
         !state.isInitialised ||
         (state.settings.biometricGateEnabled && !sessionAuthenticated)
       ) {
-        throw new AppLockError('not-authenticated', 'Unlock the app first.');
+        throw new AppLockError('not-authenticated', UNLOCK_FIRST_MESSAGE);
       }
       await writeAppPin(pin);
     },
@@ -1243,7 +1259,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     TransactionDataActions['declinePinSetup']
   >(async () => {
     if (!sessionAuthenticated) {
-      throw new AppLockError('not-authenticated', 'Unlock the app first.');
+      throw new AppLockError('not-authenticated', UNLOCK_FIRST_MESSAGE);
     }
     await setBiometricGateEnabled(false);
     await withDatabase(db =>
@@ -1256,7 +1272,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
   >(
     async pin => {
       if (!sessionAuthenticated) {
-        throw new AppLockError('not-authenticated', 'Unlock the app first.');
+        throw new AppLockError('not-authenticated', UNLOCK_FIRST_MESSAGE);
       }
       await writeAppPin(pin);
       // Unlocking through the normal verify rather than clearing the lock
@@ -1514,8 +1530,8 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     ],
   );
 
-  const actions = useMemo<TransactionDataActions>(
-    () => ({
+  const actions = useMemo<TransactionDataActions>(() => {
+    const raw: TransactionDataActions = {
       refresh,
       createTransaction,
       updateTransaction,
@@ -1552,45 +1568,46 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
       openScreenLockSettings,
       refreshLockAvailability,
       setAutoLockMinutes,
-    }),
-    [
-      refresh,
-      createTransaction,
-      updateTransaction,
-      deleteTransaction,
-      setTransactionConfirmed,
-      createCategory,
-      updateCategory,
-      deleteCategory,
-      createFund,
-      updateFund,
-      deleteFund,
-      setBaseCurrency,
-      setBiometricGateEnabled,
-      setDriveFolderId,
-      setExportDirectoryUri,
-      setFilters,
-      clearFilters,
-      clearError,
-      queueExport,
-      retryExport,
-      removeExport,
-      clearCompletedExports,
-      uploadQueuedExports,
-      importTransactions,
-      unlockWithBiometrics,
-      unlockWithPin,
-      setAppPin,
-      changeAppPin,
-      turnOffAppLock,
-      appPinUsable,
-      completePinSetup,
-      declinePinSetup,
-      unlockWithDeviceCredential,
-      refreshLockAvailability,
-      setAutoLockMinutes,
-    ],
-  );
+    };
+    return lockGuard.apply(raw, TRANSACTION_ACTION_LOCK_POLICY);
+  }, [
+    lockGuard,
+    refresh,
+    createTransaction,
+    updateTransaction,
+    deleteTransaction,
+    setTransactionConfirmed,
+    createCategory,
+    updateCategory,
+    deleteCategory,
+    createFund,
+    updateFund,
+    deleteFund,
+    setBaseCurrency,
+    setBiometricGateEnabled,
+    setDriveFolderId,
+    setExportDirectoryUri,
+    setFilters,
+    clearFilters,
+    clearError,
+    queueExport,
+    retryExport,
+    removeExport,
+    clearCompletedExports,
+    uploadQueuedExports,
+    importTransactions,
+    unlockWithBiometrics,
+    unlockWithPin,
+    setAppPin,
+    changeAppPin,
+    turnOffAppLock,
+    appPinUsable,
+    completePinSetup,
+    declinePinSetup,
+    unlockWithDeviceCredential,
+    refreshLockAvailability,
+    setAutoLockMinutes,
+  ]);
 
   const aggregateState = useMemo<TransactionDataState>(
     () => ({
@@ -1638,14 +1655,18 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
           gatePresentation === 'hidden' ? 'auto' : 'no-hide-descendants'
         }
       >
-        {state.isInitialised ? (
-          children
-        ) : (
-          <Surface style={styles.loading}>
-            <ActivityIndicator animating size="large" />
-          </Surface>
-        )}
+        <Portal.Host>
+          {state.isInitialised ? (
+            children
+          ) : (
+            <Surface style={styles.loading}>
+              <ActivityIndicator animating size="large" />
+            </Surface>
+          )}
+        </Portal.Host>
       </FocusBlockView>
+      {/* Outside FocusBlockView, so the lock screen portals into
+          PaperProvider's host above the app; inside, it would be sealed too. */}
       {gatePresentation !== 'hidden' ? (
         <BiometricGateModal
           key={biometricBackgroundNonce}
