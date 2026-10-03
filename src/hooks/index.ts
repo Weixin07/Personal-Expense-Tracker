@@ -1,6 +1,10 @@
 export {
   useBiometricGate,
   biometricCredentialExists,
+  appLockMarkerExists,
+  writeAppLockMarker,
+  clearAppLockMarker,
+  syncAppLockMarker,
 } from './useBiometricGate';
 export type {
   BiometricGateState,

@@ -2,6 +2,11 @@ import * as Keychain from 'react-native-keychain';
 import { setPin } from '../pinCredential';
 import { recordFailure } from '../lockoutStore';
 import {
+  clearAppLockMarker,
+  syncAppLockMarker,
+  writeAppLockMarker,
+} from '../../hooks/useBiometricGate';
+import {
   getAllSettings,
   setSetting,
 } from '../../database/repositories/settingsRepository';
@@ -54,6 +59,17 @@ describe('the app PIN never reaches app_settings', () => {
   it('never calls setSetting from the security layer', async () => {
     await setPin(PIN, 150_000);
     await recordFailure(Date.now());
+    expect(setSetting).not.toHaveBeenCalled();
+  });
+
+  it('keeps the app lock marker out of the settings table', async () => {
+    await writeAppLockMarker();
+    await clearAppLockMarker();
+    await syncAppLockMarker(true);
+    (Keychain.hasGenericPassword as jest.Mock).mockResolvedValueOnce(true);
+    await syncAppLockMarker(false);
+    expect(Keychain.setGenericPassword).toHaveBeenCalled();
+    expect(Keychain.resetGenericPassword).toHaveBeenCalled();
     expect(setSetting).not.toHaveBeenCalled();
   });
 });

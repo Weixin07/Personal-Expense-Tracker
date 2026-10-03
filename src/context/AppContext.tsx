@@ -71,6 +71,10 @@ import {
   useBiometricGate,
   useExportSync,
   biometricCredentialExists,
+  appLockMarkerExists,
+  writeAppLockMarker,
+  clearAppLockMarker,
+  syncAppLockMarker,
 } from '../hooks';
 import type { BiometricGateState, ExportQueueItem } from '../hooks';
 import { BiometricGateModal } from '../components/BiometricGateModal';
@@ -797,28 +801,37 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
         };
       });
 
+      const settings = parseSettings(snapshot.settings);
       dispatch({
         type: 'load/success',
         payload: {
           transactions: snapshot.transactions,
           categories: snapshot.categories,
           funds: snapshot.funds,
-          settings: parseSettings(snapshot.settings),
+          settings,
           fxRateSeries: snapshot.fxRateSeries,
         },
       });
       setLoadedQueueRecords(snapshot.exportQueueRecords);
+      // Only from settings read here, never from the `load/error` value, which
+      // is itself derived from the marker.
+      void syncAppLockMarker(settings.biometricGateEnabled);
     } catch (error) {
-      // Either credential is enough to conclude the gate was on: a device with
-      // no passcode can hold a PIN but no biometric entry, and probing only the
-      // latter would leave exactly that user ungated here.
+      // The keychain decides here because it outlives a database that will
+      // not open. Any of the three entries means the lock was on: a device with
+      // no passcode can hold a PIN but no biometric entry, and an install
+      // upgraded from before the PIN may hold neither, only the marker.
       let biometricGateEnabled: boolean;
       try {
-        const [hasBiometric, hasPin] = await Promise.all([
+        const [hasBiometric, hasPin, hasMarker] = await Promise.all([
           biometricCredentialExists(),
           pinCredentialExists(),
+          appLockMarkerExists(),
         ]);
-        biometricGateEnabled = hasBiometric || hasPin;
+        biometricGateEnabled = hasBiometric || hasPin || hasMarker;
+        if (!hasMarker && (hasBiometric || hasPin)) {
+          void writeAppLockMarker();
+        }
       } catch {
         biometricGateEnabled = true;
       }
@@ -1187,6 +1200,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
             // leaves no biometric credential. The PIN verified above is a
             // complete unlock path on its own, so the gate still goes on.
           }
+          await writeAppLockMarker();
         } else {
           await clearBiometricCredential();
           await clearAppPin();
@@ -1195,6 +1209,11 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
         await withDatabase(db =>
           dbSetSetting(db, BIOMETRIC_GATE_KEY, enabled ? 'true' : 'false'),
         );
+        if (!enabled) {
+          // Only once the setting is saved: until then the marker is what
+          // keeps a gate with no credential left fail-closed.
+          await clearAppLockMarker();
+        }
         dispatch({ type: 'settings/set-biometric', payload: enabled });
         if (enabled) {
           await withDatabase(db =>

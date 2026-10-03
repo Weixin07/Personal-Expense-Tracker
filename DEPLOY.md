@@ -304,8 +304,35 @@ biometric, SAF export, and the offline queue. Also confirm icons and themed UI r
     kill the app and relaunch; confirm the unlock prompt appears on cold start, and that the
     device-credential (PIN/passcode) fallback unlocks if biometrics fail. Re-enroll a biometric
     (add a fingerprint/face), relaunch, and confirm the device-passcode path still unlocks (the
-    credential must not hard-lock). Finally, with the gate enabled, simulate a settings-read
-    failure and confirm the app still locks (fail-closed).
+    credential must not hard-lock). Finally, with the gate enabled, make the settings read fail
+    and confirm the app still locks (fail-closed). On the debug build, hide the settings table
+    in a copy of the database (Python's `sqlite3` on the host; the emulator has no `sqlite3`):
+
+    ```
+    adb shell am force-stop com.expensetracker.debug
+    mkdir orig broken
+    for f in expense_tracker.db expense_tracker.db-wal expense_tracker.db-shm; do
+      adb exec-out run-as com.expensetracker.debug cat databases/$f > orig/$f
+    done
+    cp orig/* broken/
+    python -c "import sqlite3; c = sqlite3.connect('broken/expense_tracker.db'); c.execute('ALTER TABLE app_settings RENAME TO app_settings_hidden'); c.commit(); c.execute('PRAGMA wal_checkpoint(TRUNCATE)')"
+    adb push broken/expense_tracker.db /data/local/tmp/et.db
+    adb shell "run-as com.expensetracker.debug sh -c 'rm -f databases/expense_tracker.db-wal databases/expense_tracker.db-shm; cat /data/local/tmp/et.db > databases/expense_tracker.db'"
+    # cold-start the app and check, then force-stop and copy the three files in orig/ back the same way
+    ```
+
+    Force-stop first: the app keeps the database open for the life of the process. In Git Bash,
+    set `MSYS_NO_PATHCONV=1` so `/data/local/tmp` is not rewritten. `run-as` works on the
+    debuggable `.debug` build only. **Pass:** logcat shows `no such table: app_settings`, and the
+    app reaches the lock screen. With a PIN, expect the PIN unlock. **With no PIN and no biometric
+    entry** (a step-11 install on a device with no biometric enrolled), expect _Use screen lock_,
+    or a prompt to set one — **never the app itself**. After the restore the ledger is intact.
+
+    **Two ways that look right but do not reach the fail-closed path.** Making the file unreadable
+    (`chmod 000`, or swapping it for a directory) fails the open itself, which
+    `react-native-sqlite-storage` never reports back, so the app stays on its loading spinner with
+    nothing reachable. Corrupting the file makes Android's default corruption handler delete it
+    and start a fresh, empty database, so the app opens as a new install.
 
 9.  **Auto-lock presets** — for each of Immediately / 1 / 5 / 15 / 30, background the app for
     just under and just over the setting and confirm the lock fires only past it. Set **Never**
@@ -334,7 +361,9 @@ biometric, SAF export, and the offline queue. Also confirm icons and themed UI r
     into a PIN field, if a regression puts one back, does not consume attempts. **Use screen lock
     instead** is offered beside **Try again**, and confirming the screen lock leads to the same
     set-a-PIN prompt; cancelling a biometric prompt shows _"Not unlocked. Tap Try again or use your
-    screen lock."_, never a `code: 13` string.
+    screen lock."_, never a `code: 13` string. Then leave the set-a-PIN prompt unanswered (neither
+    set nor decline), and run step 8's settings-read failure: the upgraded launch has already
+    written the lock marker, so the app must stay locked.
 
 12. **Hardware without a usable biometric** — on a device or emulator with **no biometric
     enrolled** (a PIN-only screen lock counts, as does no screen lock at all), confirm the lock

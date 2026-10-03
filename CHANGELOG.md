@@ -153,3 +153,7 @@ migration table, not here.
 - **A confirmation or settings dialog left open when the app locked could still be used from the
   lock screen.** Tapping its button could, for example, delete a category or change the auto-lock
   setting without unlocking. Now nothing you tap in it takes effect until you unlock.
+- **The app lock now holds even when the app cannot read its own data.** On a phone that had the
+  lock on from before app PINs existed, and had neither a PIN nor a fingerprint set up for it,
+  failing to read its data could let the app open without asking. It now stays locked and asks you to
+  confirm with your screen lock, or to set one up first.

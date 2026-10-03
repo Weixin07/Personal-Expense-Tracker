@@ -934,7 +934,7 @@ resets on the process restart the counter exists to survive.
 - OAuth tokens are **not** stored by the app. Google Sign-In (Play services) holds them, and
   `src/security/googleAuth.ts` asks it for a current token on each use
 - The app lock's entries are stored via `react-native-keychain`: the app PIN, its lockout
-  counter, and the biometric credential
+  counter, the biometric credential, and a marker recording that the lock is on
 
 **Keystore Properties:**
 
@@ -950,7 +950,16 @@ resets on the process restart the counter exists to survive.
    unlock path without one when biometrics fail or were never enrolled
 2. App tracks foreground/background state
 3. App locks on relaunch (after settings hydrate), and after the configured idle period
-4. The lock is enforced even if settings fail to load, whenever **either** credential exists (fail-closed)
+4. The lock is enforced even if settings fail to load, whenever **either** credential **or the lock
+   marker** exists (fail-closed). The marker is a keychain entry kept while the lock is on, and
+   brought back in line with settings on every launch that loads them, so an install upgraded from
+   before the marker existed is covered from its first launch that loads settings. A failed load
+   that still finds a PIN or biometric entry writes the marker too, so losing that entry later
+   cannot lift the lock. A locked install with no PIN and no biometric then asks for the device
+   screen lock, or, with none set, for one to be set up first, which anyone holding the phone can
+   do: on a phone with no screen lock, such an install is only as locked as the phone. If Android
+   finds the database corrupt, it deletes and recreates it empty, and the app then starts as a
+   fresh install with no lock
 5. User authenticates with a biometric, the device credential, or the app PIN
 6. Modal blocks UI until authentication succeeds — so where the lock is on but no PIN is set, the
    modal offers enrolment only after a biometric or the device screen lock has authenticated
@@ -990,6 +999,14 @@ loaded**, so no screen is reachable before the app knows whether the lock is on.
 
 - Service name: `expense-tracker-biometric-gate`
 - Access control: `BIOMETRY_CURRENT_SET_OR_DEVICE_PASSCODE` (invalidates the biometric path on new enrollment, while allowing the device passcode as a fallback so re-enrollment cannot hard-lock the user)
+
+**Lock marker:**
+
+- Service name: `expense-tracker-app-lock-on`. Only whether it exists is ever read.
+- Access control: **none**, accessibility `AFTER_FIRST_UNLOCK`, storage `AES_GCM_NO_AUTH`, the
+  same profile as the app PIN below. **Do not give it the biometric entry's options**: an entry
+  bound to the screen lock disappears when the screen lock is removed, and with it the marker that
+  keeps the app locked when settings cannot be read.
 
 #### 4. App PIN
 
@@ -1050,7 +1067,9 @@ off. Only where no factor exists at all (no usable biometric and no stored PIN) 
 the lock itself, since there is nothing to bypass. **Declining turns the app lock off** and says
 so, rather than leaving the lock on with no way past it. A stored PIN that cannot be read is not
 treated as missing: the app stays locked behind biometrics, or stays locked outright where none
-are available.
+are available. Such an install stays locked through a settings-load failure once the lock marker
+is written: on its first launch that loads settings, or on a failed launch that still finds a PIN
+or biometric entry (step 4 under Biometric App Lock).
 
 #### 5. Parameterized SQL Queries
 

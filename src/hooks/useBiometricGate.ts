@@ -162,6 +162,63 @@ const ensureBiometricCredential = async (): Promise<void> => {
 export const biometricCredentialExists = (): Promise<boolean> =>
   Keychain.hasGenericPassword({ service: BIOMETRIC_KEYCHAIN_SERVICE });
 
+const APP_LOCK_MARKER_SERVICE = 'expense-tracker-app-lock-on';
+const APP_LOCK_MARKER_USERNAME = 'expense-tracker';
+const APP_LOCK_MARKER_VALUE = 'app-lock-on';
+
+// No-auth, under the rule on `pinStorageOptions`: an entry bound to the screen
+// lock disappears when the lock is removed, and with it the lock this marker
+// keeps closed.
+const appLockMarkerStorageOptions = {
+  service: APP_LOCK_MARKER_SERVICE,
+  accessible: Keychain.ACCESSIBLE.AFTER_FIRST_UNLOCK,
+  storage: Keychain.STORAGE_TYPE.AES_GCM_NO_AUTH,
+};
+
+/**
+ * The lock marker exists while the app lock is on, and is read only when
+ * settings cannot be. It rejects when the keychain cannot answer; the writers
+ * below never do.
+ */
+export const appLockMarkerExists = (): Promise<boolean> =>
+  Keychain.hasGenericPassword({ service: APP_LOCK_MARKER_SERVICE });
+
+export const writeAppLockMarker = async (): Promise<void> => {
+  try {
+    await Keychain.setGenericPassword(
+      APP_LOCK_MARKER_USERNAME,
+      APP_LOCK_MARKER_VALUE,
+      appLockMarkerStorageOptions,
+    );
+  } catch {
+    // Best-effort: the next healthy load reconciles it.
+  }
+};
+
+export const clearAppLockMarker = async (): Promise<void> => {
+  try {
+    await Keychain.resetGenericPassword({ service: APP_LOCK_MARKER_SERVICE });
+  } catch {
+    // Best-effort: a stale marker fails closed and the next healthy load
+    // clears it.
+  }
+};
+
+/** Brings the marker into line with `enabled`, touching it only on a mismatch. */
+export const syncAppLockMarker = async (enabled: boolean): Promise<void> => {
+  let present: boolean;
+  try {
+    present = await appLockMarkerExists();
+  } catch {
+    return;
+  }
+  if (enabled && !present) {
+    await writeAppLockMarker();
+  } else if (!enabled && present) {
+    await clearAppLockMarker();
+  }
+};
+
 const idleTimeoutMs = (autoLockMinutes: number | null): number | null =>
   autoLockMinutes === null ? null : autoLockMinutes * 60 * 1000;
 

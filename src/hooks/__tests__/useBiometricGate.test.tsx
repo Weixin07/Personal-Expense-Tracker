@@ -4,6 +4,10 @@ import { renderHook, act, waitFor } from '@testing-library/react-native';
 import {
   useBiometricGate,
   biometricCredentialExists,
+  appLockMarkerExists,
+  writeAppLockMarker,
+  clearAppLockMarker,
+  syncAppLockMarker,
 } from '../useBiometricGate';
 import { PIN_LOCKOUT_ATTEMPTS } from '../../security/lockoutPolicy';
 import NativeAppPinCrypto from '../../security/NativeAppPinCrypto';
@@ -11,6 +15,7 @@ import NativeAppPinCrypto from '../../security/NativeAppPinCrypto';
 const BIOMETRIC_SERVICE = 'expense-tracker-biometric-gate';
 const APP_PIN_SERVICE = 'expense-tracker-app-pin';
 const LOCKOUT_SERVICE = 'expense-tracker-app-pin-lockout';
+const MARKER_SERVICE = 'expense-tracker-app-lock-on';
 
 const isDeviceSecure = NativeAppPinCrypto.isDeviceSecure as jest.Mock;
 
@@ -1246,5 +1251,101 @@ describe('useBiometricGate confirmAppPin', () => {
       confirmed = await result.current.confirmAppPin('846207');
     });
     expect(confirmed).toBe(false);
+  });
+});
+
+describe('app lock marker', () => {
+  const markerWrites = () =>
+    (Keychain.setGenericPassword as jest.Mock).mock.calls.filter(
+      ([, , options]) => options?.service === MARKER_SERVICE,
+    );
+  const markerClears = () =>
+    (Keychain.resetGenericPassword as jest.Mock).mock.calls.filter(
+      ([options]) => options?.service === MARKER_SERVICE,
+    );
+
+  it('writes the marker with no access control and after-first-unlock accessibility', async () => {
+    await writeAppLockMarker();
+    expect(markerWrites()).toHaveLength(1);
+    const [, , options] = markerWrites()[0];
+    expect(options).not.toHaveProperty('accessControl');
+    expect(options).not.toHaveProperty('securityLevel');
+    expect(options).toEqual(
+      expect.objectContaining({
+        accessible: Keychain.ACCESSIBLE.AFTER_FIRST_UNLOCK,
+        storage: Keychain.STORAGE_TYPE.AES_GCM_NO_AUTH,
+      }),
+    );
+  });
+
+  it('reports the marker present only for its own service', async () => {
+    stubCredential(BIOMETRIC_SERVICE, {
+      username: 'expense-tracker',
+      password: 'biometric-lock',
+    });
+    await expect(appLockMarkerExists()).resolves.toBe(false);
+    stubCredential(MARKER_SERVICE, {
+      username: 'expense-tracker',
+      password: 'app-lock-on',
+    });
+    await expect(appLockMarkerExists()).resolves.toBe(true);
+    expect(Keychain.hasGenericPassword).toHaveBeenCalledWith({
+      service: MARKER_SERVICE,
+    });
+  });
+
+  it('passes a keychain failure through from the existence probe', async () => {
+    (Keychain.hasGenericPassword as jest.Mock).mockRejectedValueOnce(
+      new Error('keychain down'),
+    );
+    await expect(appLockMarkerExists()).rejects.toThrow('keychain down');
+  });
+
+  it('swallows a failed marker write', async () => {
+    (Keychain.setGenericPassword as jest.Mock).mockRejectedValueOnce(
+      new Error('keystore busy'),
+    );
+    await expect(writeAppLockMarker()).resolves.toBeUndefined();
+  });
+
+  it('swallows a failed marker clear', async () => {
+    (Keychain.resetGenericPassword as jest.Mock).mockRejectedValueOnce(
+      new Error('keystore busy'),
+    );
+    await expect(clearAppLockMarker()).resolves.toBeUndefined();
+  });
+
+  it('writes the marker only when the lock is on and it is missing', async () => {
+    await syncAppLockMarker(true);
+    expect(markerWrites()).toHaveLength(1);
+    stubCredential(MARKER_SERVICE, {
+      username: 'expense-tracker',
+      password: 'app-lock-on',
+    });
+    await syncAppLockMarker(true);
+    expect(markerWrites()).toHaveLength(1);
+    expect(markerClears()).toHaveLength(0);
+  });
+
+  it('clears the marker only when the lock is off and it is present', async () => {
+    await syncAppLockMarker(false);
+    expect(markerClears()).toHaveLength(0);
+    stubCredential(MARKER_SERVICE, {
+      username: 'expense-tracker',
+      password: 'app-lock-on',
+    });
+    await syncAppLockMarker(false);
+    expect(markerClears()).toHaveLength(1);
+    expect(markerWrites()).toHaveLength(0);
+  });
+
+  it('leaves the marker alone when its presence cannot be read', async () => {
+    (Keychain.hasGenericPassword as jest.Mock).mockRejectedValue(
+      new Error('keychain down'),
+    );
+    await expect(syncAppLockMarker(true)).resolves.toBeUndefined();
+    await expect(syncAppLockMarker(false)).resolves.toBeUndefined();
+    expect(markerWrites()).toHaveLength(0);
+    expect(markerClears()).toHaveLength(0);
   });
 });
