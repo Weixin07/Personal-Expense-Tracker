@@ -98,6 +98,10 @@ import {
   gatePresentation as deriveGatePresentation,
   type GatePresentation,
 } from '../security/gatePresentation';
+import {
+  readGateSetting,
+  resolveGateReading,
+} from '../security/appLockReading';
 
 export type { ExportQueueItem } from '../hooks';
 export type {
@@ -383,20 +387,25 @@ const TransactionDataContext = createContext<
   TransactionDataContextValue | undefined
 >(undefined);
 
+/**
+ * `gateReading` is the stored lock setting as `readGateSetting` reads it;
+ * `settings.biometricGateEnabled` is on only for a definite `true`, and is
+ * provisional while `gateReading` is `null`.
+ */
 const parseSettings = (
   records: AppSettingRecord[],
-): TransactionDataSettings => {
+): { settings: TransactionDataSettings; gateReading: boolean | null } => {
   const baseCurrency =
     records.find(setting => setting.key === BASE_CURRENCY_KEY)?.value ?? null;
-  const biometricGateSetting = records.find(
-    setting => setting.key === BIOMETRIC_GATE_KEY,
-  )?.value;
+  const gateReading = readGateSetting(
+    records.find(setting => setting.key === BIOMETRIC_GATE_KEY)?.value,
+  );
   const driveFolderId =
     records.find(setting => setting.key === DRIVE_FOLDER_ID_KEY)?.value ?? null;
   const exportDirectoryUri =
     records.find(setting => setting.key === EXPORT_DIRECTORY_URI_KEY)?.value ??
     null;
-  const biometricGateEnabled = biometricGateSetting === 'true';
+  const biometricGateEnabled = gateReading === true;
   const biometricCredentialVersion =
     Number.parseInt(
       records.find(setting => setting.key === BIOMETRIC_CRED_VERSION_KEY)
@@ -408,12 +417,15 @@ const parseSettings = (
       null,
   );
   return {
-    baseCurrency,
-    biometricGateEnabled,
-    biometricCredentialVersion,
-    autoLockMinutes,
-    driveFolderId,
-    exportDirectoryUri,
+    settings: {
+      baseCurrency,
+      biometricGateEnabled,
+      biometricCredentialVersion,
+      autoLockMinutes,
+      driveFolderId,
+      exportDirectoryUri,
+    },
+    gateReading,
   };
 };
 
@@ -801,21 +813,35 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
         };
       });
 
-      const settings = parseSettings(snapshot.settings);
+      const { settings, gateReading } = parseSettings(snapshot.settings);
+      // Resolved before `load/success`: the cold-start lock is evaluated once,
+      // on the first load to land, and a later correction would not lock.
+      const marker =
+        gateReading === null
+          ? await appLockMarkerExists().catch(() => null)
+          : null;
+      const { enabled, writeBack } = resolveGateReading(gateReading, marker);
       dispatch({
         type: 'load/success',
         payload: {
           transactions: snapshot.transactions,
           categories: snapshot.categories,
           funds: snapshot.funds,
-          settings,
+          settings: { ...settings, biometricGateEnabled: enabled },
           fxRateSeries: snapshot.fxRateSeries,
         },
       });
       setLoadedQueueRecords(snapshot.exportQueueRecords);
-      // Only from settings read here, never from the `load/error` value, which
-      // is itself derived from the marker.
-      void syncAppLockMarker(settings.biometricGateEnabled);
+      if (writeBack !== null) {
+        void withDatabase(db =>
+          dbSetSetting(db, BIOMETRIC_GATE_KEY, String(writeBack)),
+        ).catch(() => {
+          // Best-effort: the setting stays unreadable, so the next load
+          // consults the marker again.
+        });
+      }
+      // Only the setting as read, never a value derived from the marker.
+      void syncAppLockMarker(gateReading);
     } catch (error) {
       // The keychain decides here because it outlives a database that will
       // not open. Any of the three entries means the lock was on: a device with
@@ -890,6 +916,11 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     if (state.settings.biometricCredentialVersion >= BIOMETRIC_CRED_VERSION) {
       return;
     }
+    // Replacing the biometric entry is a credential change, so it waits for
+    // an unlock like every other change made under the lock.
+    if (!sessionAuthenticated) {
+      return;
+    }
     void (async () => {
       try {
         await ensureBiometricCredential();
@@ -913,6 +944,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     state.isInitialised,
     state.settings.biometricGateEnabled,
     state.settings.biometricCredentialVersion,
+    sessionAuthenticated,
     ensureBiometricCredential,
   ]);
 
@@ -1206,9 +1238,18 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
           await clearAppPin();
           applyBiometricEnabledState(false);
         }
-        await withDatabase(db =>
-          dbSetSetting(db, BIOMETRIC_GATE_KEY, enabled ? 'true' : 'false'),
-        );
+        try {
+          await withDatabase(db =>
+            dbSetSetting(db, BIOMETRIC_GATE_KEY, enabled ? 'true' : 'false'),
+          );
+        } catch (error) {
+          if (enabled) {
+            // A marker with no saved setting would turn the lock on at the
+            // next launch, under the rule on `resolveGateReading`.
+            await clearAppLockMarker();
+          }
+          throw error;
+        }
         if (!enabled) {
           // Only once the setting is saved: until then the marker is what
           // keeps a gate with no credential left fail-closed.

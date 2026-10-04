@@ -157,3 +157,6 @@ migration table, not here.
   lock on from before app PINs existed, and had neither a PIN nor a fingerprint set up for it,
   failing to read its data could let the app open without asking. It now stays locked and asks you to
   confirm with your screen lock, or to set one up first.
+- **The app lock now holds if the app's data file is damaged.** If Android has to rebuild it, or
+  the lock setting goes missing, the app now stays locked instead of opening as new, so your Drive
+  backups stay behind the lock.

@@ -176,8 +176,9 @@ const appLockMarkerStorageOptions = {
 };
 
 /**
- * The lock marker exists while the app lock is on, and is read only when
- * settings cannot be. It rejects when the keychain cannot answer; the writers
+ * The lock marker exists while the app lock is on. It is read when settings
+ * fail to load, or load with no definite lock setting, under the rule on
+ * `resolveGateReading`. It rejects when the keychain cannot answer; the writers
  * below never do.
  */
 export const appLockMarkerExists = (): Promise<boolean> =>
@@ -204,8 +205,16 @@ export const clearAppLockMarker = async (): Promise<void> => {
   }
 };
 
-/** Brings the marker into line with `enabled`, touching it only on a mismatch. */
-export const syncAppLockMarker = async (enabled: boolean): Promise<void> => {
+/**
+ * Brings the marker into line with `enabled`, touching it only on a mismatch.
+ * `null` is a setting that could not be read, and leaves the marker alone.
+ */
+export const syncAppLockMarker = async (
+  enabled: boolean | null,
+): Promise<void> => {
+  if (enabled === null) {
+    return;
+  }
   let present: boolean;
   try {
     present = await appLockMarkerExists();

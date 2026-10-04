@@ -565,6 +565,46 @@ describe('TransactionDataProvider effects', () => {
     expect(ctx.state.error).toBeNull();
   });
 
+  it('clears the lock marker again when saving the lock-on setting fails', async () => {
+    stubPinExists(true);
+    await renderProvider();
+    mockDb.setSetting.mockImplementation((_db, key) =>
+      key === 'biometric_gate_enabled'
+        ? Promise.reject(new Error('disk full'))
+        : Promise.resolve(undefined),
+    );
+    await act(async () => {
+      await expect(ctx.actions.setBiometricGateEnabled(true)).rejects.toThrow(
+        'disk full',
+      );
+    });
+    const writes = markerWriteCallOrders();
+    const clears = markerClearCallOrders();
+    expect(writes).toHaveLength(1);
+    expect(clears).toHaveLength(1);
+    expect(writes[0]).toBeLessThan(clears[0]);
+    expect(ctx.state.settings.biometricGateEnabled).toBe(false);
+    expect(ctx.state.error).toBe('disk full');
+  });
+
+  it('keeps the lock marker when only the credential version fails to save', async () => {
+    stubPinExists(true);
+    await renderProvider();
+    mockDb.setSetting.mockImplementation((_db, key) =>
+      key === 'biometric_cred_version'
+        ? Promise.reject(new Error('disk full'))
+        : Promise.resolve(undefined),
+    );
+    await act(async () => {
+      await expect(ctx.actions.setBiometricGateEnabled(true)).rejects.toThrow(
+        'disk full',
+      );
+    });
+    expect(markerWrites()).toHaveLength(1);
+    expect(markerClearCallOrders()).toHaveLength(0);
+    expect(gateSettingWriteOrder('true')).not.toBeNaN();
+  });
+
   // Under the rule on `TransactionDataActions.setBiometricGateEnabled`.
   it('refuses to enable the gate when no PIN is set', async () => {
     stubPinExists(false);
@@ -2047,10 +2087,128 @@ describe('TransactionDataProvider effects', () => {
   });
 
   it('clears a stale marker on a healthy load with the lock off', async () => {
+    mockDb.getAllSettings.mockResolvedValue([
+      { key: 'biometric_gate_enabled', value: 'false' },
+    ]);
     stubMarkerOnly();
     await renderProvider();
     await waitFor(() => expect(markerClearCallOrders()).toHaveLength(1));
     expect(markerWrites()).toHaveLength(0);
+    expect(ctx.state.biometric.isLocked).toBe(false);
+  });
+
+  describe('a healthy load with no definite lock setting', () => {
+    const markerProbes = () =>
+      (Keychain.hasGenericPassword as jest.Mock).mock.calls.filter(
+        ([options]) => options?.service === MARKER_SERVICE,
+      );
+
+    const gateSettingWrites = () =>
+      mockDb.setSetting.mock.calls.filter(
+        ([, key]) => key === 'biometric_gate_enabled',
+      );
+
+    it('locks and restores the setting when the marker is present', async () => {
+      stubMarkerOnly();
+      await renderProvider();
+      await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
+      expect(ctx.state.settings.biometricGateEnabled).toBe(true);
+      await waitFor(() =>
+        expect(mockDb.setSetting).toHaveBeenCalledWith(
+          expect.anything(),
+          'biometric_gate_enabled',
+          'true',
+        ),
+      );
+      expect(markerWrites()).toHaveLength(0);
+      expect(markerClearCallOrders()).toHaveLength(0);
+    });
+
+    it('opens as a fresh install and stores the lock as off when there is no marker', async () => {
+      await renderProvider();
+      await act(async () => {});
+      expect(ctx.state.biometric.isLocked).toBe(false);
+      expect(ctx.state.settings.biometricGateEnabled).toBe(false);
+      expect(gateSettingWrites()).toEqual([
+        [expect.anything(), 'biometric_gate_enabled', 'false'],
+      ]);
+      expect(markerWrites()).toHaveLength(0);
+      expect(markerClearCallOrders()).toHaveLength(0);
+    });
+
+    it('locks without restoring the setting when the marker cannot be read', async () => {
+      (Keychain.hasGenericPassword as jest.Mock).mockImplementation(
+        ({ service }: { service: string }) =>
+          service === MARKER_SERVICE
+            ? Promise.reject(new Error('keychain down'))
+            : Promise.resolve(false),
+      );
+      await renderProvider();
+      await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
+      await act(async () => {});
+      expect(ctx.state.error).toBeNull();
+      expect(gateSettingWrites()).toHaveLength(0);
+    });
+
+    it.each([null, 'TRUE'])(
+      'treats a stored value of %p like a missing setting',
+      async value => {
+        mockDb.getAllSettings.mockResolvedValue([
+          { key: 'biometric_gate_enabled', value },
+        ]);
+        stubMarkerOnly();
+        await renderProvider();
+        await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
+        await waitFor(() =>
+          expect(mockDb.setSetting).toHaveBeenCalledWith(
+            expect.anything(),
+            'biometric_gate_enabled',
+            'true',
+          ),
+        );
+        expect(markerClearCallOrders()).toHaveLength(0);
+      },
+    );
+
+    it.each([null, 'TRUE'])(
+      'replaces a stored value of %p with off and opens when there is no marker',
+      async value => {
+        mockDb.getAllSettings.mockResolvedValue([
+          { key: 'biometric_gate_enabled', value },
+        ]);
+        await renderProvider();
+        await act(async () => {});
+        expect(ctx.state.biometric.isLocked).toBe(false);
+        expect(gateSettingWrites()).toEqual([
+          [expect.anything(), 'biometric_gate_enabled', 'false'],
+        ]);
+      },
+    );
+
+    it('stays healthy and locked when restoring the setting fails', async () => {
+      stubMarkerOnly();
+      mockDb.setSetting.mockRejectedValue(new Error('disk full'));
+      await renderProvider();
+      await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
+      await waitFor(() => expect(gateSettingWrites()).toHaveLength(1));
+      await act(async () => {});
+      expect(ctx.state.error).toBeNull();
+      expect(markerClearCallOrders()).toHaveLength(0);
+    });
+
+    it.each(['true', 'false'])(
+      'probes the marker only once, from the sync, when the setting reads %p',
+      async value => {
+        mockDb.getAllSettings.mockResolvedValue([
+          { key: 'biometric_gate_enabled', value },
+          { key: 'biometric_cred_version', value: '2' },
+        ]);
+        await renderProvider();
+        await waitFor(() => expect(markerProbes()).toHaveLength(1));
+        await act(async () => {});
+        expect(markerProbes()).toHaveLength(1);
+      },
+    );
   });
 
   it('does not rewrite a marker that is already present', async () => {
@@ -2093,6 +2251,7 @@ describe('TransactionDataProvider effects', () => {
     ]);
     (Keychain.getSupportedBiometryType as jest.Mock).mockResolvedValue(null);
     await renderProvider();
+    await confirmScreenLock();
     await waitFor(() =>
       expect(mockDb.setSetting).toHaveBeenCalledWith(
         expect.anything(),
@@ -2116,11 +2275,32 @@ describe('TransactionDataProvider effects', () => {
     await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
   });
 
-  it('refreshes a legacy credential to the new access control on healthy load', async () => {
+  it('leaves a legacy credential alone until the app is unlocked', async () => {
     mockDb.getAllSettings.mockResolvedValue([
       { key: 'biometric_gate_enabled', value: 'true' },
     ]);
     await renderProvider();
+    await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
+    await act(async () => {});
+    expect(biometricWrites()).toHaveLength(0);
+    expect(
+      (Keychain.resetGenericPassword as jest.Mock).mock.calls.filter(
+        ([options]) => options?.service === BIOMETRIC_SERVICE,
+      ),
+    ).toHaveLength(0);
+    expect(mockDb.setSetting).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'biometric_cred_version',
+      '2',
+    );
+  });
+
+  it('refreshes a legacy credential to the new access control once unlocked', async () => {
+    mockDb.getAllSettings.mockResolvedValue([
+      { key: 'biometric_gate_enabled', value: 'true' },
+    ]);
+    await renderProvider();
+    await confirmScreenLock();
     await waitFor(() =>
       expect(mockDb.setSetting).toHaveBeenCalledWith(
         expect.anything(),
@@ -2147,6 +2327,7 @@ describe('TransactionDataProvider effects', () => {
       { key: 'biometric_gate_enabled', value: 'true' },
     ]);
     await renderProvider();
+    await confirmScreenLock();
     await waitFor(() =>
       expect(mockDb.setSetting).toHaveBeenCalledWith(
         expect.anything(),
@@ -2164,6 +2345,7 @@ describe('TransactionDataProvider effects', () => {
     ]);
     await renderProvider();
     await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
+    await confirmScreenLock();
     expect(mockDb.setSetting).not.toHaveBeenCalledWith(
       expect.anything(),
       'biometric_cred_version',
@@ -2188,6 +2370,7 @@ describe('TransactionDataProvider effects', () => {
     );
     await renderProvider();
     await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
+    await confirmScreenLock();
     expect(mockDb.setSetting).not.toHaveBeenCalledWith(
       expect.anything(),
       'biometric_cred_version',

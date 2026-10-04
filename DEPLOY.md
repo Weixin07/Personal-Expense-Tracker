@@ -328,11 +328,38 @@ biometric, SAF export, and the offline queue. Also confirm icons and themed UI r
     entry** (a step-11 install on a device with no biometric enrolled), expect _Use screen lock_,
     or a prompt to set one — **never the app itself**. After the restore the ledger is intact.
 
-    **Two ways that look right but do not reach the fail-closed path.** Making the file unreadable
+    **A setting that has gone missing.** Settings that load without the lock setting must not
+    read as lock off. Run each check below with the gate enabled, from a fresh
+    `cp orig/* broken/`, pushing `broken/expense_tracker.db` with the same two `adb` lines as
+    above:
+    - **Lost row:** remove just the setting.
+
+      ```
+      python -c "import sqlite3; c = sqlite3.connect('broken/expense_tracker.db'); c.execute(\"DELETE FROM app_settings WHERE key = 'biometric_gate_enabled'\"); c.commit(); c.execute('PRAGMA wal_checkpoint(TRUNCATE)')"
+      ```
+
+      **Pass:** the app reaches the lock screen, and after unlocking the ledger is intact. Force-stop
+      and cold-start again: it locks again, because the setting was written back.
+
+    - **Corrupt file:** overwrite the 100-byte SQLite header.
+
+      ```
+      python -c "p = 'broken/expense_tracker.db'; d = open(p, 'rb').read(); open(p, 'wb').write(b'X' * 100 + d[100:])"
+      ```
+
+      **Pass:** logcat shows `DB wipe detected … reason=corruption` (older Android versions log
+      only `Corruption reported by sqlite`), and the app reaches the lock
+      screen, **never the app itself**. After unlocking, the ledger is empty (Android deleted the
+      file) and Settings shows the app lock on; a second cold start locks again. Restore `orig/`
+      afterwards.
+
+    - **Contrast:** the corrupt-file run with the app lock **off** opens as a fresh install with
+      no lock. No lock marker exists, so there is nothing to keep it locked.
+
+    **A way that looks right but does not reach the fail-closed path.** Making the file unreadable
     (`chmod 000`, or swapping it for a directory) fails the open itself, which
     `react-native-sqlite-storage` never reports back, so the app stays on its loading spinner with
-    nothing reachable. Corrupting the file makes Android's default corruption handler delete it
-    and start a fresh, empty database, so the app opens as a new install.
+    nothing reachable.
 
 9.  **Auto-lock presets** — for each of Immediately / 1 / 5 / 15 / 30, background the app for
     just under and just over the setting and confirm the lock fires only past it. Set **Never**

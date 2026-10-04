@@ -1348,4 +1348,18 @@ describe('app lock marker', () => {
     expect(markerWrites()).toHaveLength(0);
     expect(markerClears()).toHaveLength(0);
   });
+
+  it('neither probes nor touches the marker for an unreadable setting', async () => {
+    await syncAppLockMarker(null);
+    stubCredential(MARKER_SERVICE, {
+      username: 'expense-tracker',
+      password: 'app-lock-on',
+    });
+    await syncAppLockMarker(null);
+    expect(Keychain.hasGenericPassword).not.toHaveBeenCalledWith({
+      service: MARKER_SERVICE,
+    });
+    expect(markerWrites()).toHaveLength(0);
+    expect(markerClears()).toHaveLength(0);
+  });
 });
