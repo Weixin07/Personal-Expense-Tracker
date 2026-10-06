@@ -460,17 +460,76 @@ biometric, SAF export, and the offline queue. Also confirm icons and themed UI r
         2. Background the app and return to it.
         3. The compressed dump from the check above lists none of the presets, _Never_ included.
         4. Tab, the arrow keys and Enter never reach them.
-        5. Unlock. Auto-lock still reads **Immediately**, and the dialog is still open and usable.
+        5. By eye, the dialog is not visible behind the lock card.
+        6. Unlock. Auto-lock still reads **Immediately**, and the dialog is still open and usable.
 
-        **A system confirmation left open when the app locks does nothing.** Run on API 36 and on
+        **A system confirmation left open when the app locks is closed.** Run on API 36 and on
         `PET_API_28`:
         1. In Manage categories, tap Delete on a category no transaction uses, and leave _Delete
            category_ showing.
-        2. Background the app and return to it (Auto-lock **Immediately**), then tap **DELETE**.
-        3. A _"Delete failed"_ alert reading _"Unlock the app first."_ may follow; that is expected.
-        4. Unlock. The category is still listed.
+        2. Background the app and return to it (Auto-lock **Immediately**).
+        3. The confirmation is gone; only the lock screen shows.
+        4. Unlock. The category is still listed, and no alert is showing.
 
-        The confirmation's own text stays readable above the lock screen; only its buttons are inert.
+        **An alert raised while locked never shows.** With Auto-lock **Immediately**, start an
+        import, background the app before it finishes, and return. No alert appears over the lock
+        screen, and none appears after unlocking.
+
+        **An alert open as the app leaves never shows over the return.** The settled screen hides
+        this, so capture the emulator window frame by frame from the host (`CopyFromScreen` on the
+        window rect, keeping only frames that differ). Run on API 36 and on `PET_API_28`:
+        1. With Auto-lock **Immediately**, tap Delete on a category in Manage categories, leave
+           _Delete category_ showing, and press Home.
+        2. Start the capture, then reopen the app: no frame shows the confirmation before the lock
+           card. Unlock: the category is still listed and no alert is showing.
+        3. Set Auto-lock to **5** and repeat steps 1 and 2: the app returns unlocked, and the
+           confirmation comes back and still works.
+
+        **A return that will lock draws nothing of the app first.** Capture frame by frame as above.
+        Run on API 36 and on `PET_API_28`:
+        1. Set Auto-lock to **1**, leave the ledger showing, press Home, and wait over a minute.
+        2. Start the capture and reopen the app: no frame shows the ledger before the lock card.
+        3. Still under **1**, open the file picker from the Import screen, wait over a minute in it,
+           then cancel: no frame shows the ledger before the lock card.
+
+        **Nothing of the app is drawn under the lock on a cold start.** Capture a cold start with
+        the lock on frame by frame: the frames run from the launcher to a blank surface to the lock
+        card, with no ledger frame. The plain `uiautomator dump` under the lock lists none of the
+        app's own text (no base currency, fund or balance). Run on API 36, `PET_API_31` and
+        `PET_API_28`.
+
+        **Screens mount at the first unlock and survive a relock.**
+        1. Cold-start with the lock on and unlock: Home opens on its default _Last 30 days_ filter.
+        2. Set Auto-lock to **1**, start a transaction in Add Transaction (amount and note filled in,
+           not saved), background the app for over a minute, return and unlock: the form still holds
+           what you typed.
+
+        **The lock screen hides the app.** `FLAG_SECURE` is on whenever the lock is, so
+        `adb exec-out screencap` and `screenrecord` come back black and prove only the flag. Check
+        the cover **by eye** on the emulator window (or on a phone, if the emulator draws secure
+        windows black too). Run on API 36 and on `PET_API_28`:
+        1. Cold-start with the lock on: the unlock card sits on a plain background, with no base
+           currency, fund or balance visible, including under the status and gesture bars.
+        2. Set Auto-lock to **1**, background the app for over a minute, and return: no frame of the
+           ledger before the lock card.
+        3. From an unlocked ledger screen, press Home, then open Recents: the app's preview is blank.
+           Turn the lock off and repeat: the preview shows the app, proving the flag follows the
+           setting.
+        4. With the lock on, take a screenshot with the hardware buttons: Android refuses it. With
+           the lock off, it works.
+        5. Set Auto-lock to **5**, focus the search field so the keyboard is up, background the app
+           for ten seconds, and return: the app reappears unlocked, with the field still focused.
+        6. With Auto-lock **5**, pick a file on the Import screen and, separately, sign in to Google:
+           no blank curtain flashes on the way back.
+        7. With Auto-lock **Immediately**, pick a file on the Import screen: the lock card appears
+           on return with no frame of the ledger first.
+
+        A debug APK built before the window module existed crashes at startup on newer JavaScript
+        (`AppLockWindow` not found) — rebuild the APK.
+
+        In a debug build, React Native's dev warning toast (_"Open debugger to view warnings"_) can
+        draw above the lock card. Ignore it in every lock check: it exists only in development
+        builds, and a release build has no such toast.
 
         **Nothing is reachable before the lock engages.** Cold-start the app while hammering the
         Settings gear from the moment of launch, with the lock on and no PIN (the most exposed state):

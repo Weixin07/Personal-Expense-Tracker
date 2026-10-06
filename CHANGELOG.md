@@ -147,6 +147,11 @@ migration table, not here.
 - When one import file carries two different rates for the same currency pair,
   the one you confirmed at the review step is the one saved. Previously
   whichever row came first won.
+- **With the app lock on, you can't take screenshots of the app or share its screen.** This is
+  what keeps your ledger out of the recent-apps preview. Turn the lock off in Settings when you need
+  a screenshot.
+- **A system message left open when the app locks is now closed.** One that appears while the app
+  is locked, such as an import finishing, is closed too and doesn't come back after you unlock.
 
 ### Security
 
@@ -160,3 +165,8 @@ migration table, not here.
 - **The app lock now holds if the app's data file is damaged.** If Android has to rebuild it, or
   the lock setting goes missing, the app now stays locked instead of opening as new, so your Drive
   backups stay behind the lock.
+- **The unlock screen no longer shows your data behind it.** It used to dim the app rather than
+  hide it, so balances and fund names stayed readable; it now covers the app completely. While the
+  lock is on, the app's preview in the recent-apps list is blank too.
+- **On launch with the lock on, nothing of your ledger is loaded into the screens until you
+  unlock.** After that they stay open, so a relock doesn't lose a half-filled form.

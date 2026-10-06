@@ -11,6 +11,7 @@ import {
 } from '../useBiometricGate';
 import { PIN_LOCKOUT_ATTEMPTS } from '../../security/lockoutPolicy';
 import NativeAppPinCrypto from '../../security/NativeAppPinCrypto';
+import { withOutboundFlow } from '../../security/outboundFlow';
 
 const BIOMETRIC_SERVICE = 'expense-tracker-biometric-gate';
 const APP_PIN_SERVICE = 'expense-tracker-app-pin';
@@ -716,6 +717,24 @@ describe('useBiometricGate', () => {
     });
   });
 
+  describe('returnNonce', () => {
+    it('advances on every return to the foreground, in the render that may lock', () => {
+      const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+      const seen: Array<{ nonce: number; locked: boolean }> = [];
+      renderHook(() => {
+        const gate = useBiometricGate({ enabled: true, autoLockMinutes: 5 });
+        seen.push({ nonce: gate.returnNonce, locked: gate.isLocked });
+        return gate;
+      });
+      act(() => emitAppState('background'));
+      expect(seen[seen.length - 1].nonce).toBe(0);
+      nowSpy.mockReturnValue(1_000_000 + 6 * 60 * 1000);
+      act(() => emitAppState('active'));
+      expect(seen.find(render => render.nonce === 1)?.locked).toBe(true);
+      nowSpy.mockRestore();
+    });
+  });
+
   describe('backgroundNonce', () => {
     it('starts at zero', () => {
       const { result } = renderHook(() => useBiometricGate({ enabled: true }));
@@ -1361,5 +1380,151 @@ describe('app lock marker', () => {
     });
     expect(markerWrites()).toHaveLength(0);
     expect(markerClears()).toHaveLength(0);
+  });
+});
+
+describe('useBiometricGate cold-start lock', () => {
+  it('reports locked from the first render that has settings', () => {
+    const seen: Array<{ initialised: boolean; locked: boolean }> = [];
+    const { rerender } = renderHook(
+      ({ isInitialised }: { isInitialised: boolean }) => {
+        const gate = useBiometricGate({ enabled: true, isInitialised });
+        seen.push({ initialised: isInitialised, locked: gate.isLocked });
+        return gate;
+      },
+      { initialProps: { isInitialised: false } },
+    );
+    rerender({ isInitialised: true });
+    const afterSettings = seen.filter(render => render.initialised);
+    expect(afterSettings.length).toBeGreaterThan(0);
+    expect(afterSettings.every(render => render.locked)).toBe(true);
+  });
+
+  it('does not lock when the gate is turned on after the first load', () => {
+    const { result, rerender } = renderHook(
+      ({ enabled }: { enabled: boolean }) =>
+        useBiometricGate({ enabled, isInitialised: true }),
+      { initialProps: { enabled: false } },
+    );
+    rerender({ enabled: true });
+    expect(result.current.isLocked).toBe(false);
+  });
+});
+
+describe('useBiometricGate background curtain', () => {
+  const unlockedHook = (autoLockMinutes: number | null = 5) =>
+    renderHook(
+      ({ enabled }: { enabled: boolean }) =>
+        useBiometricGate({ enabled, autoLockMinutes }),
+      { initialProps: { enabled: true } },
+    );
+
+  it('rises when an unlocked app goes to the background', () => {
+    const { result } = unlockedHook();
+    act(() => emitAppState('background'));
+    expect(result.current.curtain).toBe(true);
+  });
+
+  it('stays down with the gate off', () => {
+    const { result } = renderHook(() =>
+      useBiometricGate({ enabled: false, autoLockMinutes: 5 }),
+    );
+    act(() => emitAppState('background'));
+    expect(result.current.curtain).toBe(false);
+  });
+
+  it('stays down under Never, which has no idle check to wait for', () => {
+    const { result } = unlockedHook(null);
+    act(() => emitAppState('background'));
+    expect(result.current.curtain).toBe(false);
+  });
+
+  it('stays down while locked, where the lock screen already covers', async () => {
+    const { result } = renderHook(() =>
+      useBiometricGate({ enabled: true, isInitialised: true }),
+    );
+    await waitFor(() => expect(result.current.isLocked).toBe(true));
+    act(() => emitAppState('background'));
+    expect(result.current.curtain).toBe(false);
+  });
+
+  it('stays down while the screen-lock prompt is open', async () => {
+    const confirmCredential =
+      NativeAppPinCrypto.confirmDeviceCredential as jest.Mock;
+    let confirm: (confirmed: boolean) => void = () => undefined;
+    confirmCredential.mockImplementationOnce(
+      () =>
+        new Promise<boolean>(resolve => {
+          confirm = resolve;
+        }),
+    );
+    const { result } = renderHook(() =>
+      useBiometricGate({ enabled: true, isInitialised: true }),
+    );
+    await waitFor(() => expect(result.current.isLocked).toBe(true));
+    let outcome: Promise<unknown> = Promise.resolve();
+    act(() => {
+      outcome = result.current.unlockWithDeviceCredential();
+    });
+    act(() => emitAppState('background'));
+    await act(async () => {
+      confirm(true);
+      await outcome;
+    });
+    act(() => emitAppState('active'));
+    expect(result.current.isLocked).toBe(false);
+    expect(result.current.curtain).toBe(false);
+  });
+
+  it('stays down for a hand-off to another app under a timed preset', async () => {
+    const { result } = unlockedHook(5);
+    await withOutboundFlow(async () => {
+      act(() => emitAppState('background'));
+    });
+    expect(result.current.curtain).toBe(false);
+  });
+
+  it('rises for a hand-off under Immediately, which always locks on return', async () => {
+    const { result } = unlockedHook(0);
+    await withOutboundFlow(async () => {
+      act(() => emitAppState('background'));
+    });
+    expect(result.current.curtain).toBe(true);
+  });
+
+  it('lifts on return before the idle time has passed', () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const { result } = unlockedHook(5);
+    act(() => emitAppState('background'));
+    nowSpy.mockReturnValue(1_000_000 + 60 * 1000);
+    act(() => emitAppState('active'));
+    expect(result.current.curtain).toBe(false);
+    expect(result.current.isLocked).toBe(false);
+  });
+
+  it('hands over to the lock in the same render once the idle time has passed', () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    const seen: Array<{ curtain: boolean; locked: boolean }> = [];
+    renderHook(() => {
+      const gate = useBiometricGate({ enabled: true, autoLockMinutes: 5 });
+      seen.push({ curtain: gate.curtain, locked: gate.isLocked });
+      return gate;
+    });
+    act(() => emitAppState('background'));
+    nowSpy.mockReturnValue(1_000_000 + 6 * 60 * 1000);
+    const before = seen.length;
+    act(() => emitAppState('active'));
+    const onReturn = seen.slice(before);
+    expect(onReturn.length).toBeGreaterThan(0);
+    expect(onReturn.every(render => render.locked && !render.curtain)).toBe(
+      true,
+    );
+  });
+
+  it('drops when the gate is turned off', () => {
+    const { result } = unlockedHook();
+    act(() => emitAppState('background'));
+    act(() => result.current.applyEnabledState(false));
+    expect(result.current.curtain).toBe(false);
   });
 });

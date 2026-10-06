@@ -29,6 +29,7 @@ import {
 } from '../security/pinCredential';
 import { validatePin } from '../utils/validation';
 import { DEFAULT_AUTO_LOCK_MINUTES } from '../constants/autoLockPresets';
+import { outboundFlowActive } from '../security/outboundFlow';
 
 const BIOMETRIC_KEYCHAIN_SERVICE = 'expense-tracker-biometric-gate';
 
@@ -64,6 +65,12 @@ export type UseBiometricGateResult = {
   unlockWithDeviceCredential: () => Promise<DeviceCredentialOutcome>;
   refreshAvailability: () => Promise<void>;
   backgroundNonce: number;
+  returnNonce: number;
+  /**
+   * True while the app is in the background, unlocked, and may lock on return,
+   * under the rule on `shouldRaiseCurtain`; cleared on return.
+   */
+  curtain: boolean;
   clearError: () => void;
   ensureCredential: () => Promise<void>;
   clearCredential: () => Promise<void>;
@@ -228,8 +235,31 @@ export const syncAppLockMarker = async (
   }
 };
 
-const idleTimeoutMs = (autoLockMinutes: number | null): number | null =>
+/** How long the app may stay in the background before a return locks it; `null` never locks. */
+export const idleTimeoutMs = (autoLockMinutes: number | null): number | null =>
   autoLockMinutes === null ? null : autoLockMinutes * 60 * 1000;
+
+/**
+ * Whether going to the background raises the curtain that hides the app until
+ * the idle check on return. Never under `Never`, which has no such check. A
+ * hand-off to another app raises it only under `Immediately`, the one preset
+ * certain to lock on return.
+ */
+const shouldRaiseCurtain = ({
+  enabled,
+  isLocked,
+  timeoutMs,
+  outboundFlow,
+}: {
+  enabled: boolean;
+  isLocked: boolean;
+  timeoutMs: number | null;
+  outboundFlow: boolean;
+}): boolean =>
+  enabled &&
+  !isLocked &&
+  timeoutMs !== null &&
+  (!outboundFlow || timeoutMs === 0);
 
 export const useBiometricGate = ({
   enabled,
@@ -240,12 +270,13 @@ export const useBiometricGate = ({
   isInitialised?: boolean;
   autoLockMinutes?: number | null;
 }): UseBiometricGateResult => {
-  const [isLocked, setIsLocked] = useState(false);
+  const [lockedState, setLockedState] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [lockout, setLockout] = useState<LockoutStatus>(() =>
     evaluateLockout(EMPTY_LOCKOUT_STATE, Date.now()),
   );
   const [backgroundNonce, setBackgroundNonce] = useState(0);
+  const [returnNonce, setReturnNonce] = useState(0);
   const [lockoutHydrated, setLockoutHydrated] = useState(false);
   const [biometricsAvailable, setBiometricsAvailable] = useState<
     boolean | null
@@ -258,7 +289,14 @@ export const useBiometricGate = ({
   const lastBackgroundAtRef = useRef<number | null>(null);
   const biometricPromptInFlightRef = useRef(false);
   const deviceCredentialInFlightRef = useRef(false);
-  const coldStartEvaluatedRef = useRef(false);
+  const [coldStartEvaluated, setColdStartEvaluated] = useState(false);
+  const [curtain, setCurtain] = useState(false);
+  // Locked from the first render that has settings, so no frame of the app is
+  // committed before the cold-start lock lands.
+  const isLocked =
+    lockedState || (enabled && Boolean(isInitialised) && !coldStartEvaluated);
+  const isLockedRef = useRef(isLocked);
+  isLockedRef.current = isLocked;
 
   const refreshLockout = useCallback(async (): Promise<LockoutStatus> => {
     const status = evaluateLockout(await readLockout(), Date.now());
@@ -335,7 +373,7 @@ export const useBiometricGate = ({
 
   const unlockWithBiometrics = useCallback(async (): Promise<boolean> => {
     if (!enabled) {
-      setIsLocked(false);
+      setLockedState(false);
       return true;
     }
     try {
@@ -350,7 +388,7 @@ export const useBiometricGate = ({
       if (readWasAuthenticated(credentials)) {
         await clearLockout();
         await refreshLockout();
-        setIsLocked(false);
+        setLockedState(false);
         setLastError(null);
         setSessionAuthenticated(true);
         return true;
@@ -390,7 +428,7 @@ export const useBiometricGate = ({
         }
         await clearLockout();
         await refreshLockout();
-        setIsLocked(false);
+        setLockedState(false);
         setLastError(null);
         setSessionAuthenticated(true);
         return outcome;
@@ -412,7 +450,7 @@ export const useBiometricGate = ({
         if (await verifyPin(pin)) {
           await clearLockout();
           await refreshLockout();
-          setIsLocked(false);
+          setLockedState(false);
           setLastError(null);
           setSessionAuthenticated(true);
           return true;
@@ -510,7 +548,8 @@ export const useBiometricGate = ({
   const applyEnabledState = useCallback((nextEnabled: boolean) => {
     lastBackgroundAtRef.current = nextEnabled ? Date.now() : null;
     biometricPromptInFlightRef.current = false;
-    setIsLocked(false);
+    setLockedState(false);
+    setCurtain(false);
     setLastError(null);
     setSessionAuthenticated(false);
   }, []);
@@ -528,12 +567,14 @@ export const useBiometricGate = ({
         if (enabled && last !== null && timeoutMs !== null) {
           const elapsed = Date.now() - last;
           if (elapsed >= timeoutMs) {
-            setIsLocked(true);
+            setLockedState(true);
             setLastError(null);
             setSessionAuthenticated(false);
           }
         }
         lastBackgroundAtRef.current = null;
+        setCurtain(false);
+        setReturnNonce(current => current + 1);
         // A screen lock or biometric may have changed in Settings meanwhile.
         if (enabled && !biometricPromptInFlightRef.current) {
           void refreshAvailability();
@@ -541,6 +582,16 @@ export const useBiometricGate = ({
       } else if (nextState === 'background' || nextState === 'inactive') {
         lastBackgroundAtRef.current = Date.now();
         setBackgroundNonce(current => current + 1);
+        if (
+          shouldRaiseCurtain({
+            enabled,
+            isLocked: isLockedRef.current,
+            timeoutMs,
+            outboundFlow: outboundFlowActive(),
+          })
+        ) {
+          setCurtain(true);
+        }
       }
     };
     const subscription = AppState.addEventListener(
@@ -553,15 +604,15 @@ export const useBiometricGate = ({
   // Unconditional: the auto-lock presets govern background idle only, so Never
   // still locks on a cold start.
   useEffect(() => {
-    if (!isInitialised || coldStartEvaluatedRef.current) {
+    if (!isInitialised || coldStartEvaluated) {
       return;
     }
-    coldStartEvaluatedRef.current = true;
+    setColdStartEvaluated(true);
     if (enabled) {
-      setIsLocked(true);
+      setLockedState(true);
       setSessionAuthenticated(false);
     }
-  }, [enabled, isInitialised]);
+  }, [enabled, isInitialised, coldStartEvaluated]);
 
   useEffect(() => {
     if (!enabled) {
@@ -627,6 +678,8 @@ export const useBiometricGate = ({
     unlockWithDeviceCredential,
     refreshAvailability,
     backgroundNonce,
+    returnNonce,
+    curtain,
     clearError,
     ensureCredential,
     clearCredential,

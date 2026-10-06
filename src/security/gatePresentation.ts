@@ -13,6 +13,10 @@ export type GatePresentation =
   | 'confirm-credential'
   | 'set-screen-lock';
 
+/** Whether the presentation is a locked one, drawn over an opaque cover. */
+export const coversApp = (presentation: GatePresentation): boolean =>
+  presentation !== 'hidden' && presentation !== 'enrol';
+
 export type GateInputs = {
   isInitialised: boolean;
   hasError: boolean;

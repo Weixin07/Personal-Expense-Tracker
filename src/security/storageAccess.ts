@@ -5,6 +5,7 @@ import {
   writeFile,
   unlink,
 } from 'react-native-saf-x';
+import { withOutboundFlow } from './outboundFlow';
 
 const MIME_TYPE_CSV = 'text/csv';
 
@@ -15,7 +16,7 @@ export type DirectorySelectionResult =
 export const requestDirectorySelection =
   async (): Promise<DirectorySelectionResult> => {
     try {
-      const directory = await openDocumentTree(true);
+      const directory = await withOutboundFlow(() => openDocumentTree(true));
       if (!directory || !directory.uri) {
         return { ok: false, cancelled: true };
       }
@@ -56,7 +57,9 @@ export type FileSelectionResult =
 
 export const pickCsvFile = async (): Promise<FileSelectionResult> => {
   try {
-    const selection = await openDocument({ persist: false, multiple: false });
+    const selection = await withOutboundFlow(() =>
+      openDocument({ persist: false, multiple: false }),
+    );
     const document = Array.isArray(selection) ? selection[0] : selection;
     if (!document || !document.uri) {
       return { ok: false, cancelled: true };

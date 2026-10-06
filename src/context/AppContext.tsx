@@ -69,6 +69,7 @@ import { applyFilters } from '../utils/transactionFilters';
 import type { TransactionFilters } from '../utils/transactionFilters';
 import {
   useBiometricGate,
+  idleTimeoutMs,
   useExportSync,
   biometricCredentialExists,
   appLockMarkerExists,
@@ -95,9 +96,12 @@ import {
   type DeviceCredentialOutcome,
 } from '../security/deviceSecurity';
 import {
+  coversApp,
   gatePresentation as deriveGatePresentation,
   type GatePresentation,
 } from '../security/gatePresentation';
+import NativeAppLockWindow from '../security/NativeAppLockWindow';
+import LockCover from '../components/LockCover';
 import {
   readGateSetting,
   resolveGateReading,
@@ -890,6 +894,8 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     unlockWithDeviceCredential,
     refreshAvailability: refreshLockAvailability,
     backgroundNonce: biometricBackgroundNonce,
+    returnNonce: biometricReturnNonce,
+    curtain: backgroundCurtain,
     clearError: clearBiometricError,
     ensureCredential: ensureBiometricCredential,
     clearCredential: clearBiometricCredential,
@@ -960,6 +966,38 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     secureLockScreen,
   });
   const pinSetupRequired = gatePresentation === 'enrol';
+
+  useEffect(() => {
+    NativeAppLockWindow.setSecure(state.settings.biometricGateEnabled);
+  }, [state.settings.biometricGateEnabled]);
+
+  const lockTimeoutMs = state.settings.biometricGateEnabled
+    ? idleTimeoutMs(state.settings.autoLockMinutes)
+    : null;
+  useEffect(() => {
+    NativeAppLockWindow.setIdleTimeout(lockTimeoutMs);
+  }, [lockTimeoutMs]);
+
+  const appCovered = coversApp(gatePresentation);
+  // Screens first mount once the app is uncovered and then stay mounted, so a
+  // cold start builds nothing under the lock while a relock keeps form state.
+  const [shownOnce, setShownOnce] = useState(false);
+  const appMountable = state.isInitialised && (shownOnce || !appCovered);
+  if (appMountable && !shownOnce) {
+    setShownOnce(true);
+  }
+  useLayoutEffect(() => {
+    NativeAppLockWindow.setAlertsSuppressed(appCovered);
+  }, [appCovered]);
+  useLayoutEffect(
+    () => () => NativeAppLockWindow.setAlertsSuppressed(false),
+    [],
+  );
+  useLayoutEffect(() => {
+    if (!appCovered) {
+      NativeAppLockWindow.releaseReturnHold();
+    }
+  }, [appCovered, biometricReturnNonce]);
 
   const createTransaction = useCallback<
     TransactionDataActions['createTransaction']
@@ -1711,13 +1749,16 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
         style={styles.app}
         collapsable={false}
         blocked={gatePresentation !== 'hidden'}
+        concealed={appCovered}
         importantForAccessibility={
           gatePresentation === 'hidden' ? 'auto' : 'no-hide-descendants'
         }
       >
         <Portal.Host>
           {state.isInitialised ? (
-            children
+            appMountable ? (
+              children
+            ) : null
           ) : (
             <Surface style={styles.loading}>
               <ActivityIndicator animating size="large" />
@@ -1743,6 +1784,9 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
           onOpenScreenLockSettings={openScreenLockSettings}
           onCheckAgain={refreshLockAvailability}
         />
+      ) : null}
+      {backgroundCurtain && gatePresentation === 'hidden' ? (
+        <LockCover testID="background-curtain" />
       ) : null}
     </TransactionDataContext.Provider>
   );

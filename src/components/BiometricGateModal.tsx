@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
 import {
   Button,
   HelperText,
@@ -10,7 +10,8 @@ import {
   useTheme,
 } from 'react-native-paper';
 import type { LockoutStatus } from '../hooks';
-import type { GatePresentation } from '../security/gatePresentation';
+import { coversApp, type GatePresentation } from '../security/gatePresentation';
+import LockCover from './LockCover';
 import PinEntryDialog from './PinEntryDialog';
 
 export type BiometricGateModalProps = {
@@ -37,6 +38,24 @@ const styles = StyleSheet.create({
   field: { marginBottom: 8 },
   spacer: { marginTop: 8 },
 });
+
+const LockedPortal: React.FC<
+  React.PropsWithChildren<{
+    presentation: GatePresentation;
+    contentContainerStyle: StyleProp<ViewStyle>;
+  }>
+> = ({ presentation, contentContainerStyle, children }) => (
+  <Portal>
+    {coversApp(presentation) ? <LockCover testID="lock-cover" /> : null}
+    <Modal
+      visible
+      dismissable={false}
+      contentContainerStyle={contentContainerStyle}
+    >
+      {children}
+    </Modal>
+  </Portal>
+);
 
 const formatWait = (retryAtMs: number): string => {
   const remainingSeconds = Math.max(
@@ -181,69 +200,63 @@ export const BiometricGateModal: React.FC<BiometricGateModalProps> = ({
 
   if (presentation === 'set-screen-lock') {
     return (
-      <Portal>
-        <Modal
-          visible
-          dismissable={false}
-          contentContainerStyle={containerStyle}
+      <LockedPortal
+        presentation={presentation}
+        contentContainerStyle={containerStyle}
+      >
+        <Text variant="titleLarge" style={styles.modalTitle}>
+          Screen lock needed
+        </Text>
+        <Text variant="bodyMedium" style={styles.modalBody}>
+          {
+            "The app lock needs your phone's screen lock to confirm it's you. Set a PIN, pattern or password in Android settings, then come back."
+          }
+        </Text>
+        {errorLine}
+        <Button
+          mode="contained"
+          onPress={() => void runPending(onOpenScreenLockSettings)}
+          disabled={submitting}
+          accessibilityLabel="Open screen lock settings"
         >
-          <Text variant="titleLarge" style={styles.modalTitle}>
-            Screen lock needed
-          </Text>
-          <Text variant="bodyMedium" style={styles.modalBody}>
-            {
-              "The app lock needs your phone's screen lock to confirm it's you. Set a PIN, pattern or password in Android settings, then come back."
-            }
-          </Text>
-          {errorLine}
-          <Button
-            mode="contained"
-            onPress={() => void runPending(onOpenScreenLockSettings)}
-            disabled={submitting}
-            accessibilityLabel="Open screen lock settings"
-          >
-            Open settings
-          </Button>
-          <Button
-            mode="text"
-            onPress={() => void runPending(onCheckAgain)}
-            disabled={submitting}
-            style={styles.spacer}
-            accessibilityLabel="Check for a screen lock again"
-          >
-            Check again
-          </Button>
-        </Modal>
-      </Portal>
+          Open settings
+        </Button>
+        <Button
+          mode="text"
+          onPress={() => void runPending(onCheckAgain)}
+          disabled={submitting}
+          style={styles.spacer}
+          accessibilityLabel="Check for a screen lock again"
+        >
+          Check again
+        </Button>
+      </LockedPortal>
     );
   }
 
   if (presentation === 'confirm-credential') {
     return (
-      <Portal>
-        <Modal
-          visible
-          dismissable={false}
-          contentContainerStyle={containerStyle}
+      <LockedPortal
+        presentation={presentation}
+        contentContainerStyle={containerStyle}
+      >
+        <Text variant="titleLarge" style={styles.modalTitle}>
+          Unlock required
+        </Text>
+        <Text variant="bodyMedium" style={styles.modalBody}>
+          Confirm your screen lock to continue.
+        </Text>
+        {errorLine}
+        <Button
+          mode="contained"
+          onPress={() => void runPending(onConfirmCredential)}
+          loading={submitting}
+          disabled={submitting}
+          accessibilityLabel="Confirm your screen lock"
         >
-          <Text variant="titleLarge" style={styles.modalTitle}>
-            Unlock required
-          </Text>
-          <Text variant="bodyMedium" style={styles.modalBody}>
-            Confirm your screen lock to continue.
-          </Text>
-          {errorLine}
-          <Button
-            mode="contained"
-            onPress={() => void runPending(onConfirmCredential)}
-            loading={submitting}
-            disabled={submitting}
-            accessibilityLabel="Confirm your screen lock"
-          >
-            {"Confirm it's you"}
-          </Button>
-        </Modal>
-      </Portal>
+          {"Confirm it's you"}
+        </Button>
+      </LockedPortal>
     );
   }
 
@@ -251,105 +264,106 @@ export const BiometricGateModal: React.FC<BiometricGateModalProps> = ({
   const pinOffered = !noPin && pinVisible;
 
   return (
-    <Portal>
-      <Modal visible dismissable={false} contentContainerStyle={containerStyle}>
-        <Text variant="titleLarge" style={styles.modalTitle}>
-          Unlock required
+    <LockedPortal
+      presentation={presentation}
+      contentContainerStyle={containerStyle}
+    >
+      <Text variant="titleLarge" style={styles.modalTitle}>
+        Unlock required
+      </Text>
+
+      {waiting ? (
+        <Text variant="bodyMedium" style={styles.modalBody}>
+          {lockout.lockedOut
+            ? `Too many incorrect PIN attempts. Try again in ${formatWait(lockout.retryAtMs as number)}.`
+            : `Too many attempts. Try again in ${formatWait(lockout.retryAtMs as number)}.`}
         </Text>
+      ) : (
+        <Text variant="bodyMedium" style={styles.modalBody}>
+          {biometricsUnavailable
+            ? 'Enter your app PIN to continue.'
+            : 'Authenticate with biometrics or your device credentials to continue.'}
+        </Text>
+      )}
 
-        {waiting ? (
-          <Text variant="bodyMedium" style={styles.modalBody}>
-            {lockout.lockedOut
-              ? `Too many incorrect PIN attempts. Try again in ${formatWait(lockout.retryAtMs as number)}.`
-              : `Too many attempts. Try again in ${formatWait(lockout.retryAtMs as number)}.`}
-          </Text>
-        ) : (
-          <Text variant="bodyMedium" style={styles.modalBody}>
-            {biometricsUnavailable
-              ? 'Enter your app PIN to continue.'
-              : 'Authenticate with biometrics or your device credentials to continue.'}
-          </Text>
-        )}
+      {lockout.warnAttemptsRemaining ? (
+        <Text variant="bodySmall" style={styles.modalBody}>
+          {lockout.attemptsRemaining > 0
+            ? `${lockout.attemptsRemaining} attempts remaining before a longer lockout.`
+            : 'Biometrics still work if they are available.'}
+        </Text>
+      ) : null}
 
-        {lockout.warnAttemptsRemaining ? (
-          <Text variant="bodySmall" style={styles.modalBody}>
-            {lockout.attemptsRemaining > 0
-              ? `${lockout.attemptsRemaining} attempts remaining before a longer lockout.`
-              : 'Biometrics still work if they are available.'}
-          </Text>
-        ) : null}
+      {errorLine}
 
-        {errorLine}
-
-        {pinOffered && !waiting ? (
-          <>
-            <TextInput
-              label="App PIN"
-              value={pin}
-              onChangeText={setPin}
-              mode="outlined"
-              secureTextEntry
-              keyboardType="number-pad"
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="off"
-              contextMenuHidden
-              editable={!submitting}
-              style={styles.field}
-              accessibilityLabel="App PIN"
-            />
-            <HelperText type="info" visible>
-              Use your PIN when biometrics are unavailable.
-            </HelperText>
-            <Button
-              mode="contained"
-              onPress={() => void handleSubmitPin()}
-              loading={submitting}
-              disabled={submitting || !pin}
-              accessibilityLabel="Unlock with PIN"
-            >
-              Unlock
-            </Button>
-          </>
-        ) : null}
-
-        {!pinOffered || (waiting && !biometricsUnavailable) ? (
+      {pinOffered && !waiting ? (
+        <>
+          <TextInput
+            label="App PIN"
+            value={pin}
+            onChangeText={setPin}
+            mode="outlined"
+            secureTextEntry
+            keyboardType="number-pad"
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoComplete="off"
+            contextMenuHidden
+            editable={!submitting}
+            style={styles.field}
+            accessibilityLabel="App PIN"
+          />
+          <HelperText type="info" visible>
+            Use your PIN when biometrics are unavailable.
+          </HelperText>
           <Button
             mode="contained"
-            onPress={onRetry}
-            disabled={submitting}
-            accessibilityLabel="Try biometrics again"
+            onPress={() => void handleSubmitPin()}
+            loading={submitting}
+            disabled={submitting || !pin}
+            accessibilityLabel="Unlock with PIN"
           >
-            Try again
+            Unlock
           </Button>
-        ) : null}
+        </>
+      ) : null}
 
-        {noPin ? (
-          <Button
-            mode="text"
-            onPress={() => void runPending(onConfirmCredential)}
-            disabled={submitting}
-            style={styles.spacer}
-            accessibilityLabel="Use screen lock instead"
-          >
-            Use screen lock instead
-          </Button>
-        ) : null}
+      {!pinOffered || (waiting && !biometricsUnavailable) ? (
+        <Button
+          mode="contained"
+          onPress={onRetry}
+          disabled={submitting}
+          accessibilityLabel="Try biometrics again"
+        >
+          Try again
+        </Button>
+      ) : null}
 
-        {!noPin && !waiting && !biometricsUnavailable && pinUsable !== false ? (
-          <Button
-            mode="text"
-            onPress={() => setPinRequested(current => !current)}
-            style={styles.spacer}
-            accessibilityLabel={
-              pinVisible ? 'Use biometrics instead' : 'Use PIN instead'
-            }
-          >
-            {pinVisible ? 'Use biometrics instead' : 'Use PIN instead'}
-          </Button>
-        ) : null}
-      </Modal>
-    </Portal>
+      {noPin ? (
+        <Button
+          mode="text"
+          onPress={() => void runPending(onConfirmCredential)}
+          disabled={submitting}
+          style={styles.spacer}
+          accessibilityLabel="Use screen lock instead"
+        >
+          Use screen lock instead
+        </Button>
+      ) : null}
+
+      {!noPin && !waiting && !biometricsUnavailable && pinUsable !== false ? (
+        <Button
+          mode="text"
+          onPress={() => setPinRequested(current => !current)}
+          style={styles.spacer}
+          accessibilityLabel={
+            pinVisible ? 'Use biometrics instead' : 'Use PIN instead'
+          }
+        >
+          {pinVisible ? 'Use biometrics instead' : 'Use PIN instead'}
+        </Button>
+      ) : null}
+    </LockedPortal>
   );
 };
 

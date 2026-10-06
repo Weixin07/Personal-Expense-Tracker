@@ -1,4 +1,5 @@
 import React from 'react';
+import { MD3LightTheme } from 'react-native-paper';
 import {
   renderWithProviders,
   screen,
@@ -444,5 +445,30 @@ describe('BiometricGateModal decline refused by the provider', () => {
     await waitFor(() =>
       expect(screen.getByText('Unlock the app first.')).toBeOnTheScreen(),
     );
+  });
+});
+
+describe('BiometricGateModal cover', () => {
+  it.each([
+    'unlock',
+    'unlock-no-pin',
+    'confirm-credential',
+    'set-screen-lock',
+  ] as const)('hides the app behind an opaque surface on %s', presentation => {
+    renderModal({ presentation });
+    const cover = screen.getByTestId('lock-cover', {
+      includeHiddenElements: true,
+    });
+    expect(cover).toHaveStyle({
+      backgroundColor: MD3LightTheme.colors.background,
+    });
+    expect(cover.props.importantForAccessibility).toBe('no-hide-descendants');
+  });
+
+  it('leaves the app visible behind enrolment, which follows an unlock', () => {
+    renderModal({ presentation: 'enrol' });
+    expect(
+      screen.queryByTestId('lock-cover', { includeHiddenElements: true }),
+    ).toBeNull();
   });
 });

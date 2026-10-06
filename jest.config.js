@@ -38,6 +38,7 @@ module.exports = {
     '!src/database/index.ts',
     '!src/database/seeding.ts',
     '!src/security/NativeAppPinCrypto.ts',
+    '!src/security/NativeAppLockWindow.ts',
   ],
   coverageThreshold: {
     global: { branches: 70, functions: 80, lines: 80, statements: 80 },
@@ -102,6 +103,12 @@ module.exports = {
       statements: 95,
     },
     './src/security/lockoutStore.ts': {
+      branches: 95,
+      functions: 95,
+      lines: 95,
+      statements: 95,
+    },
+    './src/security/outboundFlow.ts': {
       branches: 95,
       functions: 95,
       lines: 95,

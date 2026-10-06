@@ -1,4 +1,5 @@
 import {
+  coversApp,
   gatePresentation,
   type GateInputs,
   type GatePresentation,
@@ -170,5 +171,18 @@ describe('gatePresentation by route', () => {
     ],
   ])('%s', (_label, overrides, expected) => {
     expect(gatePresentation({ ...lockedNoPin, ...overrides })).toBe(expected);
+  });
+});
+
+describe('coversApp', () => {
+  it.each<[GatePresentation, boolean]>([
+    ['unlock', true],
+    ['unlock-no-pin', true],
+    ['confirm-credential', true],
+    ['set-screen-lock', true],
+    ['enrol', false],
+    ['hidden', false],
+  ])('%s → %s', (presentation, covered) => {
+    expect(coversApp(presentation)).toBe(covered);
   });
 });

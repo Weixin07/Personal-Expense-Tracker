@@ -520,20 +520,21 @@ See [DEPLOY.md - Troubleshooting PKCE Issues](./DEPLOY.md#troubleshooting-pkce-i
 
 ### Available Scripts
 
-| Command                      | Description                                                                   |
-| ---------------------------- | ----------------------------------------------------------------------------- |
-| `pnpm start`                 | Start Metro bundler (keep running during development)                         |
-| `pnpm android`               | Build and run Android app in debug mode                                       |
-| `pnpm test`                  | Run Jest test suites                                                          |
-| `pnpm test:watch`            | Run tests in watch mode (re-run on file changes)                              |
-| `pnpm test:coverage`         | Generate test coverage report                                                 |
-| `pnpm lint`                  | Run ESLint to check code quality                                              |
-| `pnpm lint:fix`              | Auto-fix ESLint issues where possible                                         |
-| `pnpm typecheck`             | Run TypeScript compiler in check mode (no emit)                               |
-| `pnpm format`                | Format code with Prettier                                                     |
-| `pnpm validate`              | Run lint, typecheck, and tests (CI-style validation)                          |
-| `pnpm build:android:release` | Build release APK (see [DEPLOY.md](./DEPLOY.md))                              |
-| `pnpm build:android:bundle`  | Build release App Bundle (.aab) for Play Store (see [DEPLOY.md](./DEPLOY.md)) |
+| Command                      | Description                                                                    |
+| ---------------------------- | ------------------------------------------------------------------------------ |
+| `pnpm start`                 | Start Metro bundler (keep running during development)                          |
+| `pnpm android`               | Build and run Android app in debug mode                                        |
+| `pnpm test`                  | Run Jest test suites                                                           |
+| `pnpm test:watch`            | Run tests in watch mode (re-run on file changes)                               |
+| `pnpm test:coverage`         | Generate test coverage report                                                  |
+| `pnpm test:native`           | Run the Android JVM unit tests (needs the Android SDK; not part of `validate`) |
+| `pnpm lint`                  | Run ESLint to check code quality                                               |
+| `pnpm lint:fix`              | Auto-fix ESLint issues where possible                                          |
+| `pnpm typecheck`             | Run TypeScript compiler in check mode (no emit)                                |
+| `pnpm format`                | Format code with Prettier                                                      |
+| `pnpm validate`              | Run lint, typecheck, and tests (CI-style validation)                           |
+| `pnpm build:android:release` | Build release APK (see [DEPLOY.md](./DEPLOY.md))                               |
+| `pnpm build:android:bundle`  | Build release App Bundle (.aab) for Play Store (see [DEPLOY.md](./DEPLOY.md))  |
 
 ### Git Workflow
 
@@ -640,6 +641,9 @@ pnpm test:watch
 
 # Coverage report
 pnpm test:coverage
+
+# Android JVM unit tests (the app lock's native rules)
+pnpm test:native
 
 # Run tests for specific file
 pnpm test csvBuilder
@@ -966,7 +970,7 @@ resets on the process restart the counter exists to survive.
    the keychain only once; if the keychain cannot answer, it stays locked for that launch and
    nothing is written
 5. User authenticates with a biometric, the device credential, or the app PIN
-6. Modal blocks UI until authentication succeeds — so where the lock is on but no PIN is set, the
+6. Modal covers and blocks the UI until authentication succeeds — so where the lock is on but no PIN is set, the
    modal offers enrolment only after a biometric or the device screen lock has authenticated
 
 **Where the biometric credential cannot be created or cannot authenticate** — no secure
@@ -986,17 +990,56 @@ the app still locks on a cold start under every preset, `Never` included. An unr
 unrecognised stored value falls back to 5 rather than to `Never`: a garbage read of a security
 control fails toward the stricter behaviour.
 
-**The lock screen seals the app beneath it.** While it shows, the app is hidden from screen
-readers and other accessibility services, and a native container
+**The lock screen covers and seals the app beneath it.** The unlock card sits on an opaque
+surface in the theme background, so nothing of the ledger shows behind it, including a dialog
+left open when the app locked. The app is also hidden from screen readers and other accessibility
+services, and a native container
 (`android/app/src/main/java/com/expensetracker/applock/FocusBlockView.kt`, which uses
-`FOCUS_BLOCK_DESCENDANTS`) keeps keyboard and D-pad focus from reaching anything behind it. The lock
+`FOCUS_BLOCK_DESCENDANTS`) keeps keyboard and D-pad focus from reaching anything behind it. Beneath the cover, the same container is
+invisible, so the ledger is neither drawn nor reported to any accessibility service, while every
+screen already mounted keeps its state. The lock
 screen stays an overlay inside the app's own window. A separate native dialog window was tried,
-and Android closes it on the Escape key without telling JavaScript.
+and Android closes it on the Escape key without telling JavaScript. The `enrol` screen, which only
+follows an unlock, has no cover.
+
+**While the lock is on, the app window is secure.** `AppLockWindowModule.kt` (same directory) sets
+`FLAG_SECURE` whenever the lock setting is on, locked or not, so the recent-apps preview is blank.
+**This also blocks screenshots, screen recording and screen sharing of the app** for as long as
+the lock is on, debug builds included; `adb exec-out screencap` comes back black. The flag follows
+the setting rather than the lock because Android takes the preview as the app goes to the
+background, and the app only locks when it comes back.
+
+**Drive backups keep uploading to your own Drive folder while the app is locked**, so a backup never
+waits for an unlock.
+
+**System alerts are closed while the lock screen shows.** React Native's alerts, like any native
+dialog, open in a window of their own above the lock screen, so the module guards every dialog
+fragment the activity shows: it secures the dialog's window while the lock is on, dismisses any
+that is open when the lock engages and any that opens while it holds. An alert raised while
+locked, such as an import finishing, is lost, not deferred. A dialog left open as the app goes
+to the background is hidden until the app returns: it is shown again if the app comes back
+unlocked, and closed if the lock engages, so its text never shows over the return. The one
+exception is androidx.biometric's prompt, which is how the lock screen unlocks on API 28 and
+below. Components that draw their own window outside a dialog fragment (React Native's `Modal`,
+`ToastAndroid`, native date pickers) are banned by ESLint (`no-restricted-imports`), since the
+module can't see them.
+
+**A curtain hides the app on its way back from the background**, until the idle check decides
+whether to lock. It rises only when the lock is on and the app is unlocked, and never under
+`Never`, which has no idle check. It is visual only, so focus and the keyboard survive an app
+switch. Handing off to the file pickers or Google sign-in (marked in `src/security/outboundFlow.ts`)
+raises no curtain, except under `Immediately`, where the lock always follows. **A return that will
+lock shows nothing of the app from its first frame**, curtain or not: the window module records when
+the app left, and on a return past the idle timeout it hides the app, so nothing behind the lock can
+be seen or take keyboard focus, until JavaScript has decided.
 
 **Turning the lock off in Settings asks for the current app PIN**, with the same throttle as
 changing it. **Setting a PIN is refused** while settings are still loading, and while the lock is
 on and the session hasn't authenticated. **Nothing of the app renders until settings have
-loaded**, so no screen is reachable before the app knows whether the lock is on.
+loaded**, so no screen is reachable before the app knows whether the lock is on, and the cold-start
+lock shows from the first render that has them. **With the lock on, no screen is mounted on a cold
+start until the first unlock**, so the ledger is never built behind the lock screen. From then on
+the screens stay mounted for the rest of the launch, so a relock keeps a half-filled form.
 
 **Implementation:** `src/context/AppContext.tsx` (Modal-in-Provider, inside `FocusBlockView`) + `src/hooks/useBiometricGate.ts` (cold-start hydration latch + AppState listener + Keychain via `react-native-keychain`)
 

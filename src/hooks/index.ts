@@ -1,5 +1,6 @@
 export {
   useBiometricGate,
+  idleTimeoutMs,
   biometricCredentialExists,
   appLockMarkerExists,
   writeAppLockMarker,

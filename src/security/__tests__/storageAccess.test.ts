@@ -13,6 +13,7 @@ import {
   pickCsvFile,
   deleteFileUri,
 } from '../storageAccess';
+import { outboundFlowActive } from '../outboundFlow';
 
 jest.mock('react-native-saf-x', () => ({
   openDocument: jest.fn(),
@@ -191,5 +192,29 @@ describe('deleteFileUri', () => {
     mockUnlink.mockRejectedValue(new Error('gone'));
 
     await expect(deleteFileUri('content://mock/file')).resolves.toBeUndefined();
+  });
+});
+
+describe('hand-off to the system picker', () => {
+  it('marks a directory request as an outbound flow while it is open', async () => {
+    let active: boolean | undefined;
+    mockOpenDocumentTree.mockImplementation(async () => {
+      active = outboundFlowActive();
+      return documentDetail('content://tree/exports');
+    });
+    await requestDirectorySelection();
+    expect(active).toBe(true);
+    expect(outboundFlowActive()).toBe(false);
+  });
+
+  it('marks a file pick as an outbound flow, released when it fails', async () => {
+    let active: boolean | undefined;
+    mockOpenDocument.mockImplementation(async () => {
+      active = outboundFlowActive();
+      throw new Error('picker failed');
+    });
+    await pickCsvFile();
+    expect(active).toBe(true);
+    expect(outboundFlowActive()).toBe(false);
   });
 });

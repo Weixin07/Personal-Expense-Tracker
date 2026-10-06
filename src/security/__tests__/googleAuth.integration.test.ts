@@ -9,6 +9,7 @@ import {
   getStoredAuthState,
   GoogleAuthError,
 } from '../googleAuth';
+import { outboundFlowActive } from '../outboundFlow';
 
 const mockConfigure = GoogleSignin.configure as jest.Mock;
 const mockHasPlayServices = GoogleSignin.hasPlayServices as jest.Mock;
@@ -176,5 +177,24 @@ describe('configuration', () => {
         ]),
       }),
     );
+  });
+});
+
+describe('hand-off to Google sign-in', () => {
+  it('marks only the interactive prompt as an outbound flow', async () => {
+    let activeSilent: boolean | undefined;
+    let activeInteractive: boolean | undefined;
+    mockSignInSilently.mockImplementation(async () => {
+      activeSilent = outboundFlowActive();
+      return silentNone;
+    });
+    mockSignIn.mockImplementation(async () => {
+      activeInteractive = outboundFlowActive();
+      return signInSuccess;
+    });
+    await ensureValidAccessToken({ interactive: true });
+    expect(activeSilent).toBe(false);
+    expect(activeInteractive).toBe(true);
+    expect(outboundFlowActive()).toBe(false);
   });
 });

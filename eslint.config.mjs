@@ -96,6 +96,29 @@ export default [
             'A non-editable TextInput (editable={false}) does not receive touch events on Android, so its onPress* handler never fires. Use the SelectField component for tap-to-open fields.',
         },
       ],
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'react-native',
+              importNames: ['Modal', 'ToastAndroid'],
+              message:
+                'Draws in a window of its own, above the app lock cover and outside its FLAG_SECURE. Use a react-native-paper Portal dialog or Snackbar.',
+            },
+            {
+              name: '@react-native-community/datetimepicker',
+              message:
+                'Opens a native dialog window above the app lock cover. Use a react-native-paper dialog.',
+            },
+            {
+              name: 'react-native-modal',
+              message:
+                'Wraps the react-native Modal, a window of its own above the app lock cover. Use a react-native-paper Portal dialog.',
+            },
+          ],
+        },
+      ],
       'local/no-dynamic-sql': 'error',
       'no-restricted-properties': [
         'error',

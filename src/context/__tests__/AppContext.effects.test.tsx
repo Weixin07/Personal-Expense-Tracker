@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AppState, Text } from 'react-native';
+import NativeAppLockWindow from '../../security/NativeAppLockWindow';
 import { Portal } from 'react-native-paper';
 import NetInfo from '@react-native-community/netinfo';
 import * as Keychain from 'react-native-keychain';
@@ -37,6 +38,7 @@ import * as storageAccess from '../../security/storageAccess';
 import { isAppLockError } from '../../security/appLockError';
 import { TRANSACTION_ACTION_LOCK_POLICY } from '../../security/actionLockPolicy';
 import NativeAppPinCrypto from '../../security/NativeAppPinCrypto';
+import { createRecord, encodeRecord } from '../../security/pinHash';
 import { computePresetRange } from '../../screens/homeUtils';
 import { localIsoDate } from '../../utils/date';
 import type { TransactionRecord, CategoryRecord } from '../../database';
@@ -51,6 +53,27 @@ jest.mock('../../components/PinEntryDialog', () => {
     return ReactActual.createElement(actual.default, props);
   };
   return { __esModule: true, ...actual, default: Recording };
+});
+
+// Screens are not mounted under a cold-start lock, so `Capture` also rides
+// along with the lock screen to keep the context readable while locked.
+jest.mock('../../components/BiometricGateModal', () => {
+  const ReactActual = jest.requireActual('react');
+  const actual = jest.requireActual('../../components/BiometricGateModal');
+  const WithCapture = (props: object) =>
+    ReactActual.createElement(
+      ReactActual.Fragment,
+      null,
+      ReactActual.createElement(actual.BiometricGateModal, props),
+      ReactActual.createElement(MockCapture),
+      ReactActual.createElement(MockLockScreenProbe),
+    );
+  return {
+    __esModule: true,
+    ...actual,
+    BiometricGateModal: WithCapture,
+    default: WithCapture,
+  };
 });
 
 jest.mock('../../database', () => ({
@@ -139,6 +162,19 @@ const Capture: React.FC = () => {
   });
   return null;
 };
+const MockCapture = Capture;
+let mockOnLockScreen: ((value: TransactionDataContextValue) => void) | null =
+  null;
+const LockScreenProbe: React.FC = () => {
+  const value = useTransactionData();
+  useEffect(() => {
+    const onLockScreen = mockOnLockScreen;
+    mockOnLockScreen = null;
+    onLockScreen?.(value);
+  });
+  return null;
+};
+const MockLockScreenProbe = LockScreenProbe;
 
 const isDeviceSecure = NativeAppPinCrypto.isDeviceSecure as jest.Mock;
 const confirmCredential =
@@ -1191,14 +1227,13 @@ describe('TransactionDataProvider effects', () => {
       ).toBeNull();
       expect(ctx).toBeUndefined();
       await act(async () => {
-        finishLoad(gateOnSettings);
+        finishLoad([]);
       });
       await waitFor(() =>
         expect(
           screen.getByText('app content', { includeHiddenElements: true }),
         ).toBeOnTheScreen(),
       );
-      await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
     });
 
     describe('a gate-on install with no PIN, before any authentication', () => {
@@ -1475,13 +1510,20 @@ describe('TransactionDataProvider effects', () => {
       };
 
       /** Renders unlocked; `lock` then locks through the background timeout. */
-      const renderUnlocked = async () => {
+      const renderUnlocked = async (
+        tree: React.ReactElement = (
+          <TransactionDataProvider>
+            <Capture />
+          </TransactionDataProvider>
+        ),
+      ) => {
         stubKeychain({ biometricRead: true, pinPassword: STORED_PIN_RECORD });
         mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
         const addEventListenerSpy = jest.spyOn(AppState, 'addEventListener');
         const clock = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
         nowSpy = clock;
-        await renderProvider();
+        const view = renderWithProviders(tree);
+        await waitFor(() => expect(ctx?.state.isInitialised).toBe(true));
         await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(false));
         const lock = async (): Promise<void> => {
           const changeCalls = addEventListenerSpy.mock.calls.filter(
@@ -1503,7 +1545,7 @@ describe('TransactionDataProvider effects', () => {
           );
           clearWriteMocks();
         };
-        return { lock };
+        return { lock, view };
       };
 
       const settle = async (call: () => Promise<unknown>): Promise<unknown> => {
@@ -1792,7 +1834,7 @@ describe('TransactionDataProvider effects', () => {
         );
       });
 
-      it('keeps a filter a child sets as it mounts on a cold start', async () => {
+      it('keeps a filter a child sets as it mounts after the cold-start unlock', async () => {
         const FilterProbe: React.FC = () => {
           const { setFilters } = useTransactionData().actions;
           useEffect(() => {
@@ -1800,13 +1842,15 @@ describe('TransactionDataProvider effects', () => {
           }, [setFilters]);
           return null;
         };
-        await renderLocked(
+        await renderUnlocked(
           <TransactionDataProvider>
             <Capture />
             <FilterProbe />
           </TransactionDataProvider>,
         );
-        expect(ctx.state.filters.startDate).toBe('2025-01-01');
+        await waitFor(() =>
+          expect(ctx.state.filters.startDate).toBe('2025-01-01'),
+        );
       });
 
       it('classifies every action in the lock policy', async () => {
@@ -1817,7 +1861,7 @@ describe('TransactionDataProvider effects', () => {
       });
 
       it('renders screen dialogs inside the seal and the lock screen outside it', async () => {
-        const view = await renderLocked(
+        const { lock, view } = await renderUnlocked(
           <TransactionDataProvider>
             <Capture />
             <Portal>
@@ -1825,6 +1869,7 @@ describe('TransactionDataProvider effects', () => {
             </Portal>
           </TransactionDataProvider>,
         );
+        await lock();
         const sealedRoot = view.UNSAFE_getByProps({ blocked: true });
         const isInside = (node: { parent: unknown } | null): boolean => {
           let current = node as { parent: unknown } | null;
@@ -1843,6 +1888,373 @@ describe('TransactionDataProvider effects', () => {
           ),
         ).toBe(true);
         expect(isInside(screen.getByText('Unlock required'))).toBe(false);
+      });
+
+      describe('the cold-start mount gate', () => {
+        const PIN = '846207';
+        let probeMounts = 0;
+        const MountProbe: React.FC = () => {
+          const [mountNumber] = useState(() => {
+            probeMounts += 1;
+            return probeMounts;
+          });
+          return (
+            <Text testID="mount-probe">{`app content ${mountNumber}`}</Text>
+          );
+        };
+        const tree = (
+          <TransactionDataProvider>
+            <Capture />
+            <MountProbe />
+          </TransactionDataProvider>
+        );
+        const appContent = () =>
+          screen.queryByTestId('mount-probe', { includeHiddenElements: true });
+        const stubRealPin = async (): Promise<void> => {
+          stubKeychain({
+            biometricRead: false,
+            pinPassword: encodeRecord(await createRecord(PIN, 150000)),
+          });
+        };
+        const unlockWithRealPin = async (): Promise<void> => {
+          let unlocked = false;
+          await act(async () => {
+            unlocked = await ctx.actions.unlockWithPin(PIN);
+          });
+          expect(unlocked).toBe(true);
+        };
+
+        beforeEach(() => {
+          probeMounts = 0;
+          mockOnLockScreen = null;
+        });
+
+        it('mounts no screen under the cold-start lock, then mounts on a PIN unlock', async () => {
+          await stubRealPin();
+          mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+          renderWithProviders(tree);
+          await waitFor(() => expect(ctx?.state.biometric.isLocked).toBe(true));
+          await waitFor(() =>
+            expect(ctx.state.biometric.lastError).not.toBeNull(),
+          );
+          expect(ctx.state.gatePresentation).toBe('unlock');
+          expect(appContent()).toBeNull();
+          expect(probeMounts).toBe(0);
+          await unlockWithRealPin();
+          await waitFor(() =>
+            expect(appContent()).toHaveTextContent('app content 1'),
+          );
+        });
+
+        it('mounts the screens once the cold-start lock is unlocked', async () => {
+          await renderUnlocked(tree);
+          await waitFor(() => expect(appContent()).not.toBeNull());
+          expect(probeMounts).toBe(1);
+        });
+
+        it('keeps the screens and their state through an idle relock and unlock', async () => {
+          const { lock } = await renderUnlocked(tree);
+          await waitFor(() =>
+            expect(appContent()).toHaveTextContent('app content 1'),
+          );
+          await lock();
+          expect(appContent()).toHaveTextContent('app content 1');
+          await stubRealPin();
+          await unlockWithRealPin();
+          expect(ctx.state.biometric.isLocked).toBe(false);
+          expect(appContent()).toHaveTextContent('app content 1');
+          expect(probeMounts).toBe(1);
+        });
+
+        it('mounts the screens on the first initialised render with the lock off', async () => {
+          renderWithProviders(tree);
+          await waitFor(() => expect(ctx?.state.isInitialised).toBe(true));
+          expect(appContent()).toHaveTextContent('app content 1');
+          expect(probeMounts).toBe(1);
+          expect(ctx.state.biometric.isLocked).toBe(false);
+        });
+
+        it('keeps the screens mounted when the lock is turned on', async () => {
+          stubPinExists(true);
+          renderWithProviders(tree);
+          await waitFor(() =>
+            expect(appContent()).toHaveTextContent('app content 1'),
+          );
+          await act(async () => {
+            await ctx.actions.setBiometricGateEnabled(true);
+          });
+          expect(ctx.state.settings.biometricGateEnabled).toBe(true);
+          expect(appContent()).toHaveTextContent('app content 1');
+          expect(probeMounts).toBe(1);
+        });
+
+        it('mounts the screens under enrolment', async () => {
+          stubKeychain({ biometricRead: true, pinPassword: null });
+          mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+          renderWithProviders(tree);
+          await waitFor(() => expect(ctx?.state.pinSetupRequired).toBe(true));
+          expect(appContent()).not.toBeNull();
+        });
+
+        it('mounts no screen while a failed load holds the lock, then mounts on unlock', async () => {
+          await stubRealPin();
+          mockDb.listTransactions.mockRejectedValueOnce(
+            new Error('load failed'),
+          );
+          renderWithProviders(tree);
+          await waitFor(() => expect(ctx?.state.biometric.isLocked).toBe(true));
+          await waitFor(() =>
+            expect(ctx.state.biometric.lastError).not.toBeNull(),
+          );
+          expect(ctx.state.error).toBe('load failed');
+          expect(appContent()).toBeNull();
+          await unlockWithRealPin();
+          await waitFor(() => expect(appContent()).not.toBeNull());
+        });
+
+        it('refuses a guarded action from the first render of the cold-start lock', async () => {
+          let outcome: Promise<unknown> | undefined;
+          mockOnLockScreen = value => {
+            outcome = value.actions.deleteCategory(1).catch((e: unknown) => e);
+          };
+          await renderLocked(tree);
+          expect(outcome).toBeDefined();
+          expect(isAppLockError(await outcome, 'locked')).toBe(true);
+          expect(ctx.state.error).toBeNull();
+        });
+      });
+    });
+
+    describe('window protection', () => {
+      const setSecure = NativeAppLockWindow.setSecure as jest.Mock;
+      const setAlertsSuppressed =
+        NativeAppLockWindow.setAlertsSuppressed as jest.Mock;
+      const lastCall = (mock: jest.Mock): unknown =>
+        mock.mock.calls[mock.mock.calls.length - 1]?.[0];
+
+      it('secures the window once settings load with the lock on', async () => {
+        stubKeychain({ biometricRead: false, pinPassword: STORED_PIN_RECORD });
+        mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+        await renderProvider();
+        await waitFor(() => expect(lastCall(setSecure)).toBe(true));
+      });
+
+      it('leaves the window unsecured with the lock off', async () => {
+        await renderProvider();
+        expect(lastCall(setSecure)).toBe(false);
+        expect(setSecure).not.toHaveBeenCalledWith(true);
+      });
+
+      it('secures the window on a failed load kept locked by the marker', async () => {
+        mockDb.listTransactions.mockRejectedValueOnce(new Error('load failed'));
+        stubMarkerOnly();
+        await renderProvider();
+        await waitFor(() => expect(lastCall(setSecure)).toBe(true));
+      });
+
+      it('follows the lock as it is turned on and off in Settings', async () => {
+        stubPinExists(true);
+        await renderProvider();
+        await act(async () => {
+          await ctx.actions.setBiometricGateEnabled(true);
+        });
+        expect(lastCall(setSecure)).toBe(true);
+        await act(async () => {
+          await ctx.actions.setBiometricGateEnabled(false);
+        });
+        expect(lastCall(setSecure)).toBe(false);
+      });
+
+      it('suppresses system alerts while the lock screen shows', async () => {
+        stubKeychain({ biometricRead: false, pinPassword: STORED_PIN_RECORD });
+        mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+        await renderProvider();
+        await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
+        expect(lastCall(setAlertsSuppressed)).toBe(true);
+      });
+
+      it('releases system alerts once unlocked', async () => {
+        stubKeychain({ biometricRead: true, pinPassword: STORED_PIN_RECORD });
+        mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+        await renderProvider();
+        await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(false));
+        expect(setAlertsSuppressed).toHaveBeenCalledWith(true);
+        expect(lastCall(setAlertsSuppressed)).toBe(false);
+      });
+
+      it('does not suppress system alerts during enrolment, which follows an unlock', async () => {
+        stubKeychain({ biometricRead: true, pinPassword: null });
+        mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+        await renderProvider();
+        await waitFor(() => expect(ctx.state.pinSetupRequired).toBe(true));
+        expect(lastCall(setAlertsSuppressed)).toBe(false);
+      });
+
+      it('releases system alerts when the provider unmounts', async () => {
+        stubKeychain({ biometricRead: false, pinPassword: STORED_PIN_RECORD });
+        mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+        const view = renderWithProviders(
+          <TransactionDataProvider>
+            <Capture />
+          </TransactionDataProvider>,
+        );
+        await waitFor(() => expect(ctx?.state.biometric.isLocked).toBe(true));
+        view.unmount();
+        expect(lastCall(setAlertsSuppressed)).toBe(false);
+      });
+
+      it('covers the unlocked app in the background without sealing it or suppressing alerts', async () => {
+        stubKeychain({ biometricRead: true, pinPassword: STORED_PIN_RECORD });
+        mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+        const addEventListenerSpy = jest.spyOn(AppState, 'addEventListener');
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+        const view = renderWithProviders(
+          <TransactionDataProvider>
+            <Capture />
+          </TransactionDataProvider>,
+        );
+        await waitFor(() => expect(ctx?.state.isInitialised).toBe(true));
+        await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(false));
+        const changeCalls = addEventListenerSpy.mock.calls.filter(
+          call => call[0] === 'change',
+        );
+        const handler = changeCalls[changeCalls.length - 1][1] as (
+          status: string,
+        ) => void;
+        const curtain = () =>
+          screen.queryByTestId('background-curtain', {
+            includeHiddenElements: true,
+          });
+
+        act(() => handler('background'));
+        expect(curtain()).not.toBeNull();
+        expect(
+          view.UNSAFE_getByProps({ blocked: false }).props
+            .importantForAccessibility,
+        ).toBe('auto');
+        expect(lastCall(setAlertsSuppressed)).toBe(false);
+
+        clock.mockReturnValue(1_000_000 + 60 * 1000);
+        act(() => handler('active'));
+        expect(curtain()).toBeNull();
+        clock.mockRestore();
+      });
+
+      it('tells the window the idle timeout of the lock', async () => {
+        const setIdleTimeout = NativeAppLockWindow.setIdleTimeout as jest.Mock;
+        stubKeychain({ biometricRead: true, pinPassword: STORED_PIN_RECORD });
+        mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+        await renderProvider();
+        await waitFor(() =>
+          expect(lastCall(setIdleTimeout)).toBe(5 * 60 * 1000),
+        );
+        await act(async () => {
+          await ctx.actions.setAutoLockMinutes(0);
+        });
+        expect(lastCall(setIdleTimeout)).toBe(0);
+        await act(async () => {
+          await ctx.actions.setAutoLockMinutes(null);
+        });
+        expect(lastCall(setIdleTimeout)).toBeNull();
+      });
+
+      it('gives the window no idle timeout with the lock off', async () => {
+        const setIdleTimeout = NativeAppLockWindow.setIdleTimeout as jest.Mock;
+        await renderProvider();
+        expect(lastCall(setIdleTimeout)).toBeNull();
+        expect(setIdleTimeout).not.toHaveBeenCalledWith(expect.any(Number));
+      });
+
+      const renderUnlockedWithAppState = async () => {
+        stubKeychain({ biometricRead: true, pinPassword: STORED_PIN_RECORD });
+        mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+        const addEventListenerSpy = jest.spyOn(AppState, 'addEventListener');
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+        renderWithProviders(
+          <TransactionDataProvider>
+            <Capture />
+          </TransactionDataProvider>,
+        );
+        await waitFor(() => expect(ctx?.state.isInitialised).toBe(true));
+        await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(false));
+        const changeCalls = addEventListenerSpy.mock.calls.filter(
+          call => call[0] === 'change',
+        );
+        const handler = changeCalls[changeCalls.length - 1][1] as (
+          status: string,
+        ) => void;
+        return { handler, clock };
+      };
+
+      it('releases the return hold when the app returns unlocked', async () => {
+        const releaseReturnHold =
+          NativeAppLockWindow.releaseReturnHold as jest.Mock;
+        const { handler, clock } = await renderUnlockedWithAppState();
+        act(() => handler('background'));
+        releaseReturnHold.mockClear();
+
+        clock.mockReturnValue(1_000_000 + 60 * 1000);
+        act(() => handler('active'));
+        expect(ctx.state.biometric.isLocked).toBe(false);
+        expect(releaseReturnHold).toHaveBeenCalledTimes(1);
+        clock.mockRestore();
+      });
+
+      it('keeps the return hold when the return locks the app', async () => {
+        const releaseReturnHold =
+          NativeAppLockWindow.releaseReturnHold as jest.Mock;
+        const { handler, clock } = await renderUnlockedWithAppState();
+        act(() => handler('background'));
+        releaseReturnHold.mockClear();
+
+        clock.mockReturnValue(1_000_000 + 6 * 60 * 1000);
+        act(() => handler('active'));
+        expect(ctx.state.biometric.isLocked).toBe(true);
+        expect(releaseReturnHold).not.toHaveBeenCalled();
+        expect(lastCall(setAlertsSuppressed)).toBe(true);
+        clock.mockRestore();
+      });
+
+      it('conceals the app beneath the lock cover', async () => {
+        stubKeychain({ biometricRead: false, pinPassword: STORED_PIN_RECORD });
+        mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+        const view = renderWithProviders(
+          <TransactionDataProvider>
+            <Capture />
+          </TransactionDataProvider>,
+        );
+        await waitFor(() => expect(ctx?.state.biometric.isLocked).toBe(true));
+        expect(view.UNSAFE_getByProps({ blocked: true }).props.concealed).toBe(
+          true,
+        );
+      });
+
+      it('draws the app again once unlocked', async () => {
+        stubKeychain({ biometricRead: true, pinPassword: STORED_PIN_RECORD });
+        mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+        const view = renderWithProviders(
+          <TransactionDataProvider>
+            <Capture />
+          </TransactionDataProvider>,
+        );
+        await waitFor(() => expect(ctx?.state.biometric.isLocked).toBe(false));
+        expect(view.UNSAFE_getByProps({ blocked: false }).props.concealed).toBe(
+          false,
+        );
+      });
+
+      it('leaves the app drawn behind enrolment, which has no cover', async () => {
+        stubKeychain({ biometricRead: true, pinPassword: null });
+        mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+        const view = renderWithProviders(
+          <TransactionDataProvider>
+            <Capture />
+          </TransactionDataProvider>,
+        );
+        await waitFor(() => expect(ctx?.state.pinSetupRequired).toBe(true));
+        expect(view.UNSAFE_getByProps({ blocked: true }).props.concealed).toBe(
+          false,
+        );
       });
     });
   });

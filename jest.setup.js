@@ -207,6 +207,16 @@ global.console = {
   error: jest.fn(),
 };
 
+jest.mock('./src/security/NativeAppLockWindow', () => ({
+  __esModule: true,
+  default: {
+    setSecure: jest.fn(),
+    setAlertsSuppressed: jest.fn(),
+    setIdleTimeout: jest.fn(),
+    releaseReturnHold: jest.fn(),
+  },
+}));
+
 // Deterministic so hash assertions are stable, but derived from its inputs so a
 // test asserting "the record does not contain the PIN" cannot pass against a
 // constant.

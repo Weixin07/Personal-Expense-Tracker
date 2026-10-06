@@ -3,6 +3,7 @@ import {
   statusCodes,
 } from '@react-native-google-signin/google-signin';
 import { getGoogleSignInConfig, GOOGLE_DRIVE_SCOPE } from './googleConfig';
+import { withOutboundFlow } from './outboundFlow';
 
 export type GoogleAuthState = {
   accessToken: string;
@@ -92,8 +93,12 @@ export const ensureValidAccessToken = async (
   }
 
   try {
-    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-    const result = await GoogleSignin.signIn();
+    const result = await withOutboundFlow(async () => {
+      await GoogleSignin.hasPlayServices({
+        showPlayServicesUpdateDialog: true,
+      });
+      return GoogleSignin.signIn();
+    });
     if (result.type !== 'success') {
       return null;
     }

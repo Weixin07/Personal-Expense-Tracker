@@ -21,6 +21,7 @@
     "test:performance": "jest --config jest.performance.config.js --runInBand",
     "test:performance:verbose": "pnpm test:performance --verbose",
     "test:coverage": "jest --coverage",
+    "test:native": "cd android && .\\gradlew.bat :app:testDebugUnitTest && cd ..",
     "comment-policy": "node scripts/comment-policy.mjs",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",

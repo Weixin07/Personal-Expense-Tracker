@@ -26,6 +26,11 @@ class FocusBlockViewManager :
     view.setBlocked(value)
   }
 
+  @ReactProp(name = "concealed")
+  override fun setConcealed(view: FocusBlockView, value: Boolean) {
+    view.setConcealed(value)
+  }
+
   companion object {
     const val NAME = "FocusBlockView"
   }
