@@ -31,3 +31,108 @@ index 7a2c67933f0da85edd38686f48c2bf37bfdf17e4..9e7bd8933c668caff12536ce845a9853
        val instance = best.getCachedInstance()
        val isSecure = best.supportsSecureHardware()
        val requiredLevel =
+diff --git a/android/src/main/java/com/oblador/keychain/resultHandler/ResultHandlerInteractiveBiometric.kt b/android/src/main/java/com/oblador/keychain/resultHandler/ResultHandlerInteractiveBiometric.kt
+index 21743ded30f5122e5743bcbf66e08ecd9a4c0c3e..107067e4f26bf6318a21df1c331b1f7b91998a5d 100644
+--- a/android/src/main/java/com/oblador/keychain/resultHandler/ResultHandlerInteractiveBiometric.kt
++++ b/android/src/main/java/com/oblador/keychain/resultHandler/ResultHandlerInteractiveBiometric.kt
+@@ -4,6 +4,8 @@ import android.os.Looper
+ import android.util.Log
+ import androidx.biometric.BiometricPrompt
+ import androidx.fragment.app.FragmentActivity
++import androidx.lifecycle.Lifecycle
++import androidx.lifecycle.LifecycleEventObserver
+ import com.facebook.react.bridge.AssertionException
+ import com.facebook.react.bridge.ReactApplicationContext
+ import com.oblador.keychain.DeviceAvailability
+@@ -34,6 +36,15 @@ open class ResultHandlerInteractiveBiometric(
+   // Synchronization primitives
+   private val lock = ReentrantLock()
+   private val condition = lock.newCondition()
++  private var awaitingPrompt = false
++  private var resultDelivered = false
++  private var promptHost: Lifecycle? = null
++  private val promptHostObserver = LifecycleEventObserver { _, event ->
++    if (event == Lifecycle.Event.ON_DESTROY) {
++      detachPromptHost()
++      failAwaitingPrompt()
++    }
++  }
+ 
+   /** Logging tag. */
+   protected val LOG_TAG = ResultHandlerInteractiveBiometric::class.java.simpleName
+@@ -56,6 +67,8 @@ open class ResultHandlerInteractiveBiometric(
+ 
+   override fun onEncrypt(encryptionResult: EncryptionResult?, error: Throwable?) {
+     lock.withLock {
++      awaitingPrompt = false
++      resultDelivered = true
+       this.encryptionResult = encryptionResult
+       this.error = error
+       condition.signalAll() // Notify waiting thread
+@@ -66,6 +79,8 @@ open class ResultHandlerInteractiveBiometric(
+     decryptionResult: DecryptionResult?, error: Throwable?
+   ) {
+     lock.withLock {
++      awaitingPrompt = false
++      resultDelivered = true
+       this.decryptionResult = decryptionResult
+       this.error = error
+       condition.signalAll() // Notify waiting thread
+@@ -137,12 +152,45 @@ open class ResultHandlerInteractiveBiometric(
+     return activity ?: throw NullPointerException("Not assigned current activity")
+   }
+ 
+-  protected fun authenticateWithPrompt(activity: FragmentActivity): BiometricPrompt {
++  protected fun authenticateWithPrompt(activity: FragmentActivity): BiometricPrompt? {
++    lock.withLock { awaitingPrompt = true }
++    detachPromptHost()
++    if (activity.lifecycle.currentState == Lifecycle.State.DESTROYED) {
++      failAwaitingPrompt()
++      return null
++    }
++    promptHost = activity.lifecycle.also { it.addObserver(promptHostObserver) }
+     val prompt = BiometricPrompt(activity, executor, this)
+     prompt.authenticate(this.promptInfo)
+     return prompt
+   }
+ 
++  private fun detachPromptHost() {
++    promptHost?.removeObserver(promptHostObserver)
++    promptHost = null
++  }
++
++  /**
++   * BiometricPrompt reports through a fragment of the activity that showed it, so once that
++   * activity is destroyed the waiting thread, and the module's mutex with it, would never be
++   * released.
++   */
++  private fun failAwaitingPrompt() {
++    lock.withLock {
++      if (!awaitingPrompt) {
++        return
++      }
++      val error = CryptoFailedException(
++        "code: ${BiometricPrompt.ERROR_CANCELED}, msg: Authentication activity was destroyed."
++      )
++      when (context?.operation) {
++        CryptoOperation.ENCRYPT -> onEncrypt(null, error)
++        CryptoOperation.DECRYPT -> onDecrypt(null, error)
++        null -> Log.e(LOG_TAG, "No operation context available")
++      }
++    }
++  }
++
+   /** Block current NON-main thread and wait for user authentication results. */
+   override fun waitResult() {
+     if (Thread.currentThread() == Looper.getMainLooper().thread) {
+@@ -153,7 +201,9 @@ open class ResultHandlerInteractiveBiometric(
+ 
+     try {
+       lock.withLock {
+-        condition.await() // Wait for signal
++        while (!resultDelivered) {
++          condition.await() // Wait for signal
++        }
+       }
+     } catch (ignored: InterruptedException) {
+       // Shutdown sequence

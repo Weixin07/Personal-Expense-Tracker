@@ -1031,7 +1031,10 @@ switch. Handing off to the file pickers or Google sign-in (marked in `src/securi
 raises no curtain, except under `Immediately`, where the lock always follows. **A return that will
 lock shows nothing of the app from its first frame**, curtain or not: the window module records when
 the app left, and on a return past the idle timeout it hides the app, so nothing behind the lock can
-be seen or take keyboard focus, until JavaScript has decided.
+be seen or take keyboard focus, until JavaScript has decided. **When Android rebuilds or closes the
+app in the background, nothing is restored**: it comes back through the cold-start lock under every
+Auto-lock preset, `Never` included. Nothing of the app is drawn until JavaScript has loaded
+settings, and when only the screen is rebuilt the window stays secure throughout.
 
 **Turning the lock off in Settings asks for the current app PIN**, with the same throttle as
 changing it. **Setting a PIN is refused** while settings are still loading, and while the lock is

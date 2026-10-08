@@ -2215,6 +2215,141 @@ describe('TransactionDataProvider effects', () => {
         clock.mockRestore();
       });
 
+      const setIdleTimeout = NativeAppLockWindow.setIdleTimeout as jest.Mock;
+      const releaseReturnHold =
+        NativeAppLockWindow.releaseReturnHold as jest.Mock;
+      const tree = (
+        <TransactionDataProvider>
+          <Capture />
+        </TransactionDataProvider>
+      );
+      const pendingSettingsLoad = () => {
+        let resolve: (rows: typeof gateOnSettings) => void = () => undefined;
+        mockDb.getAllSettings.mockReturnValueOnce(
+          new Promise(settle => {
+            resolve = settle;
+          }),
+        );
+        return (rows: typeof gateOnSettings) => resolve(rows);
+      };
+      const expectNoWindowSettings = () => {
+        expect(setSecure).not.toHaveBeenCalled();
+        expect(setIdleTimeout).not.toHaveBeenCalled();
+        expect(releaseReturnHold).not.toHaveBeenCalled();
+      };
+
+      it('sends no window settings before settings load', async () => {
+        stubKeychain({ biometricRead: true, pinPassword: STORED_PIN_RECORD });
+        pendingSettingsLoad();
+        renderWithProviders(tree);
+        await waitFor(() => expect(mockDb.getAllSettings).toHaveBeenCalled());
+        await act(async () => {});
+        expectNoWindowSettings();
+      });
+
+      it('sends the lock settings once they load', async () => {
+        stubKeychain({ biometricRead: false, pinPassword: STORED_PIN_RECORD });
+        const loadSettings = pendingSettingsLoad();
+        renderWithProviders(tree);
+        await waitFor(() => expect(mockDb.getAllSettings).toHaveBeenCalled());
+        await act(async () => loadSettings(gateOnSettings));
+        await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
+        expect(lastCall(setSecure)).toBe(true);
+        expect(setSecure).not.toHaveBeenCalledWith(false);
+        expect(lastCall(setIdleTimeout)).toBe(5 * 60 * 1000);
+        expect(setIdleTimeout).not.toHaveBeenCalledWith(null);
+        expect(releaseReturnHold).not.toHaveBeenCalled();
+      });
+
+      it('sends the lock settings after a failed load kept locked by the marker', async () => {
+        mockDb.listTransactions.mockRejectedValueOnce(new Error('load failed'));
+        stubMarkerOnly();
+        await renderProvider();
+        await waitFor(() => expect(lastCall(setSecure)).toBe(true));
+        expect(setSecure).not.toHaveBeenCalledWith(false);
+        expect(releaseReturnHold).not.toHaveBeenCalled();
+      });
+
+      const REMOUNT_PIN = '846207';
+      const unlockWithRemountPin = async () => {
+        let unlocked = false;
+        await act(async () => {
+          unlocked = await ctx.actions.unlockWithPin(REMOUNT_PIN);
+        });
+        expect(unlocked).toBe(true);
+      };
+      const remountWithPendingLoad = async () => {
+        stubKeychain({
+          biometricRead: false,
+          pinPassword: encodeRecord(await createRecord(REMOUNT_PIN, 150000)),
+        });
+        mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+        const first = renderWithProviders(tree);
+        await waitFor(() => expect(ctx?.state.biometric.isLocked).toBe(true));
+        await unlockWithRemountPin();
+        first.unmount();
+        jest.clearAllMocks();
+
+        ctx = undefined as unknown as TransactionDataContextValue;
+        const loadSettings = pendingSettingsLoad();
+        renderWithProviders(tree);
+        await waitFor(() => expect(mockDb.getAllSettings).toHaveBeenCalled());
+        await act(async () => {});
+        return loadSettings;
+      };
+
+      it('a remount sends nothing before settings load', async () => {
+        await remountWithPendingLoad();
+        expect(setSecure).not.toHaveBeenCalledWith(false);
+        expect(setIdleTimeout).not.toHaveBeenCalledWith(null);
+        expectNoWindowSettings();
+      });
+
+      it('a remount releases the hold once unlocked', async () => {
+        const loadSettings = await remountWithPendingLoad();
+        await act(async () => loadSettings(gateOnSettings));
+        await waitFor(() => expect(ctx.state.biometric.isLocked).toBe(true));
+        expect(releaseReturnHold).not.toHaveBeenCalled();
+        await unlockWithRemountPin();
+        expect(setSecure).not.toHaveBeenCalledWith(false);
+        expect(setIdleTimeout).not.toHaveBeenCalledWith(null);
+        expect(releaseReturnHold).toHaveBeenCalledTimes(1);
+      });
+
+      it('a fingerprint read cancelled by a rebuilt screen leaves the lock up and the PIN usable', async () => {
+        stubKeychain({
+          biometricRead: true,
+          pinPassword: encodeRecord(await createRecord(REMOUNT_PIN, 150000)),
+        });
+        const readKeychain = (
+          Keychain.getGenericPassword as jest.Mock
+        ).getMockImplementation()!;
+        (Keychain.getGenericPassword as jest.Mock).mockImplementation(
+          (options: { service: string }) =>
+            options.service === BIOMETRIC_SERVICE
+              ? Promise.reject(
+                  new Error(
+                    'code: 5, msg: Authentication activity was destroyed.',
+                  ),
+                )
+              : readKeychain(options),
+        );
+        mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+        renderWithProviders(tree);
+        await waitFor(() => expect(ctx?.state.biometric.isLocked).toBe(true));
+        let unlocked = true;
+        await act(async () => {
+          unlocked = await ctx.actions.unlockWithBiometrics();
+        });
+        expect(unlocked).toBe(false);
+        expect(ctx.state.biometric.isLocked).toBe(true);
+        expect(ctx.state.biometric.lastError).not.toBeNull();
+        expect(releaseReturnHold).not.toHaveBeenCalled();
+        await unlockWithRemountPin();
+        expect(ctx.state.biometric.isLocked).toBe(false);
+        expect(releaseReturnHold).toHaveBeenCalledTimes(1);
+      });
+
       it('conceals the app beneath the lock cover', async () => {
         stubKeychain({ biometricRead: false, pinPassword: STORED_PIN_RECORD });
         mockDb.getAllSettings.mockResolvedValue(gateOnSettings);

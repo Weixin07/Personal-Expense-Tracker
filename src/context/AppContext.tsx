@@ -968,15 +968,21 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
   const pinSetupRequired = gatePresentation === 'enrol';
 
   useEffect(() => {
+    if (!state.isInitialised) {
+      return;
+    }
     NativeAppLockWindow.setSecure(state.settings.biometricGateEnabled);
-  }, [state.settings.biometricGateEnabled]);
+  }, [state.isInitialised, state.settings.biometricGateEnabled]);
 
   const lockTimeoutMs = state.settings.biometricGateEnabled
     ? idleTimeoutMs(state.settings.autoLockMinutes)
     : null;
   useEffect(() => {
+    if (!state.isInitialised) {
+      return;
+    }
     NativeAppLockWindow.setIdleTimeout(lockTimeoutMs);
-  }, [lockTimeoutMs]);
+  }, [state.isInitialised, lockTimeoutMs]);
 
   const appCovered = coversApp(gatePresentation);
   // Screens first mount once the app is uncovered and then stay mounted, so a
@@ -994,10 +1000,10 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     [],
   );
   useLayoutEffect(() => {
-    if (!appCovered) {
+    if (state.isInitialised && !appCovered) {
       NativeAppLockWindow.releaseReturnHold();
     }
-  }, [appCovered, biometricReturnNonce]);
+  }, [state.isInitialised, appCovered, biometricReturnNonce]);
 
   const createTransaction = useCallback<
     TransactionDataActions['createTransaction']

@@ -280,6 +280,13 @@ adb install android\app\build\outputs\apk\release\app-release.apk
 #   adb uninstall com.expensetracker
 ```
 
+**Which devices.** The app has one user, whose phone runs Android 16 (API 36). Run the checks on
+an API 36 Google Play emulator while working, and on the phone itself once before committing any
+change to the app lock. The phone can't be captured frame by frame from the host, so check its
+returns by eye. When the phone takes a major Android update, or is replaced, move the
+emulator to its version. The app still installs on Android 9 (API 28) and up, but older versions
+are not tested.
+
 Smoke test the critical paths on the device. **This is mandatory for release builds:**
 R8 shrinks/obfuscates only the native layer and its failures surface _only_ here — the
 Jest suite runs against JS and cannot catch them. Exercise every native-module path
@@ -455,7 +462,7 @@ biometric, SAF export, and the offline queue. Also confirm icons and themed UI r
            directions. Focus must never reach the app behind it. `adb` can't drive TalkBack gestures,
            so this step can't run on an emulator.
 
-        **A dialog left open when the app locks is sealed.** Run on API 36 and on `PET_API_28`:
+        **A dialog left open when the app locks is sealed.** Run on API 36 and on the phone:
         1. Set Auto-lock to **Immediately**, open Settings → Auto-lock, and leave the dialog showing.
         2. Background the app and return to it.
         3. The compressed dump from the check above lists none of the presets, _Never_ included.
@@ -463,8 +470,7 @@ biometric, SAF export, and the offline queue. Also confirm icons and themed UI r
         5. By eye, the dialog is not visible behind the lock card.
         6. Unlock. Auto-lock still reads **Immediately**, and the dialog is still open and usable.
 
-        **A system confirmation left open when the app locks is closed.** Run on API 36 and on
-        `PET_API_28`:
+        **A system confirmation left open when the app locks is closed.** Run on API 36 and on the phone:
         1. In Manage categories, tap Delete on a category no transaction uses, and leave _Delete
            category_ showing.
         2. Background the app and return to it (Auto-lock **Immediately**).
@@ -477,7 +483,7 @@ biometric, SAF export, and the offline queue. Also confirm icons and themed UI r
 
         **An alert open as the app leaves never shows over the return.** The settled screen hides
         this, so capture the emulator window frame by frame from the host (`CopyFromScreen` on the
-        window rect, keeping only frames that differ). Run on API 36 and on `PET_API_28`:
+        window rect, keeping only frames that differ). Run on API 36 and on the phone:
         1. With Auto-lock **Immediately**, tap Delete on a category in Manage categories, leave
            _Delete category_ showing, and press Home.
         2. Start the capture, then reopen the app: no frame shows the confirmation before the lock
@@ -486,17 +492,56 @@ biometric, SAF export, and the offline queue. Also confirm icons and themed UI r
            confirmation comes back and still works.
 
         **A return that will lock draws nothing of the app first.** Capture frame by frame as above.
-        Run on API 36 and on `PET_API_28`:
+        Run on API 36 and on the phone:
         1. Set Auto-lock to **1**, leave the ledger showing, press Home, and wait over a minute.
         2. Start the capture and reopen the app: no frame shows the ledger before the lock card.
         3. Still under **1**, open the file picker from the Import screen, wait over a minute in it,
            then cancel: no frame shows the ledger before the lock card.
 
+        **Coming back after Android closes the app starts at the lock.** Capture frame by frame as
+        above. Run on API 36 and on the phone:
+        1. With Auto-lock **5**, unlock, tap Delete on a category in Manage categories, leave _Delete
+           category_ showing, and press Home.
+        2. `adb shell am kill <package>`. It only ends a process in the background; `adb shell pidof
+           <package>` printing nothing confirms it.
+        3. Start the capture and reopen the app: no crash, and the frames run from the launcher to a
+           blank surface to the lock card, with no confirmation and no ledger frame.
+        4. Unlock: Home shows, no alert is showing, and the category is still listed.
+
+        **A rebuilt screen relocks and shows nothing of the app first.** Android rebuilds the app's
+        screen without ending it when _Don't keep activities_ is on, and when the font size changes.
+        Every rebuild comes back through the cold-start lock, under any Auto-lock, and opens on Home
+        after unlocking. Turn the option on in _Settings → System → Developer options → Don't keep
+        activities_. On an emulator, `adb shell settings put global always_finish_activities 1` changes
+        the stored value without reaching the running system, so use the toggle. Start each step
+        unlocked, with the ledger showing, and capture frame by frame. Run on API 36 and on the phone:
+        1. With _Don't keep activities_ on and Auto-lock **1**, open the file picker from the Import
+           screen, wait over a minute in it, and pick a file: no crash and no ledger frame before the
+           lock card. Unlock: Home shows, and the file is not imported.
+        2. Still with the option on, set Auto-lock **5**, press Home and reopen at once: no crash, no
+           ledger frame, and the lock card. `adb shell dumpsys window windows` taken while the spinner
+           shows lists ` SECURE ` in the app window's `fl=`.
+        3. Turn the option off. With Auto-lock **1**, press Home, wait over a minute, change the font
+           size (_Settings → Display → Font size_, or `adb shell settings put system font_scale 1.3`),
+           and reopen: no crash, no ledger frame, and the lock card.
+        4. Unlock, and change the font size back with the app open (`font_scale 1.0`): no crash, the
+           lock card, and Home after unlocking.
+
+        **On the phone, a fingerprint prompt open as the screen is rebuilt.** Emulators can't hold the
+        app's hardware-backed biometric key, so this step can't run on one:
+        1. With the lock screen's fingerprint prompt showing, rebuild the screen under it with
+           `adb shell settings put system font_scale 1.3`: no crash, and the lock card with the prompt
+           again. Touch the sensor: the app unlocks.
+        2. Lock again and repeat with `font_scale 1.0`. This time cancel the prompt and unlock with
+           the PIN: the app unlocks. A PIN that sits with no answer means the keychain is still
+           waiting on the lost prompt.
+        3. With _Don't keep activities_ on, open the prompt, press Home and return: no crash, the lock
+           card, and both the fingerprint and the PIN unlock. Turn the option off afterwards.
+
         **Nothing of the app is drawn under the lock on a cold start.** Capture a cold start with
         the lock on frame by frame: the frames run from the launcher to a blank surface to the lock
         card, with no ledger frame. The plain `uiautomator dump` under the lock lists none of the
-        app's own text (no base currency, fund or balance). Run on API 36, `PET_API_31` and
-        `PET_API_28`.
+        app's own text (no base currency, fund or balance). Run on API 36 and on the phone.
 
         **Screens mount at the first unlock and survive a relock.**
         1. Cold-start with the lock on and unlock: Home opens on its default _Last 30 days_ filter.
@@ -507,7 +552,7 @@ biometric, SAF export, and the offline queue. Also confirm icons and themed UI r
         **The lock screen hides the app.** `FLAG_SECURE` is on whenever the lock is, so
         `adb exec-out screencap` and `screenrecord` come back black and prove only the flag. Check
         the cover **by eye** on the emulator window (or on a phone, if the emulator draws secure
-        windows black too). Run on API 36 and on `PET_API_28`:
+        windows black too). Run on API 36 and on the phone:
         1. Cold-start with the lock on: the unlock card sits on a plain background, with no base
            currency, fund or balance visible, including under the status and gesture bars.
         2. Set Auto-lock to **1**, background the app for over a minute, and return: no frame of the

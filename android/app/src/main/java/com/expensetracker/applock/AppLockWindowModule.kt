@@ -21,8 +21,9 @@ import com.expensetracker.pincrypto.NativeAppLockWindowSpec
  * JavaScript releases it. The hold hides any open dialog and, once the idle
  * timeout has passed, the app itself, from the first frame. Dialogs are the
  * activity's DialogFragments under the rule on `AppLockRules.guardsDialog`.
- * Settings are remembered and re-applied when the activity resumes, since a
- * recreated activity starts without them while JavaScript still holds them set.
+ * Settings and the return hold outlive a recreated activity and its rebuilt app
+ * root until JavaScript changes or releases them; settings are re-applied to the
+ * window when the activity resumes.
  */
 class AppLockWindowModule(reactContext: ReactApplicationContext) :
     NativeAppLockWindowSpec(reactContext), LifecycleEventListener {
@@ -88,7 +89,7 @@ class AppLockWindowModule(reactContext: ReactApplicationContext) :
     val timeout = idleTimeoutMs
     pausedAtMs = null
     if (secure && AppLockRules.pastIdleDeadline(pausedAt, timeout, SystemClock.elapsedRealtime())) {
-      FocusBlockView.current()?.setHeld(true)
+      FocusBlockView.holdReturn(true)
     }
   }
 
@@ -149,7 +150,7 @@ class AppLockWindowModule(reactContext: ReactApplicationContext) :
     if (!alertsSuppressed) {
       openDialogs().forEach { it.dialog?.show() }
     }
-    FocusBlockView.current()?.setHeld(false)
+    FocusBlockView.holdReturn(false)
   }
 
   private fun currentFragments(): FragmentManager? =

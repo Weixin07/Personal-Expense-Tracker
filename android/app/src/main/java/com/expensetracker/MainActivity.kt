@@ -1,5 +1,6 @@
 package com.expensetracker
 
+import android.os.Bundle
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -19,4 +20,14 @@ class MainActivity : ReactActivity() {
    */
   override fun createReactActivityDelegate(): ReactActivityDelegate =
       DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
+
+  /**
+   * The saved state is discarded: react-native-screens' fragments throw if restored
+   * (https://github.com/software-mansion/react-native-screens/issues/17), and a restored React
+   * Native alert would reappear without its callback before the app lock exists. A library that
+   * launches through `ActivityResultRegistry` loses its result across recreation.
+   */
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(null)
+  }
 }

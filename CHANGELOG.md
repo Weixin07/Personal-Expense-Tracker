@@ -170,3 +170,8 @@ migration table, not here.
   lock is on, the app's preview in the recent-apps list is blank too.
 - **On launch with the lock on, nothing of your ledger is loaded into the screens until you
   unlock.** After that they stay open, so a relock doesn't lose a half-filled form.
+- **Coming back to the app after Android closed it in the background no longer crashes it.** Phones
+  short on memory do this often, and changing the system font size while the app was in the
+  background did it too. The app now opens on the lock screen instead. Changing the font size while
+  the app is open also takes you to the lock screen. Either way you start again from the home screen
+  after unlocking, and a file you were picking at that moment isn't imported.

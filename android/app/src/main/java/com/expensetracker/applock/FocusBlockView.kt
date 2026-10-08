@@ -7,8 +7,11 @@ import java.lang.ref.WeakReference
 class FocusBlockView(context: Context) : ReactViewGroup(context) {
 
   private var concealed = false
-  private var held = false
   private var requestedVisibility = VISIBLE
+
+  init {
+    applyVisibility()
+  }
 
   fun setBlocked(blocked: Boolean) {
     descendantFocusability =
@@ -20,11 +23,6 @@ class FocusBlockView(context: Context) : ReactViewGroup(context) {
 
   fun setConcealed(concealed: Boolean) {
     this.concealed = concealed
-    applyVisibility()
-  }
-
-  fun setHeld(held: Boolean) {
-    this.held = held
     applyVisibility()
   }
 
@@ -47,12 +45,22 @@ class FocusBlockView(context: Context) : ReactViewGroup(context) {
   }
 
   private fun applyVisibility() {
-    super.setVisibility(AppLockRules.resolvedVisibility(requestedVisibility, concealed, held))
+    super.setVisibility(AppLockRules.resolvedVisibility(requestedVisibility, concealed, returnHeld))
   }
 
   companion object {
     private var attached: WeakReference<FocusBlockView>? = null
+    private var returnHeld = false
 
     fun current(): FocusBlockView? = attached?.get()
+
+    /**
+     * Hides the app root until released, including a root built later for a recreated
+     * activity. Main thread only.
+     */
+    fun holdReturn(held: Boolean) {
+      returnHeld = held
+      current()?.applyVisibility()
+    }
   }
 }

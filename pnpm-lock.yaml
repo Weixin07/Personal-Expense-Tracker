@@ -9,7 +9,7 @@ patchedDependencies:
     hash: 2wk4biji5bv2gg5l2qzweiw5o4
     path: patches/react-native-config.patch
   react-native-keychain@9.2.3:
-    hash: jd76tbi7wctcai4vjcuewlboai
+    hash: haavyf6chh6cmczas64djh7qdy
     path: patches/react-native-keychain@9.2.3.patch
   react-native-sqlite-storage@6.0.1:
     hash: mzr6cx7oychnczko7joy3lpdwq
@@ -53,7 +53,7 @@ importers:
         version: 3.0.2(react-native@0.83.10(@babel/core@7.28.5)(@react-native-community/cli@20.0.2(typescript@5.9.3))(@react-native/metro-config@0.83.10(@babel/core@7.28.5))(@types/react@19.2.2)(react@19.2.7))(react@19.2.7)
       react-native-keychain:
         specifier: ^9.2.0
-        version: 9.2.3(patch_hash=jd76tbi7wctcai4vjcuewlboai)
+        version: 9.2.3(patch_hash=haavyf6chh6cmczas64djh7qdy)
       react-native-paper:
         specifier: 5.14.5
         version: 5.14.5(react-native-safe-area-context@5.8.0(react-native@0.83.10(@babel/core@7.28.5)(@react-native-community/cli@20.0.2(typescript@5.9.3))(@react-native/metro-config@0.83.10(@babel/core@7.28.5))(@types/react@19.2.2)(react@19.2.7))(react@19.2.7))(react-native@0.83.10(@babel/core@7.28.5)(@react-native-community/cli@20.0.2(typescript@5.9.3))(@react-native/metro-config@0.83.10(@babel/core@7.28.5))(@types/react@19.2.2)(react@19.2.7))(react@19.2.7)
@@ -12326,7 +12326,7 @@ snapshots:
       react: 19.2.7
       react-native: 0.83.10(@babel/core@7.28.5)(@react-native-community/cli@20.0.2(typescript@5.9.3))(@react-native/metro-config@0.83.10(@babel/core@7.28.5))(@types/react@19.2.2)(react@19.2.7)
 
-  react-native-keychain@9.2.3(patch_hash=jd76tbi7wctcai4vjcuewlboai): {}
+  react-native-keychain@9.2.3(patch_hash=haavyf6chh6cmczas64djh7qdy): {}
 
   react-native-paper@5.14.5(react-native-safe-area-context@5.8.0(react-native@0.83.10(@babel/core@7.28.5)(@react-native-community/cli@20.0.2(typescript@5.9.3))(@react-native/metro-config@0.83.10(@babel/core@7.28.5))(@types/react@19.2.2)(react@19.2.7))(react@19.2.7))(react-native@0.83.10(@babel/core@7.28.5)(@react-native-community/cli@20.0.2(typescript@5.9.3))(@react-native/metro-config@0.83.10(@babel/core@7.28.5))(@types/react@19.2.2)(react@19.2.7))(react@19.2.7):
     dependencies:
