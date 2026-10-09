@@ -363,10 +363,64 @@ biometric, SAF export, and the offline queue. Also confirm icons and themed UI r
     - **Contrast:** the corrupt-file run with the app lock **off** opens as a fresh install with
       no lock. No lock marker exists, so there is nothing to keep it locked.
 
-    **A way that looks right but does not reach the fail-closed path.** Making the file unreadable
-    (`chmod 000`, or swapping it for a directory) fails the open itself, which
-    `react-native-sqlite-storage` never reports back, so the app stays on its loading spinner with
-    nothing reachable.
+    **Unreadable database file.** A file the app cannot open must reach the lock or the load
+    error screen, never a spinner that stays up. Force-stop first, then:
+
+    ```
+    adb shell run-as com.expensetracker.debug chmod 000 databases/expense_tracker.db
+    # cold-start the app and check; afterwards:
+    adb shell run-as com.expensetracker.debug chmod 600 databases/expense_tracker.db
+    ```
+
+    - **Lock on.** **Pass:** the lock card within seconds. After unlocking, _Couldn't open your
+      data_ shows with the `SQLITE_CANTOPEN … Permission denied` detail, and no PIN prompt. A
+      second cold start locks again.
+    - **Lock off.** **Pass:** _Couldn't open your data_ shows, with no Home and no base-currency
+      prompt.
+    - **Recovery.** From either run, `chmod 600`, then **Try again**. **Pass:** the ledger loads
+      with no relaunch, and no second lock prompt once unlocked.
+
+    Logcat still shows `SQLiteCantOpenDatabaseException … (code 14 SQLITE_CANTOPEN)`, matching
+    the detail on screen. An open that never answers fails after 15 seconds, and a **Try again**
+    after that waits on the same open instead of starting another; the **Stuck open** check below
+    causes both on the debug build. After a `pnpm install` that changes the sqlite patch, start
+    Metro with `--reset-cache` once, or it serves the unpatched library.
+
+    **Stuck open (debug build, lock on).** jdb (JDK 17) pauses the library's open thread, so the
+    open stays unanswered while the app keeps running. Set the debugger wait before each launch
+    (it clears itself after one), then cold-start and attach:
+
+    ```
+    adb shell am set-debug-app -w com.expensetracker.debug
+    adb shell am start -n com.expensetracker.debug/com.expensetracker.MainActivity
+    adb forward tcp:8700 jdwp:<pid from: adb shell pidof com.expensetracker.debug>
+    jdb -connect com.sun.jdi.SocketAttach:hostname=localhost,port=8700
+    ```
+
+    In jdb, `stop thread in org.pgsqlite.SQLitePlugin$DBRunner.run` pauses only the open's thread,
+    `stop go in org.pgsqlite.SQLitePlugin.startDatabase` logs each native open without pausing,
+    and `cont` lets the app start. `cont` does not resume a thread paused on its own: find its id
+    with `threads` (the `pool-…` thread `at breakpoint`) and use `resume <id>`. Count native opens
+    by the `Breakpoint hit: … startDatabase` lines. While **Try again** is busy, `uiautomator dump`
+    waits for its spinner to stop, so a dump returns only when the attempt ends.
+    `adb shell dumpsys activity top` returns at once: while busy, the button widens and holds the
+    loading indicator's views before its label. Compare the whole view tree with one taken before
+    the tap, since the button's bounds change, and don't go by the `E` flag, which stays set.
+    - **Setup.** **Pass:** one native open; about 15 seconds later the lock card. After unlocking,
+      _Couldn't open your data_ with "Opening the database took longer than 15 seconds." and no
+      PIN prompt.
+    - **Stays stuck.** **Try again** with the thread still paused. **Pass:** the button stays busy
+      until the same detail comes back after 15 seconds, and no new native open.
+    - **Late success.** **Try again**, then `resume <id>` within 15 seconds. **Pass:** the ledger
+      loads with no relaunch and no second lock prompt, still with one native open.
+    - **Late failure.** Force-stop and repeat the setup. On the error screen, `chmod 000`, then
+      **Try again** and `resume <id>`. **Pass:** the `SQLITE_CANTOPEN … Permission denied` detail
+      replaces the timeout detail within seconds, with one native open. Then
+      `clear org.pgsqlite.SQLitePlugin$DBRunner.run` (or the next open pauses too), `chmod 600`
+      and **Try again**. **Pass:** the ledger loads, with a second native open.
+
+    Afterwards: `exit` jdb, `adb forward --remove tcp:8700`, `adb shell am clear-debug-app`, and
+    `chmod 600`. A plain cold start must show the lock card with no "Waiting for debugger" dialog.
 
 9.  **Auto-lock presets** — for each of Immediately / 1 / 5 / 15 / 30, background the app for
     just under and just over the setting and confirm the lock fires only past it. Set **Never**
@@ -895,6 +949,19 @@ adb logcat -s ReactNative:V ReactNativeJS:V > crash-logs.txt
 adb shell pm clear com.expensetracker
 adb install -r android\app\build\outputs\apk\release\app-release.apk
 ```
+
+### Debug app stays on the spinner after a Metro reload
+
+A reload while the database was still opening leaves that open in progress on the Android side,
+and the reloaded app's own open is answered as already started, so the app waits on the earlier
+open. It comes up if that open later succeeds, and stays on the spinner, with no lock card or
+error, if the open never answers or fails. Force-stop and relaunch:
+
+```powershell
+adb shell am force-stop com.expensetracker.debug
+```
+
+Release builds don't reload their JavaScript, so this can't happen to users.
 
 ### Troubleshooting Google Sign-In Issues
 

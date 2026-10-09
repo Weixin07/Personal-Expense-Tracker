@@ -968,7 +968,9 @@ resets on the process restart the counter exists to survive.
    marker present, the app stays locked and the setting is written back as on; with no marker, it
    starts as a fresh install and the setting is written back as off, so a healthy install consults
    the keychain only once; if the keychain cannot answer, it stays locked for that launch and
-   nothing is written
+   nothing is written. A database that cannot be opened counts as a failed load: the app shows
+   _Couldn't open your data_ with **Try again** in place of its screens, behind the lock when
+   the lock is on, and mounts no screen until a load succeeds
 5. User authenticates with a biometric, the device credential, or the app PIN
 6. Modal covers and blocks the UI until authentication succeeds — so where the lock is on but no PIN is set, the
    modal offers enrolment only after a biometric or the device screen lock has authenticated

@@ -153,6 +153,13 @@ migration table, not here.
 - **A system message left open when the app locks is now closed.** One that appears while the app
   is locked, such as an import finishing, is closed too and doesn't come back after you unlock.
 
+### Fixed
+
+- **The app no longer gets stuck on its loading screen when it can't open its data.** It now
+  says so, shows what went wrong and offers **Try again**. Your data isn't deleted, and the app
+  lock still comes first when it's on. Until the data opens, the rest of the app, including
+  Settings and Import, stays closed.
+
 ### Security
 
 - **A confirmation or settings dialog left open when the app locked could still be used from the

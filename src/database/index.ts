@@ -5,7 +5,13 @@ import { captureMigrationSnapshot } from './snapshot';
 
 SQLite.enablePromise(true);
 
+export const DATABASE_OPEN_TIMEOUT_MS = 15_000;
+
 let databaseInstance: SQLiteDatabase | null = null;
+let pendingOpen: Promise<SQLiteDatabase> | null = null;
+// Android answers a second open of a database that is still opening with
+// success, so an open in flight is rejoined, never repeated.
+let nativeOpen: Promise<SQLiteDatabase> | null = null;
 
 const DATABASE_NAME = 'expense_tracker.db';
 
@@ -16,15 +22,50 @@ const applyPragmas = async (db: SQLiteDatabase): Promise<void> => {
   await db.executeSql('PRAGMA journal_mode = WAL');
 };
 
-export const openDatabase = async (): Promise<SQLiteDatabase> => {
-  if (databaseInstance) {
-    return databaseInstance;
-  }
-
-  const db = await SQLite.openDatabase({
-    name: DATABASE_NAME,
-    location: 'default',
+// The library's promise resolves before the open completes; only the
+// callbacks report whether it succeeded.
+const openNativeDatabase = (): Promise<SQLiteDatabase> =>
+  new Promise((resolve, reject) => {
+    SQLite.openDatabase(
+      { name: DATABASE_NAME, location: 'default' },
+      resolve,
+      reject,
+    ).catch(reject);
   });
+
+const joinNativeOpen = (): Promise<SQLiteDatabase> => {
+  if (nativeOpen) {
+    return nativeOpen;
+  }
+  const open = openNativeDatabase();
+  nativeOpen = open;
+  const forget = () => {
+    if (nativeOpen === open) {
+      nativeOpen = null;
+    }
+  };
+  open.then(forget, forget);
+  return open;
+};
+
+const openNativeDatabaseWithTimeout = async (): Promise<SQLiteDatabase> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(new Error('Opening the database took longer than 15 seconds.')),
+      DATABASE_OPEN_TIMEOUT_MS,
+    );
+  });
+  try {
+    return await Promise.race([joinNativeOpen(), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const initialiseDatabase = async (): Promise<SQLiteDatabase> => {
+  const db = await openNativeDatabaseWithTimeout();
 
   await applyPragmas(db);
   await captureMigrationSnapshot(db, DATABASE_NAME, latestMigrationVersion());
@@ -35,7 +76,30 @@ export const openDatabase = async (): Promise<SQLiteDatabase> => {
   return db;
 };
 
+/**
+ * Concurrent callers share one initialisation. A failed one is not kept, so
+ * the next call opens again.
+ */
+export const openDatabase = (): Promise<SQLiteDatabase> => {
+  if (databaseInstance) {
+    return Promise.resolve(databaseInstance);
+  }
+  if (pendingOpen) {
+    return pendingOpen;
+  }
+  const chain = initialiseDatabase();
+  pendingOpen = chain;
+  const forget = () => {
+    if (pendingOpen === chain) {
+      pendingOpen = null;
+    }
+  };
+  chain.then(forget, forget);
+  return chain;
+};
+
 export const closeDatabase = async (): Promise<void> => {
+  pendingOpen = null;
   if (!databaseInstance) {
     return;
   }
@@ -43,6 +107,12 @@ export const closeDatabase = async (): Promise<void> => {
   databaseInstance = null;
 };
 
+/**
+ * Resolves with the callback's result. Rejects when the database cannot be
+ * opened, its open exceeds `DATABASE_OPEN_TIMEOUT_MS`, or initialisation
+ * fails; the next call then opens again, or waits on an open still in
+ * flight.
+ */
 export const withDatabase = async <T>(
   callback: WithDatabaseCallback<T>,
 ): Promise<T> => {

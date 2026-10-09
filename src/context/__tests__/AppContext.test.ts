@@ -156,6 +156,38 @@ describe('transactionDataReducer', () => {
       );
       expect(next.settings.biometricGateEnabled).toBe(true);
     });
+
+    it('hasLoaded starts false', () => {
+      expect(initialState.hasLoaded).toBe(false);
+    });
+
+    it('load/success sets hasLoaded', () => {
+      const next = transactionDataReducer(initialState, {
+        type: 'load/success',
+        payload: {
+          transactions: [],
+          categories: [],
+          funds: [],
+          settings: initialState.settings,
+          fxRateSeries: [],
+        },
+      });
+      expect(next.hasLoaded).toBe(true);
+    });
+
+    it.each([false, true])(
+      'load/error and load/start leave hasLoaded unchanged from %s',
+      hasLoaded => {
+        const state = { ...initialState, hasLoaded };
+        const failed = transactionDataReducer(state, {
+          type: 'load/error',
+          payload: { error: 'db failed', biometricGateEnabled: false },
+        });
+        const started = transactionDataReducer(state, { type: 'load/start' });
+        expect(failed.hasLoaded).toBe(hasLoaded);
+        expect(started.hasLoaded).toBe(hasLoaded);
+      },
+    );
   });
 
   describe('operation lifecycle', () => {

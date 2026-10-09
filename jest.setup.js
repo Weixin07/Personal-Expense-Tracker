@@ -190,12 +190,20 @@ jest.mock('react-native-saf-x', () => ({
 }));
 
 // Mock SQLite
+// Like the library in promise mode: the returned promise resolves at once, and
+// the success callback reports the open.
 jest.mock('react-native-sqlite-storage', () => ({
-  openDatabase: jest.fn(() => ({
-    transaction: jest.fn(),
-    executeSql: jest.fn(),
-    close: jest.fn(),
-  })),
+  openDatabase: jest.fn((params, success) => {
+    const db = {
+      transaction: jest.fn(),
+      executeSql: jest.fn(),
+      close: jest.fn(),
+    };
+    if (typeof success === 'function') {
+      Promise.resolve().then(() => success(db));
+    }
+    return Promise.resolve(db);
+  }),
   enablePromise: jest.fn(),
   DEBUG: jest.fn(),
 }));

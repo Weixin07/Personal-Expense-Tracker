@@ -102,6 +102,7 @@ import {
 } from '../security/gatePresentation';
 import NativeAppLockWindow from '../security/NativeAppLockWindow';
 import LockCover from '../components/LockCover';
+import LoadErrorScreen from '../components/LoadErrorScreen';
 import {
   readGateSetting,
   resolveGateReading,
@@ -137,6 +138,11 @@ type CoreState = {
   fxRateSeries: CurrencyFxRateRecord[];
   filters: TransactionFilters;
   isInitialised: boolean;
+  /**
+   * Whether any load has succeeded. Until one has, settings hold defaults, so
+   * nothing may act on them as if they had loaded.
+   */
+  hasLoaded: boolean;
   isLoading: boolean;
   error: string | null;
 };
@@ -383,6 +389,7 @@ export const initialState: CoreState = {
   fxRateSeries: [],
   filters: {},
   isInitialised: false,
+  hasLoaded: false,
   isLoading: false,
   error: null,
 };
@@ -507,6 +514,7 @@ export const transactionDataReducer = (
         settings: action.payload.settings,
         fxRateSeries: action.payload.fxRateSeries,
         isInitialised: true,
+        hasLoaded: true,
         isLoading: false,
         error: null,
       };
@@ -904,6 +912,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
   } = useBiometricGate({
     enabled: state.settings.biometricGateEnabled,
     isInitialised: state.isInitialised,
+    hasLoaded: state.hasLoaded,
     autoLockMinutes: state.settings.autoLockMinutes,
   });
 
@@ -914,6 +923,9 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
 
   useEffect(() => {
     if (state.error !== null) {
+      return;
+    }
+    if (!state.hasLoaded) {
       return;
     }
     if (!state.isInitialised || !state.settings.biometricGateEnabled) {
@@ -947,6 +959,7 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
     })();
   }, [
     state.error,
+    state.hasLoaded,
     state.isInitialised,
     state.settings.biometricGateEnabled,
     state.settings.biometricCredentialVersion,
@@ -956,7 +969,8 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
 
   const gatePresentation = deriveGatePresentation({
     isInitialised: state.isInitialised,
-    hasError: state.error !== null,
+    // Under the rule on `hasLoaded`: enrolment rewrites credentials.
+    hasError: state.error !== null || !state.hasLoaded,
     gateEnabled: state.settings.biometricGateEnabled,
     isLocked: biometricIsLocked,
     sessionAuthenticated,
@@ -989,7 +1003,14 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
   // cold start builds nothing under the lock while a relock keeps form state.
   const [shownOnce, setShownOnce] = useState(false);
   const appMountable = state.isInitialised && (shownOnce || !appCovered);
-  if (appMountable && !shownOnce) {
+  // `isLoading` keeps the screen up while a retry runs.
+  const coldStartLoadFailed =
+    state.isInitialised &&
+    !state.hasLoaded &&
+    (state.error !== null || state.isLoading);
+  // The load error screen is not a screen of the app, so showing it does not
+  // let the screens mount under a lock that a retry brings.
+  if (appMountable && !coldStartLoadFailed && !shownOnce) {
     setShownOnce(true);
   }
   useLayoutEffect(() => {
@@ -1763,7 +1784,15 @@ export const TransactionDataProvider: React.FC<React.PropsWithChildren> = ({
         <Portal.Host>
           {state.isInitialised ? (
             appMountable ? (
-              children
+              coldStartLoadFailed ? (
+                <LoadErrorScreen
+                  detail={state.error}
+                  busy={state.isLoading}
+                  onRetry={refresh}
+                />
+              ) : (
+                children
+              )
             ) : null
           ) : (
             <Surface style={styles.loading}>

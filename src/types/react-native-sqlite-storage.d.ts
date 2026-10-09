@@ -16,6 +16,11 @@ declare module 'react-native-sqlite-storage' {
   }
 
   export function openDatabase(params: DatabaseParams): Promise<SQLiteDatabase>;
+  export function openDatabase(
+    params: DatabaseParams,
+    success: (db: SQLiteDatabase) => void,
+    error: (error: Error) => void,
+  ): Promise<SQLiteDatabase>;
   export function deleteDatabase(params: DatabaseParams): Promise<void>;
 
   export interface SQLError {

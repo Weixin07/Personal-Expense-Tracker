@@ -1409,6 +1409,91 @@ describe('useBiometricGate cold-start lock', () => {
     rerender({ enabled: true });
     expect(result.current.isLocked).toBe(false);
   });
+
+  describe('after a failed first load', () => {
+    type Props = { enabled: boolean; hasLoaded: boolean };
+    const failedFirstLoad = (enabled: boolean) => {
+      const seen: Array<Props & { locked: boolean }> = [];
+      const view = renderHook(
+        (props: Props) => {
+          const gate = useBiometricGate({ ...props, isInitialised: true });
+          seen.push({ ...props, locked: gate.isLocked });
+          return gate;
+        },
+        { initialProps: { enabled, hasLoaded: false } },
+      );
+      return { ...view, seen };
+    };
+
+    it('locks on a successful first load with the lock on', () => {
+      const { result } = renderHook(() =>
+        useBiometricGate({
+          enabled: true,
+          isInitialised: true,
+          hasLoaded: true,
+        }),
+      );
+      expect(result.current.isLocked).toBe(true);
+    });
+
+    it('stays open on a successful first load with the lock off', () => {
+      const { result } = renderHook(() =>
+        useBiometricGate({
+          enabled: false,
+          isInitialised: true,
+          hasLoaded: true,
+        }),
+      );
+      expect(result.current.isLocked).toBe(false);
+    });
+
+    it('locks on a failed first load the keychain reads as on', () => {
+      const { result } = failedFirstLoad(true);
+      expect(result.current.isLocked).toBe(true);
+    });
+
+    it('locks when a load after a failed cold start turns the lock on', () => {
+      const { result, rerender } = failedFirstLoad(false);
+      expect(result.current.isLocked).toBe(false);
+      rerender({ enabled: true, hasLoaded: true });
+      expect(result.current.isLocked).toBe(true);
+    });
+
+    it('holds the lock in the same render the lock-on load lands', () => {
+      const { rerender, seen } = failedFirstLoad(false);
+      rerender({ enabled: true, hasLoaded: true });
+      const landed = seen.filter(render => render.hasLoaded);
+      expect(landed.length).toBeGreaterThan(0);
+      expect(landed.every(render => render.locked)).toBe(true);
+    });
+
+    it('stays unlocked when that load lands after the session authenticated', async () => {
+      await storePin('846207');
+      const { result, rerender } = failedFirstLoad(true);
+      expect(result.current.isLocked).toBe(true);
+      await act(async () => {
+        await result.current.unlockWithPin('846207');
+      });
+      expect(result.current.sessionAuthenticated).toBe(true);
+      rerender({ enabled: true, hasLoaded: true });
+      expect(result.current.isLocked).toBe(false);
+    });
+
+    it('stays open when that load lands with the lock off', () => {
+      const { result, rerender } = failedFirstLoad(false);
+      rerender({ enabled: false, hasLoaded: true });
+      expect(result.current.isLocked).toBe(false);
+    });
+
+    it('does not relock on a mid-session load once a load has succeeded', () => {
+      const { result, rerender } = renderHook(
+        (props: Props) => useBiometricGate({ ...props, isInitialised: true }),
+        { initialProps: { enabled: false, hasLoaded: true } },
+      );
+      rerender({ enabled: true, hasLoaded: true });
+      expect(result.current.isLocked).toBe(false);
+    });
+  });
 });
 
 describe('useBiometricGate background curtain', () => {

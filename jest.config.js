@@ -35,7 +35,6 @@ module.exports = {
     '!src/export/index.ts',
     '!src/import/index.ts',
     // Native-module IO bootstrap/wrappers covered by integration, not unit tests.
-    '!src/database/index.ts',
     '!src/database/seeding.ts',
     '!src/security/NativeAppPinCrypto.ts',
     '!src/security/NativeAppLockWindow.ts',

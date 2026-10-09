@@ -1,3 +1,47 @@
+diff --git a/lib/sqlite.core.js b/lib/sqlite.core.js
+index 9963042a80b1b7953c8c05c29dbfa64c0572b85a..e8d0c30854793c3489d0c86409ed9fcf22c139ba 100644
+--- a/lib/sqlite.core.js
++++ b/lib/sqlite.core.js
+@@ -281,10 +281,11 @@ SQLitePlugin.prototype.open = function(success, error) {
+       };
+     })(this);
+     openerrorcb = (function(_this) {
+-      return function() {
++      // The native open error names the SQLite cause, e.g. SQLITE_CANTOPEN.
++      return function(nativeError) {
+         plugin.log("OPEN database: " + _this.dbname + " failed, aborting any pending transactions");
+         if (!!error) {
+-          error(newSQLError("Could not open database"));
++          error(newSQLError(nativeError || "Could not open database"));
+         }
+         delete _this.openDBs[_this.dbname];
+         _this.abortAllPendingTransactions();
+@@ -400,7 +401,7 @@ SQLitePlugin.prototype.detach = function(dbAlias, success, error) {
+ };
+ 
+ SQLitePlugin.prototype.executeSql = function(statement, params, success, error) {
+-  var myerror, myfn, mysuccess;
++  var myerror, myfn, mysuccess, mytxerror;
+   mysuccess = function(t, r) {
+     if (!!success) {
+       return success(r);
+@@ -416,7 +417,15 @@ SQLitePlugin.prototype.executeSql = function(statement, params, success, error)
+   myfn = function(tx) {
+     tx.addStatement(statement, params, mysuccess, myerror);
+   };
+-  this.addTransaction(new SQLitePluginTransaction(this, myfn, null, null, false, false));
++  // Without it, a transaction aborted from the queue never reports back.
++  mytxerror = function(e) {
++    if (!!error) {
++      return error(e);
++    } else {
++      plugin.log("Error handler not provided: ",e);
++    }
++  };
++  this.addTransaction(new SQLitePluginTransaction(this, myfn, mytxerror, null, false, false));
+ };
+ 
+ SQLitePluginTransaction = function(db, fn, error, success, txlock, readOnly) {
 diff --git a/react-native.config.js b/react-native.config.js
 index dc150a92ce04175491c8a8edc7aea00568f555ae..7dcf0ef08220c92000dedbfcb21b1abe43e9158b 100644
 --- a/react-native.config.js

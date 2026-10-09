@@ -66,6 +66,7 @@ export const makeContextState = (
     fxRateSeries: [],
     filters: {},
     isInitialised: true,
+    hasLoaded: true,
     isLoading: false,
     error: null,
     biometric: {

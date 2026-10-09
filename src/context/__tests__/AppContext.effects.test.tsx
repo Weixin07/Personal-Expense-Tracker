@@ -76,6 +76,26 @@ jest.mock('../../components/BiometricGateModal', () => {
   };
 });
 
+// A failed cold-start load mounts no screen either, so `Capture` rides along
+// with the load error screen too.
+jest.mock('../../components/LoadErrorScreen', () => {
+  const ReactActual = jest.requireActual('react');
+  const actual = jest.requireActual('../../components/LoadErrorScreen');
+  const WithCapture = (props: object) =>
+    ReactActual.createElement(
+      ReactActual.Fragment,
+      null,
+      ReactActual.createElement(actual.LoadErrorScreen, props),
+      ReactActual.createElement(MockCapture),
+    );
+  return {
+    __esModule: true,
+    ...actual,
+    LoadErrorScreen: WithCapture,
+    default: WithCapture,
+  };
+});
+
 jest.mock('../../database', () => ({
   withDatabase: jest.fn(),
   listTransactions: jest.fn(),
@@ -1996,7 +2016,7 @@ describe('TransactionDataProvider effects', () => {
           expect(appContent()).not.toBeNull();
         });
 
-        it('mounts no screen while a failed load holds the lock, then mounts on unlock', async () => {
+        it('mounts no screen while a failed load holds the lock, then shows the load error screen on unlock', async () => {
           await stubRealPin();
           mockDb.listTransactions.mockRejectedValueOnce(
             new Error('load failed'),
@@ -2009,7 +2029,203 @@ describe('TransactionDataProvider effects', () => {
           expect(ctx.state.error).toBe('load failed');
           expect(appContent()).toBeNull();
           await unlockWithRealPin();
-          await waitFor(() => expect(appContent()).not.toBeNull());
+          await waitFor(() =>
+            expect(
+              screen.getByText("Couldn't open your data"),
+            ).toBeOnTheScreen(),
+          );
+          expect(appContent()).toBeNull();
+        });
+
+        describe('a database that cannot be opened', () => {
+          const OPEN_ERROR =
+            "Can't open database.android.database.sqlite.SQLiteCantOpenDatabaseException: (code 14 SQLITE_CANTOPEN): Permission denied";
+          const failNextOpen = (message = OPEN_ERROR): void => {
+            (mockDb.withDatabase as jest.Mock).mockRejectedValueOnce(
+              new Error(message),
+            );
+          };
+          const pressRetry = (): void => {
+            fireEvent.press(
+              screen.getByLabelText('Try opening your data again'),
+            );
+          };
+          const errorScreen = () =>
+            screen.queryByText("Couldn't open your data", {
+              includeHiddenElements: true,
+            });
+          const holdNextOpen = (): (() => void) => {
+            let release: () => void = () => {};
+            (mockDb.withDatabase as jest.Mock).mockImplementationOnce(
+              (cb: (database: unknown) => unknown) =>
+                new Promise(resolve => {
+                  release = () => resolve(cb({}));
+                }),
+            );
+            return () => release();
+          };
+          const stubBiometricOnlyFailedLoad = (): void => {
+            stubKeychain({ biometricRead: true, pinPassword: null });
+            mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+            failNextOpen();
+          };
+
+          it('gate-on: a failed open locks, then shows the load error screen after unlock', async () => {
+            await stubRealPin();
+            failNextOpen();
+            renderWithProviders(tree);
+            await waitFor(() =>
+              expect(ctx?.state.biometric.isLocked).toBe(true),
+            );
+            expect(ctx.state.error).toBe(OPEN_ERROR);
+            expect(errorScreen()).toBeNull();
+            await unlockWithRealPin();
+            await waitFor(() => expect(errorScreen()).toBeOnTheScreen());
+            expect(screen.getByText(OPEN_ERROR)).toBeOnTheScreen();
+            expect(ctx.state.gatePresentation).toBe('hidden');
+            expect(appContent()).toBeNull();
+            expect(probeMounts).toBe(0);
+          });
+
+          it('gate-off: a failed open shows the load error screen with the detail, and mounts no screen', async () => {
+            failNextOpen();
+            renderWithProviders(tree);
+            await waitFor(() => expect(errorScreen()).toBeOnTheScreen());
+            expect(screen.getByText(OPEN_ERROR)).toBeOnTheScreen();
+            expect(ctx.state.biometric.isLocked).toBe(false);
+            expect(appContent()).toBeNull();
+            expect(probeMounts).toBe(0);
+          });
+
+          it('retry that succeeds mounts the app', async () => {
+            failNextOpen();
+            renderWithProviders(tree);
+            await waitFor(() => expect(errorScreen()).toBeOnTheScreen());
+            await act(async () => {
+              pressRetry();
+            });
+            await waitFor(() =>
+              expect(appContent()).toHaveTextContent('app content 1'),
+            );
+            expect(errorScreen()).toBeNull();
+            expect(ctx.state.hasLoaded).toBe(true);
+          });
+
+          it('retry that fails again keeps the screen with the new detail', async () => {
+            failNextOpen();
+            renderWithProviders(tree);
+            await waitFor(() => expect(errorScreen()).toBeOnTheScreen());
+            failNextOpen('Opening the database took longer than 15 seconds.');
+            await act(async () => {
+              pressRetry();
+            });
+            await waitFor(() =>
+              expect(
+                screen.getByText(
+                  'Opening the database took longer than 15 seconds.',
+                ),
+              ).toBeOnTheScreen(),
+            );
+            expect(errorScreen()).toBeOnTheScreen();
+            expect(appContent()).toBeNull();
+          });
+
+          it('keeps the screen and its detail while retry is running', async () => {
+            failNextOpen();
+            renderWithProviders(tree);
+            await waitFor(() => expect(errorScreen()).toBeOnTheScreen());
+            const release = holdNextOpen();
+            await act(async () => {
+              pressRetry();
+            });
+            expect(ctx.state.isLoading).toBe(true);
+            expect(errorScreen()).toBeOnTheScreen();
+            expect(screen.getByText(OPEN_ERROR)).toBeOnTheScreen();
+            expect(
+              screen.getByLabelText('Try opening your data again'),
+            ).toBeDisabled();
+            expect(appContent()).toBeNull();
+            await act(async () => {
+              release();
+            });
+            await waitFor(() => expect(appContent()).not.toBeNull());
+          });
+
+          it('gate-off failed open, retry lands lock-on: locks before mounting', async () => {
+            failNextOpen();
+            renderWithProviders(tree);
+            await waitFor(() => expect(errorScreen()).toBeOnTheScreen());
+            expect(ctx.state.settings.biometricGateEnabled).toBe(false);
+            await stubRealPin();
+            mockDb.getAllSettings.mockResolvedValue(gateOnSettings);
+            await act(async () => {
+              pressRetry();
+            });
+            await waitFor(() =>
+              expect(ctx.state.settings.biometricGateEnabled).toBe(true),
+            );
+            expect(ctx.state.biometric.isLocked).toBe(true);
+            expect(appContent()).toBeNull();
+            expect(probeMounts).toBe(0);
+            await unlockWithRealPin();
+            await waitFor(() =>
+              expect(appContent()).toHaveTextContent('app content 1'),
+            );
+          });
+
+          it('does not offer PIN enrolment during a retry', async () => {
+            stubBiometricOnlyFailedLoad();
+            renderWithProviders(tree);
+            await waitFor(() => expect(errorScreen()).toBeOnTheScreen());
+            expect(ctx.state.biometric.isLocked).toBe(false);
+            expect(ctx.state.biometric.pinUsable).toBe(false);
+            const release = holdNextOpen();
+            await act(async () => {
+              pressRetry();
+            });
+            expect(ctx.state.error).toBeNull();
+            expect(ctx.state.pinSetupRequired).toBe(false);
+            expect(ctx.state.gatePresentation).toBe('hidden');
+            await act(async () => {
+              release();
+            });
+          });
+
+          it('does not upgrade the biometric credential during a retry', async () => {
+            stubBiometricOnlyFailedLoad();
+            renderWithProviders(tree);
+            await waitFor(() => expect(errorScreen()).toBeOnTheScreen());
+            expect(ctx.state.biometric.isLocked).toBe(false);
+            (Keychain.setGenericPassword as jest.Mock).mockClear();
+            (Keychain.resetGenericPassword as jest.Mock).mockClear();
+            const release = holdNextOpen();
+            await act(async () => {
+              pressRetry();
+            });
+            expect(ctx.state.error).toBeNull();
+            expect(biometricWrites()).toHaveLength(0);
+            expect(Keychain.resetGenericPassword).not.toHaveBeenCalledWith({
+              service: BIOMETRIC_SERVICE,
+            });
+            await act(async () => {
+              release();
+            });
+          });
+
+          it('a failed mid-session refresh keeps the app mounted with no error screen', async () => {
+            renderWithProviders(tree);
+            await waitFor(() =>
+              expect(appContent()).toHaveTextContent('app content 1'),
+            );
+            failNextOpen();
+            await act(async () => {
+              await ctx.actions.refresh();
+            });
+            expect(ctx.state.error).toBe(OPEN_ERROR);
+            expect(appContent()).toHaveTextContent('app content 1');
+            expect(errorScreen()).toBeNull();
+            expect(probeMounts).toBe(1);
+          });
         });
 
         it('refuses a guarded action from the first render of the cold-start lock', async () => {

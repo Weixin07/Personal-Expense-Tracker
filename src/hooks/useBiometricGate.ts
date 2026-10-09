@@ -264,10 +264,13 @@ const shouldRaiseCurtain = ({
 export const useBiometricGate = ({
   enabled,
   isInitialised,
+  hasLoaded = isInitialised,
   autoLockMinutes = DEFAULT_AUTO_LOCK_MINUTES,
 }: {
   enabled: boolean;
   isInitialised?: boolean;
+  /** Whether any load has succeeded; omitted, it follows `isInitialised`. */
+  hasLoaded?: boolean;
   autoLockMinutes?: number | null;
 }): UseBiometricGateResult => {
   const [lockedState, setLockedState] = useState(false);
@@ -290,11 +293,18 @@ export const useBiometricGate = ({
   const biometricPromptInFlightRef = useRef(false);
   const deviceCredentialInFlightRef = useRef(false);
   const [coldStartEvaluated, setColdStartEvaluated] = useState(false);
+  const [loadedLockEvaluated, setLoadedLockEvaluated] = useState(false);
   const [curtain, setCurtain] = useState(false);
   // Locked from the first render that has settings, so no frame of the app is
-  // committed before the cold-start lock lands.
+  // committed before the cold-start lock lands. Until a load succeeds the lock
+  // setting is unknown, so a lock-on that arrives later still locks.
   const isLocked =
-    lockedState || (enabled && Boolean(isInitialised) && !coldStartEvaluated);
+    lockedState ||
+    (enabled && Boolean(isInitialised) && !coldStartEvaluated) ||
+    (enabled &&
+      Boolean(isInitialised) &&
+      !loadedLockEvaluated &&
+      !sessionAuthenticated);
   const isLockedRef = useRef(isLocked);
   isLockedRef.current = isLocked;
 
@@ -613,6 +623,16 @@ export const useBiometricGate = ({
       setSessionAuthenticated(false);
     }
   }, [enabled, isInitialised, coldStartEvaluated]);
+
+  useEffect(() => {
+    if (!hasLoaded || loadedLockEvaluated) {
+      return;
+    }
+    setLoadedLockEvaluated(true);
+    if (enabled && !sessionAuthenticated) {
+      setLockedState(true);
+    }
+  }, [enabled, hasLoaded, loadedLockEvaluated, sessionAuthenticated]);
 
   useEffect(() => {
     if (!enabled) {
