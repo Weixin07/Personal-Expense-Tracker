@@ -18,7 +18,7 @@ For architecture, the dev workflow, and the full troubleshooting catalogue, see
 Confirm your toolchain before starting (versions are pinned by the repo):
 
 ```powershell
-node --version        # v24.11.1 (pinned via .nvmrc)
+node --version        # v24.19.0 (pinned via .nvmrc)
 pnpm --version        # 9.12.1 (via Corepack)
 echo $env:ANDROID_HOME  # path to your Android SDK
 java -version         # JDK 17

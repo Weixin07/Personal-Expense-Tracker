@@ -4,7 +4,7 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
 [![React Native](https://img.shields.io/badge/React%20Native-0.83-61dafb.svg)](https://reactnative.dev/)
-[![Node](https://img.shields.io/badge/Node-24.11.1-green.svg)](https://nodejs.org/)
+[![Node](https://img.shields.io/badge/Node-24.19.0-green.svg)](https://nodejs.org/)
 [![pnpm](https://img.shields.io/badge/pnpm-9.12.1-f69220.svg)](https://pnpm.io/)
 [![License](https://img.shields.io/badge/License-Personal%20Use-red.svg)]()
 
@@ -117,7 +117,7 @@ Personal Expense Tracker is a **single-user, offline-first** mobile application 
 **Development Tools**
 
 - **Package Manager**: pnpm 9.12.1 (via Corepack)
-- **Node Version**: 24.11.1 (pinned with `.nvmrc`)
+- **Node Version**: 24.19.0 (pinned with `.nvmrc`)
 - **Linting**: ESLint 9.38 (flat config) with TypeScript, React, security plugins
 - **Formatting**: Prettier 3.6.2
 - **Testing**: Jest 30 with TypeScript support
@@ -316,9 +316,9 @@ carry an entry per row to serve a small minority of them.
 
 ### Required Software
 
-1. **Node.js 24.11.1** (pinned via `.nvmrc`)
-   - Install via [nvm-windows](https://github.com/coreybutler/nvm-windows) (Windows) or [nvm](https://github.com/nvm-sh/nvm) (macOS/Linux)
-   - Run: `nvm install 24.11.1 && nvm use 24.11.1`
+1. **Node.js 24.19.0** (pinned via `.nvmrc`)
+   - Install via [fnm](https://github.com/Schniz/fnm) (`winget install Schniz.fnm`), which the `vm-1` activate scripts use to switch to the pinned version automatically, or via [nvm-windows](https://github.com/coreybutler/nvm-windows) (Windows) / [nvm](https://github.com/nvm-sh/nvm) (macOS/Linux)
+   - With nvm, run: `nvm install 24.19.0 && nvm use 24.19.0`
 
 2. **pnpm 9.12.1** (managed via Corepack)
    - Node 24+ includes Corepack; enable with: `corepack enable`
@@ -829,7 +829,7 @@ PET/
 ├── .env.example                # Environment template (committed)
 ├── .eslintrc.js                # ESLint flat config
 ├── .gitignore                  # Git ignore rules
-├── .nvmrc                      # Node version (24.11.1)
+├── .nvmrc                      # Node version (24.19.0)
 ├── .prettierrc.js              # Prettier config
 ├── babel.config.js             # Babel transformer
 ├── jest.config.js              # Jest test configuration

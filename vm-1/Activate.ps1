@@ -26,8 +26,8 @@ if (Test-Path $vm1Nvmrc) {
 
 if ($vm1Pinned) {
     if (Get-Command fnm -ErrorAction SilentlyContinue) {
-        fnm use --install-if-missing $vm1Pinned 2>&1 | Out-Null
         fnm env --shell power-shell | Out-String | Invoke-Expression
+        fnm use --install-if-missing $vm1Pinned 2>&1 | Out-Null
     }
     elseif (Get-Command nvm -ErrorAction SilentlyContinue) {
         nvm use $vm1Pinned 2>&1 | Out-Null
