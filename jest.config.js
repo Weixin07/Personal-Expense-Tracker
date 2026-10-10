@@ -10,6 +10,7 @@ module.exports = {
     '/node_modules/',
     '<rootDir>/src/__tests__/performance/',
   ],
+  globalSetup: '<rootDir>/jest.globalSetup.js',
   setupFiles: [
     require.resolve('react-native/jest/setup.js'),
     '<rootDir>/jest.setup.js',
