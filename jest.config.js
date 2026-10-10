@@ -39,6 +39,7 @@ module.exports = {
     '!src/security/NativeAppPinCrypto.ts',
     '!src/security/NativeAppLockWindow.ts',
   ],
+  reporters: ['default', 'github-actions'],
   coverageThreshold: {
     global: { branches: 70, functions: 80, lines: 80, statements: 80 },
     './src/context/AppContext.tsx': {
