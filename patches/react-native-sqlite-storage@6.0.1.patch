@@ -1,8 +1,37 @@
 diff --git a/lib/sqlite.core.js b/lib/sqlite.core.js
-index 9963042a80b1b7953c8c05c29dbfa64c0572b85a..e8d0c30854793c3489d0c86409ed9fcf22c139ba 100644
+index 9963042a80b1b7953c8c05c29dbfa64c0572b85a..bffa398cec3850f47160308ab8dd0d0d43cf80e4 100644
 --- a/lib/sqlite.core.js
 +++ b/lib/sqlite.core.js
-@@ -281,10 +281,11 @@ SQLitePlugin.prototype.open = function(success, error) {
+@@ -132,6 +132,11 @@ SQLitePlugin.prototype.databaseFeatures = {
+ SQLitePlugin.prototype.openDBs = {};
+ 
+ SQLitePlugin.prototype.addTransaction = function(t) {
++  // Never queued: the queue is shared by name, and any reopen of the name runs it.
++  if (!(this.dbname in this.openDBs)) {
++    t.abortFromQ(newSQLError("database not open"));
++    return;
++  }
+   if (!txLocks[this.dbname]) {
+     txLocks[this.dbname] = {
+       queue: [],
+@@ -139,14 +144,10 @@ SQLitePlugin.prototype.addTransaction = function(t) {
+     };
+   }
+   txLocks[this.dbname].queue.push(t);
+-  if (this.dbname in this.openDBs && this.openDBs[this.dbname] !== DB_STATE_INIT) {
++  if (this.openDBs[this.dbname] !== DB_STATE_INIT) {
+     this.startNextTransaction();
+   } else {
+-    if (this.dbname in this.openDBs) {
+-      plugin.log("new transaction is waiting for open operation");
+-    } else {
+-      plugin.log("database is closed, new transaction is [stuck] waiting until db is opened again!");
+-    }
++    plugin.log("new transaction is waiting for open operation");
+   }
+ };
+ 
+@@ -281,10 +282,11 @@ SQLitePlugin.prototype.open = function(success, error) {
        };
      })(this);
      openerrorcb = (function(_this) {
@@ -16,7 +45,7 @@ index 9963042a80b1b7953c8c05c29dbfa64c0572b85a..e8d0c30854793c3489d0c86409ed9fcf
          }
          delete _this.openDBs[_this.dbname];
          _this.abortAllPendingTransactions();
-@@ -400,7 +401,7 @@ SQLitePlugin.prototype.detach = function(dbAlias, success, error) {
+@@ -400,7 +402,7 @@ SQLitePlugin.prototype.detach = function(dbAlias, success, error) {
  };
  
  SQLitePlugin.prototype.executeSql = function(statement, params, success, error) {
@@ -25,7 +54,7 @@ index 9963042a80b1b7953c8c05c29dbfa64c0572b85a..e8d0c30854793c3489d0c86409ed9fcf
    mysuccess = function(t, r) {
      if (!!success) {
        return success(r);
-@@ -416,7 +417,15 @@ SQLitePlugin.prototype.executeSql = function(statement, params, success, error)
+@@ -416,7 +418,15 @@ SQLitePlugin.prototype.executeSql = function(statement, params, success, error)
    myfn = function(tx) {
      tx.addStatement(statement, params, mysuccess, myerror);
    };
