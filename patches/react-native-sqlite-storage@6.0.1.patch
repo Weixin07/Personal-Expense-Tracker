@@ -1,5 +1,5 @@
 diff --git a/lib/sqlite.core.js b/lib/sqlite.core.js
-index 9963042a80b1b7953c8c05c29dbfa64c0572b85a..05344195dfc84e7f752809382456c90053ec6473 100644
+index 9963042a80b1b7953c8c05c29dbfa64c0572b85a..352824e15ad640c7a89341884bf280f387cbe035 100644
 --- a/lib/sqlite.core.js
 +++ b/lib/sqlite.core.js
 @@ -132,6 +132,11 @@ SQLitePlugin.prototype.databaseFeatures = {
@@ -97,6 +97,19 @@ index 9963042a80b1b7953c8c05c29dbfa64c0572b85a..05344195dfc84e7f752809382456c900
  };
  
  SQLitePluginTransaction = function(db, fn, error, success, txlock, readOnly) {
+@@ -644,7 +656,12 @@ SQLitePluginTransaction.prototype.run = function() {
+   };
+ 
+   var myerror = function(error) {
++    var j;
+     plugin.log("batch execution error: ",error);
++    // A refused batch ran none of its statements; failing each one settles the transaction.
++    for (j = 0; j < callbacks.length; j++) {
++      callbacks[j].error(error);
++    }
+   };
+ 
+   plugin.exec("backgroundExecuteSqlBatch",{
 diff --git a/react-native.config.js b/react-native.config.js
 index dc150a92ce04175491c8a8edc7aea00568f555ae..7dcf0ef08220c92000dedbfcb21b1abe43e9158b 100644
 --- a/react-native.config.js

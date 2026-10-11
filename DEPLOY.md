@@ -844,7 +844,8 @@ OAuth → Drive export, CSV export/share).
 > native open error through, gives `executeSql`'s transaction an error callback so a statement
 > queued behind a failed open rejects, and rejects a statement on a closed handle with "database
 > not open" instead of queuing it, and closing the database rejects any statement still queued for
-> it the same way, rather than leaving it to run on the next open.
+> it the same way, rather than leaving it to run on the next open. A batch the native side refuses
+> rejects its caller with the native error and frees the queue for the next statement.
 > `src/database/__tests__/sqliteStoragePatch.test.ts` runs the real library against a fake native
 > module and fails if a re-roll drops any of them. The key in `pnpm.patchedDependencies` is
 > version-pinned, so pnpm refuses an install on a bump until the patch is re-rolled.

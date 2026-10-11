@@ -11,9 +11,19 @@ interface PendingOpen {
 
 type OpenAnswer = 'success' | { error: string };
 
+interface TxHandle {
+  executeSql(
+    sql: string,
+    params: unknown[],
+    ok?: () => void,
+    err?: (error: Error) => void,
+  ): void;
+}
+
 interface PromiseHandle {
   executeSql(sql: string): Promise<unknown>;
   sqlBatch(statements: string[]): Promise<unknown>;
+  transaction(fn: (tx: TxHandle) => void): Promise<unknown>;
   close(): Promise<unknown>;
 }
 
@@ -48,12 +58,15 @@ type Settled =
 /**
  * Stands in for the native `SQLite` module only. Every answer arrives on a
  * later tick, as the bridge's do; opens wait until the test calls
- * `answerOpen`, and every batch succeeds with no rows.
+ * `answerOpen`, and every batch succeeds with no rows unless `refuseBatches`
+ * matches it.
  */
 const createFakeNative = () => {
   const opens: PendingOpen[] = [];
   const sent: string[] = [];
   let heldAnswers: (() => void)[] | null = null;
+  let refusal: { text: string; matches: (sqls: string[]) => boolean } | null =
+    null;
   const answerBatch = (answer: () => void) => {
     if (heldAnswers) {
       heldAnswers.push(answer);
@@ -71,8 +84,15 @@ const createFakeNative = () => {
     backgroundExecuteSqlBatch: (
       { executes }: { executes: NativeExecute[] },
       ok: NativeCallback,
+      err: NativeCallback,
     ) => {
-      sent.push(...executes.map(execute => execute.sql));
+      const sqls = executes.map(execute => execute.sql);
+      sent.push(...sqls);
+      if (refusal?.matches(sqls)) {
+        const { text } = refusal;
+        answerBatch(() => err(text));
+        return;
+      }
       answerBatch(() =>
         ok(
           executes.map(() => ({
@@ -81,6 +101,13 @@ const createFakeNative = () => {
           })),
         ),
       );
+    },
+    /** Refuses every batch sent from now on whose SQL `matches`, with `text`. */
+    refuseBatches: (
+      text: string,
+      matches: (sqls: string[]) => boolean = () => true,
+    ) => {
+      refusal = { text, matches };
     },
     /** Keeps every batch sent from now on unanswered until `releaseBatches`. */
     holdBatches: () => {
@@ -127,6 +154,8 @@ const settled = async (promise: Promise<unknown>): Promise<Settled> => {
   await flush();
   return outcome;
 };
+
+const containing = (sql: string) => (sqls: string[]) => sqls.includes(sql);
 
 const rejectedWith = (message: string) => ({
   state: 'rejected',
@@ -340,6 +369,125 @@ describe('react-native-sqlite-storage as patched, in promise mode', () => {
       native.batches().indexOf("SELECT 'queued'"),
     );
   });
+
+  it('rejects a statement whose batch is refused, and runs the statement queued behind it', async () => {
+    const handle = await openHandle('refused.db');
+    native.refuseBatches('database not open', containing("SELECT 'refused'"));
+
+    const outcomes = await Promise.all(
+      [
+        handle.executeSql("SELECT 'refused'"),
+        handle.executeSql("SELECT 'next'"),
+      ].map(settled),
+    );
+
+    expect(outcomes).toEqual([
+      rejectedWith('database not open'),
+      expect.objectContaining({ state: 'resolved' }),
+    ]);
+    expect(native.batches().indexOf("SELECT 'refused'")).toBeLessThan(
+      native.batches().indexOf("SELECT 'next'"),
+    );
+  });
+
+  it.each([
+    'database not open',
+    "couldn't add to queue",
+    'database has been closed',
+    'Unexpected error executing processing SQLite query',
+  ])("passes the native refusal's text through: %s", async text => {
+    const handle = await openHandle('refused.db');
+    native.refuseBatches(text);
+
+    const outcome = await settled(handle.executeSql("SELECT 'refused'"));
+
+    expect(outcome).toEqual(rejectedWith(text));
+  });
+
+  it('rolls back a batch whose BEGIN is refused, and runs the next statement', async () => {
+    const handle = await openHandle('refused.db');
+    native.refuseBatches('database not open', containing('BEGIN'));
+
+    const outcomes = await Promise.all(
+      [
+        handle.sqlBatch(["SELECT 'refused'"]),
+        handle.executeSql("SELECT 'next'"),
+      ].map(settled),
+    );
+
+    expect(outcomes).toEqual([
+      rejectedWith('database not open'),
+      expect.objectContaining({ state: 'resolved' }),
+    ]);
+    expect(native.batches()).toContain('ROLLBACK');
+  });
+
+  it('rejects a batch whose ROLLBACK is refused too, and runs the next statement', async () => {
+    const handle = await openHandle('refused.db');
+    native.refuseBatches(
+      "couldn't add to queue",
+      sqls => sqls.includes('BEGIN') || sqls.includes('ROLLBACK'),
+    );
+
+    const outcomes = await Promise.all(
+      [
+        handle.sqlBatch(["SELECT 'refused'"]),
+        handle.executeSql("SELECT 'next'"),
+      ].map(settled),
+    );
+
+    expect(outcomes).toEqual([
+      rejectedWith("error while trying to roll back: couldn't add to queue"),
+      expect.objectContaining({ state: 'resolved' }),
+    ]);
+  });
+
+  it('rejects a batch whose COMMIT is refused, and runs the next statement', async () => {
+    const handle = await openHandle('refused.db');
+    native.refuseBatches('database has been closed', containing('COMMIT'));
+
+    const outcomes = await Promise.all(
+      [
+        handle.sqlBatch(["SELECT 'committed'"]),
+        handle.executeSql("SELECT 'next'"),
+      ].map(settled),
+    );
+
+    expect(outcomes).toEqual([
+      rejectedWith('error while trying to commit: database has been closed'),
+      expect.objectContaining({ state: 'resolved' }),
+    ]);
+  });
+
+  it('rejects a transaction whose second batch is refused, and runs the next statement', async () => {
+    const handle = await openHandle('refused.db');
+    native.refuseBatches('database not open', containing("SELECT 'second'"));
+    const secondErr = jest.fn<void, [Error]>();
+
+    const outcomes = await Promise.all(
+      [
+        handle.transaction(tx =>
+          tx.executeSql(
+            "SELECT 'first'",
+            [],
+            () => tx.executeSql("SELECT 'second'", [], () => {}, secondErr),
+            () => {},
+          ),
+        ),
+        handle.executeSql("SELECT 'next'"),
+      ].map(settled),
+    );
+
+    expect(outcomes).toEqual([
+      rejectedWith('database not open'),
+      expect.objectContaining({ state: 'resolved' }),
+    ]);
+    expect(secondErr).toHaveBeenCalledTimes(1);
+    expect(secondErr).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'database not open' }),
+    );
+    expect(native.batches()).toContain('ROLLBACK');
+  });
 });
 
 describe('react-native-sqlite-storage as patched, in callback mode', () => {
@@ -419,5 +567,21 @@ describe('react-native-sqlite-storage as patched, in callback mode', () => {
     expect(native.batches()).toContain("SELECT 'after reopen'");
     expect(native.batches()).not.toContain("SELECT 'stranded'");
     expect(native.batches()).not.toContain("SELECT 'reissued'");
+  });
+
+  it('reports a refused batch once, to the error callback', async () => {
+    const handle = await openCallbackHandle('refused.db');
+    native.refuseBatches('database not open');
+    const ok = jest.fn();
+    const err = jest.fn<void, [Error]>();
+
+    handle.executeSql("SELECT 'refused'", [], ok, err);
+    await flush();
+
+    expect(err).toHaveBeenCalledTimes(1);
+    expect(err).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'database not open' }),
+    );
+    expect(ok).not.toHaveBeenCalled();
   });
 });
