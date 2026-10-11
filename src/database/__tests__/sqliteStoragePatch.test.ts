@@ -53,6 +53,14 @@ type Settled =
 const createFakeNative = () => {
   const opens: PendingOpen[] = [];
   const sent: string[] = [];
+  let heldAnswers: (() => void)[] | null = null;
+  const answerBatch = (answer: () => void) => {
+    if (heldAnswers) {
+      heldAnswers.push(answer);
+    } else {
+      setImmediate(answer);
+    }
+  };
   return {
     open: (_args: unknown, ok: NativeCallback, err: NativeCallback) => {
       opens.push({ ok, err });
@@ -65,7 +73,7 @@ const createFakeNative = () => {
       ok: NativeCallback,
     ) => {
       sent.push(...executes.map(execute => execute.sql));
-      setImmediate(() =>
+      answerBatch(() =>
         ok(
           executes.map(() => ({
             type: 'success',
@@ -73,6 +81,16 @@ const createFakeNative = () => {
           })),
         ),
       );
+    },
+    /** Keeps every batch sent from now on unanswered until `releaseBatches`. */
+    holdBatches: () => {
+      heldAnswers = heldAnswers ?? [];
+    },
+    /** Answers the held batches in the order they were sent, and stops holding. */
+    releaseBatches: () => {
+      const answers = heldAnswers ?? [];
+      heldAnswers = null;
+      answers.forEach(answer => setImmediate(answer));
     },
     /** Answers the `index`th open, counted from the first. */
     answerOpen: (index: number, answer: OpenAnswer) => {
@@ -137,6 +155,16 @@ const failedHandle = async (name: string, nativeError: string) => {
   native.answerOpen(native.openCount() - 1, { error: nativeError });
   await flush();
   return { handle, openError };
+};
+
+const openCallbackHandle = async (name: string): Promise<CallbackHandle> => {
+  const handle = lib.openDatabase({
+    name,
+    location: 'default',
+  }) as CallbackHandle;
+  native.answerOpen(native.openCount() - 1, 'success');
+  await flush();
+  return handle;
 };
 
 const closedHandle = async (name: string): Promise<PromiseHandle> => {
@@ -238,6 +266,80 @@ describe('react-native-sqlite-storage as patched, in promise mode', () => {
       rejectedWith('Invalid database handle'),
     );
   });
+
+  it('rejects a statement issued just before a close, and never runs it when the name reopens', async () => {
+    const handle = await openHandle('closing.db');
+
+    const statement = handle.executeSql("SELECT 'stranded'");
+    const closing = handle.close();
+    const afterClose = handle.executeSql("SELECT 'after close'");
+
+    const outcomes = await Promise.all(
+      [statement, afterClose, closing].map(settled),
+    );
+
+    expect(outcomes).toEqual([
+      rejectedWith('database not open'),
+      rejectedWith('database not open'),
+      expect.objectContaining({ state: 'resolved' }),
+    ]);
+
+    const reopened = await openHandle('closing.db');
+    await reopened.executeSql("SELECT 'after reopen'");
+
+    expect(native.batches()).toContain("SELECT 'after reopen'");
+    expect(native.batches()).not.toContain("SELECT 'stranded'");
+    expect(native.batches()).not.toContain("SELECT 'after close'");
+  });
+
+  it('rejects a statement queued during the open when the database closes before the open answers, and never runs it when the name reopens', async () => {
+    const handle = await startOpen('closed-while-opening.db');
+
+    const statement = handle.executeSql("SELECT 'stranded'");
+    const closing = handle.close();
+    const afterClose = handle.executeSql("SELECT 'after close'");
+
+    const outcomes = await Promise.all(
+      [statement, afterClose, closing].map(settled),
+    );
+
+    expect(outcomes).toEqual([
+      rejectedWith('database not open'),
+      rejectedWith('database not open'),
+      expect.objectContaining({ state: 'resolved' }),
+    ]);
+
+    native.answerOpen(0, 'success');
+    await flush();
+    const reopened = await openHandle('closed-while-opening.db');
+    await reopened.executeSql("SELECT 'after reopen'");
+
+    expect(native.batches()).toContain("SELECT 'after reopen'");
+    expect(native.batches()).not.toContain("SELECT 'stranded'");
+    expect(native.batches()).not.toContain("SELECT 'after close'");
+  });
+
+  it('leaves the queue to run when a close is refused during a transaction', async () => {
+    const handle = await openHandle('busy.db');
+    native.holdBatches();
+    const running = handle.executeSql("SELECT 'running'");
+    await flush();
+    const queued = handle.executeSql("SELECT 'queued'");
+
+    const closing = await settled(handle.close());
+    native.releaseBatches();
+
+    expect(closing).toEqual(
+      rejectedWith(
+        'database cannot be closed while a transaction is in progress',
+      ),
+    );
+    expect(await settled(running)).toMatchObject({ state: 'resolved' });
+    expect(await settled(queued)).toMatchObject({ state: 'resolved' });
+    expect(native.batches().indexOf("SELECT 'running'")).toBeLessThan(
+      native.batches().indexOf("SELECT 'queued'"),
+    );
+  });
 });
 
 describe('react-native-sqlite-storage as patched, in callback mode', () => {
@@ -263,5 +365,59 @@ describe('react-native-sqlite-storage as patched, in callback mode', () => {
       expect.objectContaining({ message: 'database not open' }),
     );
     expect(ok).not.toHaveBeenCalled();
+  });
+
+  it('reports a statement aborted by a close before close returns', async () => {
+    const handle = await openCallbackHandle('closing.db');
+    const ok = jest.fn();
+    const err = jest.fn<void, [Error]>();
+
+    handle.executeSql("SELECT 'stranded'", [], ok, err);
+    handle.close(
+      () => {},
+      () => {},
+    );
+
+    expect(err).toHaveBeenCalledTimes(1);
+    expect(err).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'database not open' }),
+    );
+    expect(ok).not.toHaveBeenCalled();
+  });
+
+  it('rejects a statement issued from an abort callback, and never runs it when the name reopens', async () => {
+    const handle = await openCallbackHandle('reissued.db');
+    const reissuedOk = jest.fn();
+    const reissuedErr = jest.fn<void, [Error]>();
+
+    handle.executeSql(
+      "SELECT 'stranded'",
+      [],
+      () => {},
+      () => handle.executeSql("SELECT 'reissued'", [], reissuedOk, reissuedErr),
+    );
+    handle.close(
+      () => {},
+      () => {},
+    );
+    await flush();
+
+    expect(reissuedErr).toHaveBeenCalledWith(
+      expect.objectContaining({ message: 'database not open' }),
+    );
+    expect(reissuedOk).not.toHaveBeenCalled();
+
+    const reopened = await openCallbackHandle('reissued.db');
+    reopened.executeSql(
+      "SELECT 'after reopen'",
+      [],
+      () => {},
+      () => {},
+    );
+    await flush();
+
+    expect(native.batches()).toContain("SELECT 'after reopen'");
+    expect(native.batches()).not.toContain("SELECT 'stranded'");
+    expect(native.batches()).not.toContain("SELECT 'reissued'");
   });
 });

@@ -1,5 +1,5 @@
 diff --git a/lib/sqlite.core.js b/lib/sqlite.core.js
-index 9963042a80b1b7953c8c05c29dbfa64c0572b85a..bffa398cec3850f47160308ab8dd0d0d43cf80e4 100644
+index 9963042a80b1b7953c8c05c29dbfa64c0572b85a..05344195dfc84e7f752809382456c90053ec6473 100644
 --- a/lib/sqlite.core.js
 +++ b/lib/sqlite.core.js
 @@ -132,6 +132,11 @@ SQLitePlugin.prototype.databaseFeatures = {
@@ -31,6 +31,23 @@ index 9963042a80b1b7953c8c05c29dbfa64c0572b85a..bffa398cec3850f47160308ab8dd0d0d
    }
  };
  
+@@ -187,14 +188,14 @@ SQLitePlugin.prototype.startNextTransaction = function() {
+   })(this));
+ };
+ 
+-SQLitePlugin.prototype.abortAllPendingTransactions = function() {
++SQLitePlugin.prototype.abortAllPendingTransactions = function(message) {
+   var j, len1, ref, tx, txLock;
+   txLock = txLocks[this.dbname];
+   if (!!txLock && txLock.queue.length > 0) {
+     ref = txLock.queue;
+     for (j = 0, len1 = ref.length; j < len1; j++) {
+       tx = ref[j];
+-      tx.abortFromQ(newSQLError("Invalid database handle"));
++      tx.abortFromQ(newSQLError(message || "Invalid database handle"));
+     }
+     txLock.queue = [];
+     txLock.inProgress = false;
 @@ -281,10 +282,11 @@ SQLitePlugin.prototype.open = function(success, error) {
        };
      })(this);
@@ -45,7 +62,16 @@ index 9963042a80b1b7953c8c05c29dbfa64c0572b85a..bffa398cec3850f47160308ab8dd0d0d
          }
          delete _this.openDBs[_this.dbname];
          _this.abortAllPendingTransactions();
-@@ -400,7 +402,7 @@ SQLitePlugin.prototype.detach = function(dbAlias, success, error) {
+@@ -309,6 +311,8 @@ SQLitePlugin.prototype.close = function(success, error) {
+     } else {
+       plugin.log("closing db with no transaction lock state");
+     }
++    // openDBs is cleared first, so a statement issued from an abort callback is rejected, not queued.
++    this.abortAllPendingTransactions("database not open");
+     let mysuccess = function(t, r) {
+       if (!!success) {
+         return success(r);
+@@ -400,7 +404,7 @@ SQLitePlugin.prototype.detach = function(dbAlias, success, error) {
  };
  
  SQLitePlugin.prototype.executeSql = function(statement, params, success, error) {
@@ -54,7 +80,7 @@ index 9963042a80b1b7953c8c05c29dbfa64c0572b85a..bffa398cec3850f47160308ab8dd0d0d
    mysuccess = function(t, r) {
      if (!!success) {
        return success(r);
-@@ -416,7 +418,15 @@ SQLitePlugin.prototype.executeSql = function(statement, params, success, error)
+@@ -416,7 +420,15 @@ SQLitePlugin.prototype.executeSql = function(statement, params, success, error)
    myfn = function(tx) {
      tx.addStatement(statement, params, mysuccess, myerror);
    };
