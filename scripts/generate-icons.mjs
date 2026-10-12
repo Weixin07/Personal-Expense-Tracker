@@ -2,7 +2,10 @@ import sharp from 'sharp';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-const SRC = new URL('./assets/logo.png', import.meta.url).pathname.replace(/^\//, '');
+const SRC = new URL('./assets/logo.png', import.meta.url).pathname.replace(
+  /^\//,
+  '',
+);
 const RES = 'C:/PET/android/app/src/main/res';
 const BACKGROUND = '#D32F2F';
 
@@ -17,7 +20,7 @@ const DENSITIES = { mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };
 const ADAPTIVE_DP = 108;
 const LEGACY_DP = 48;
 
-const hexToRgb = (hex) => {
+const hexToRgb = hex => {
   const n = parseInt(hex.slice(1), 16);
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 };
@@ -25,7 +28,7 @@ const rgb = hexToRgb(BACKGROUND);
 
 const px = (dp, scale) => Math.round(dp * scale);
 
-const fittedLogo = (side) =>
+const fittedLogo = side =>
   sharp(SRC).resize(side, side, { fit: 'inside' }).png().toBuffer();
 
 const write = async (relPath, buffer) => {
@@ -37,10 +40,15 @@ const write = async (relPath, buffer) => {
 
 const squareCanvas = (size, alpha) =>
   sharp({
-    create: { width: size, height: size, channels: 4, background: { ...rgb, alpha } },
+    create: {
+      width: size,
+      height: size,
+      channels: 4,
+      background: { ...rgb, alpha },
+    },
   });
 
-const circleBg = (size) =>
+const circleBg = size =>
   Buffer.from(
     `<svg width="${size}" height="${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${size / 2}" fill="${BACKGROUND}"/></svg>`,
   );
@@ -59,7 +67,9 @@ for (const [density, scale] of Object.entries(DENSITIES)) {
   );
 
   const legSize = px(LEGACY_DP, scale);
-  const legLogo = await fittedLogo(px(LEGACY_DP * LEGACY_SQUARE_FRACTION, scale));
+  const legLogo = await fittedLogo(
+    px(LEGACY_DP * LEGACY_SQUARE_FRACTION, scale),
+  );
   await write(
     `${dir}/ic_launcher.png`,
     await squareCanvas(legSize, 1)
@@ -68,7 +78,9 @@ for (const [density, scale] of Object.entries(DENSITIES)) {
       .toBuffer(),
   );
 
-  const roundLogo = await fittedLogo(px(LEGACY_DP * LEGACY_ROUND_FRACTION, scale));
+  const roundLogo = await fittedLogo(
+    px(LEGACY_DP * LEGACY_ROUND_FRACTION, scale),
+  );
   await write(
     `${dir}/ic_launcher_round.png`,
     await sharp(circleBg(legSize))
@@ -85,7 +97,10 @@ const adaptiveXml = `<?xml version="1.0" encoding="utf-8"?>
 </adaptive-icon>
 `;
 await write('mipmap-anydpi-v26/ic_launcher.xml', Buffer.from(adaptiveXml));
-await write('mipmap-anydpi-v26/ic_launcher_round.xml', Buffer.from(adaptiveXml));
+await write(
+  'mipmap-anydpi-v26/ic_launcher_round.xml',
+  Buffer.from(adaptiveXml),
+);
 
 await write(
   'values/ic_launcher_background.xml',

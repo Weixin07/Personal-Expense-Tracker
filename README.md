@@ -532,7 +532,8 @@ See [DEPLOY.md - Troubleshooting PKCE Issues](./DEPLOY.md#troubleshooting-pkce-i
 | `pnpm lint:fix`              | Auto-fix ESLint issues where possible                                          |
 | `pnpm typecheck`             | Run TypeScript compiler in check mode (no emit)                                |
 | `pnpm format`                | Format code with Prettier                                                      |
-| `pnpm validate`              | Run lint, typecheck, and tests (CI-style validation)                           |
+| `pnpm format:check`          | Check formatting with Prettier, including untracked files (part of `validate`) |
+| `pnpm validate`              | Run lint, format check, typecheck, and tests (CI-style validation)             |
 | `pnpm build:android:release` | Build release APK (see [DEPLOY.md](./DEPLOY.md))                               |
 | `pnpm build:android:bundle`  | Build release App Bundle (.aab) for Play Store (see [DEPLOY.md](./DEPLOY.md))  |
 
@@ -667,7 +668,7 @@ pnpm test src/__tests__/performance/
 
 ### Known Limitations
 
-- **CI** — `.github/workflows/validate.yml` runs `pnpm validate` (lint + typecheck + tests) on every push/PR; `.github/workflows/release-build.yml` exercises a signed `assembleRelease` on demand or on a `v*` tag (skipped until release signing secrets are configured). On-device release smoke testing remains manual (see `DEPLOY.md`).
+- **CI** — `.github/workflows/validate.yml` runs `pnpm validate` (lint + format check + typecheck + tests) on every push/PR; `.github/workflows/release-build.yml` exercises a signed `assembleRelease` on demand or on a `v*` tag (skipped until release signing secrets are configured). On-device release smoke testing remains manual (see `DEPLOY.md`).
 - **Navigation and theme are excluded from coverage** by design (`jest.config.js` `collectCoverageFrom`) — they are declarative wiring with no unit-testable branches. All logic-bearing layers (context, screens, repositories, export, security, utils) are covered under enforced thresholds.
 - **No real-device performance testing** — performance is validated algorithmically, not on physical hardware.
 
@@ -825,9 +826,11 @@ PET/
 │   │   ├── transactionFilters.ts # Filter composition over the loaded ledger
 │   │   └── __tests__/          # Utility tests
 │   └── App.tsx                 # Root component
+├── .editorconfig               # Editor line endings (LF; .bat CRLF)
 ├── .env                        # Environment variables (NOT IN VCS)
 ├── .env.example                # Environment template (committed)
 ├── .eslintrc.js                # ESLint flat config
+├── .gitattributes              # Checkout line endings (LF; .bat CRLF)
 ├── .gitignore                  # Git ignore rules
 ├── .nvmrc                      # Node version (24.19.0)
 ├── .prettierrc.js              # Prettier config

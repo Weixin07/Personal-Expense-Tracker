@@ -214,7 +214,7 @@ Choose the artifact for your distribution channel:
 cd <project-root>
 
 # Optional but recommended: gate on a green build first
-pnpm validate          # lint + typecheck + tests
+pnpm validate          # lint + format check + typecheck + tests
 
 # Purge stale native caches first if you just changed dependencies, then build.
 # Use pnpm clean:android — NOT `gradlew clean`, which re-runs CMake configure against
@@ -894,7 +894,7 @@ pnpm test          # 484 tests pass; only the console.log benchmarks above
 cd android; .\gradlew clean --warning-mode all; cd ..   # the "Gradle 9.0" notices attribute only to node_modules/*/android/build.gradle
 ```
 
-`pnpm validate` (`eslint --max-warnings=0` + `tsc` + tests) is the enforcement point that keeps
+`pnpm validate` (`eslint --max-warnings=0` + `prettier --check` + `tsc` + tests) is the enforcement point that keeps
 our JS/TS warning-free and is a required check in `.github/workflows/validate.yml`. Our own
 `build.gradle` files use `name = value` assignment (already Gradle-10-ready) and must stay on
 that form.

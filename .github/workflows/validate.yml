@@ -41,11 +41,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Lint, Typecheck and Test with coverage are the `validate` script in
-      # package.json run as separate steps; a check added to one belongs in both.
+      # Lint, Format check, Typecheck and Test with coverage are the `validate`
+      # script in package.json run as separate steps; a check added to one belongs in both.
       - name: Lint
         id: lint
         run: pnpm lint
+
+      - name: Format check
+        id: format
+        if: ${{ !cancelled() && steps.lint.outcome != 'skipped' }}
+        run: pnpm format:check
 
       - name: Typecheck
         if: ${{ !cancelled() && steps.lint.outcome != 'skipped' }}
