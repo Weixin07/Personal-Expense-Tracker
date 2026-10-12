@@ -44,7 +44,7 @@ Default to NO comment. Add one only when it passes both tests. The lists below a
 - Respect deliberate structural/section dividers used as consistent house style — those are formatting, not violations.
 - Write comments after the code works, re-reading it as someone who did not write it. A comment drafted in the same breath as the decision defends the decision (DENY 6); one drafted afterwards describes the code.
 - Existing comments are not precedent. This codebase contains comments predating this policy; conform to the policy, not to the surrounding file.
-- `scripts/comment-policy.mjs` runs automatically on every edit, and again over the tree via `pnpm comment-policy` and `pnpm test`. It catches stock change-narration phrasings (DENY 3), issue ids (DENY 1), commented-out code (half of DENY 5) and over-long doc blocks. `eslint.config.mjs` surfaces the same phrase list in the editor.
+- `scripts/comment-policy.mjs` runs automatically on every edit inside the repo, and again over the tree via `pnpm comment-policy` and `pnpm test`, which also check the lines each `patches/*.patch` adds, and at commit for a staged patch. It catches stock change-narration phrasings (DENY 3), issue ids (DENY 1), commented-out code (half of DENY 5) and over-long doc blocks. `eslint.config.mjs` surfaces the same phrase list in the editor.
 - Because that tool has already run, spend judgement on the four anti-types it cannot see: **history narration in unstocked wording, justification-by-precedent (DENY 4), redundant restatement (DENY 5), and implementation-rationale / decision-defense (DENY 6)**. Passing the tool is necessary, never sufficient — it reads phrasing, not meaning.
 
 ## Removing Comments

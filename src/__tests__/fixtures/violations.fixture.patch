@@ -1,0 +1,60 @@
+diff --git a/sample.ts b/sample.ts
+index 1111111..2222222 100644
+--- a/sample.ts
++++ b/sample.ts
+@@ -1,3 +1,5 @@
+ // Amounts are stored in minor units, so a rate applies before rounding.
++// See PET-4412 for the background on this.
+ // The threshold used to be a percentage.
++// Rates are quoted per unit of the base currency.
+ export const fixtureThreshold = 10;
+@@ -10,5 +12,6 @@ export const fixtureThreshold = 10;
+ /**
+  * Converts an amount at the given rate.
++ * Tracked in PET-77.
+  */
+ export const convert = (amount: number, rate: number) =>
+   Math.round(amount * rate);
+@@ -20,13 +23,17 @@ export const convert = (amount: number, rate: number) =>
+ /**
+  * Rounds a minor-unit amount to the nearest whole unit.
+  *
+  * Halves round away from zero.
+  *
+  * Negative amounts are refunds and round the same way.
+  *
+  * The result is still in minor units.
+  *
+  * Callers pass integers only.
+  *
++ * Fractional input is a caller error.
++ *
++ * The rounding mode matches the bank statement.
++ *
+  */
+ export const round = (n: number) => Math.round(n);
+@@ -40,6 +47,9 @@ export const round = (n: number) => Math.round(n);
+  * The cache is keyed by currency pair.
+  * Entries are shared across screens.
+  * Lookups never block on the network.
++ * Tracked in PET-88.
++ * Entries expire at the next rate refresh.
+  */
+ export class RateCache {
++  size = 0;
+   items: number[] = [];
+@@ -60,4 +70,5 @@ export class RateCache {
+   *values() {
+     yield* this.items;
++    return this.items;
+   }
+ }
+diff --git a/package.json b/package.json
+index 3333333..4444444 100644
+--- a/package.json
++++ b/package.json
+@@ -1,3 +1,4 @@
+ {
++  "note": "PET-1",
+   "name": "sample"
+ }

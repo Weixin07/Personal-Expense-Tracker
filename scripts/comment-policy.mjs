@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from 'fs';
-import { extname, join, relative, resolve } from 'path';
+import { extname, isAbsolute, join, relative, resolve, sep } from 'path';
 import { fileURLToPath } from 'url';
 
 /**
@@ -7,7 +7,9 @@ import { fileURLToPath } from 'url';
  * a machine can see: stock change-narration phrasings, issue-tracker citations,
  * commented-out code, and doc blocks long enough to have left the contract
  * behind. Redundant restatement and decision-defense are invisible here and
- * remain a reading job.
+ * remain a reading job. A `.patch` is checked on the lines it adds, under its
+ * target file's rules, one hunk at a time, so a doc block is measured only as
+ * far as its hunk shows it.
  *
  * Consumed three ways, so the rules exist once: the edit-time hook, the
  * `comment-policy` npm script, and `no-warning-comments` in eslint.config.mjs,
@@ -101,7 +103,10 @@ const BLOCK_LANGUAGES = new Set([
   '.gradle',
 ]);
 
-export const isCheckable = file => extname(file) in LINE_MARKERS;
+const hasCommentRules = file => extname(file) in LINE_MARKERS;
+
+export const isCheckable = file =>
+  extname(file) === '.patch' || hasCommentRules(file);
 
 /**
  * Comment lines of a file, each carrying the prose with its marker stripped.
@@ -205,7 +210,104 @@ export const checkFile = (file, text) => {
   return problems;
 };
 
+/**
+ * Hunks of a unified diff, each as its post-image lines tagged with their line
+ * in the diff and whether the diff adds them. Hunks of a deleted file, or of a
+ * file without comment rules, are left out.
+ */
+const patchHunks = text => {
+  const hunks = [];
+  let target = null;
+  let hunk = null;
+
+  text.split(/\r?\n/).forEach((raw, index) => {
+    if (raw.startsWith('diff --git ')) {
+      target = null;
+      hunk = null;
+    } else if (raw.startsWith('+++ ')) {
+      const path = raw.slice(4).trim();
+      target = path.startsWith('b/') ? path.slice(2) : null;
+      hunk = null;
+    } else if (raw.startsWith('@@')) {
+      hunk = target && hasCommentRules(target) ? { target, lines: [] } : null;
+      if (hunk) {
+        hunks.push(hunk);
+      }
+    } else if (hunk && (raw.startsWith(' ') || raw.startsWith('+'))) {
+      hunk.lines.push({
+        text: raw.slice(1),
+        patchLine: index + 1,
+        added: raw.startsWith('+'),
+      });
+    }
+  });
+
+  return hunks;
+};
+
+const BLOCK_CONTINUATION = /^\*(?:\s|\/|$)/;
+
+const opensInsideBlock = lines => {
+  for (const { text } of lines) {
+    const line = text.trim();
+    if (line.startsWith('/*')) {
+      return false;
+    }
+    if (BLOCK_CONTINUATION.test(line)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+/**
+ * The added line a problem belongs to, or undefined when it lies wholly on
+ * context lines. A doc block belongs to its first added line.
+ */
+const addedLineOf = (problem, lines) => {
+  const start = problem.line - 1;
+  if (problem.rule !== 'doc-block-length') {
+    return lines[start].added ? lines[start] : undefined;
+  }
+  const end = start + lines.slice(start).findIndex(l => l.text.includes('*/'));
+  return lines.slice(start, end + 1).find(l => l.added);
+};
+
+/**
+ * Policy violations on the lines a unified diff adds, under each target file's
+ * rules, as `{ line, rule, message, target }` with `line` counted in the diff.
+ */
+export const checkPatch = text =>
+  patchHunks(text).flatMap(({ target, lines: hunkLines }) => {
+    const lines =
+      BLOCK_LANGUAGES.has(extname(target)) && opensInsideBlock(hunkLines)
+        ? [{ text: '/*', added: false }, ...hunkLines]
+        : hunkLines;
+    return checkFile(target, lines.map(l => l.text).join('\n')).flatMap(
+      problem => {
+        const at = addedLineOf(problem, lines);
+        return at ? [{ ...problem, line: at.patchLine, target }] : [];
+      },
+    );
+  });
+
+const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
+
 const SKIP_DIRS = new Set(['node_modules', 'build', '.gradle', '.cxx']);
+
+/**
+ * Whether the edit hook checks `file`: a checkable file inside `root` and
+ * outside every directory under the rule on `SKIP_DIRS`.
+ */
+export const isHookTarget = (file, root) => {
+  const rel = relative(root, resolve(file));
+  if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    return false;
+  }
+  return (
+    !rel.split(sep).some(segment => SKIP_DIRS.has(segment)) && isCheckable(file)
+  );
+};
 
 const walk = dir =>
   readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
@@ -257,10 +359,14 @@ const report = files => {
   let count = 0;
 
   for (const file of files) {
-    for (const problem of checkFile(file, readFileSync(file, 'utf8'))) {
+    const text = readFileSync(file, 'utf8');
+    const problems =
+      extname(file) === '.patch' ? checkPatch(text) : checkFile(file, text);
+    for (const problem of problems) {
       count++;
+      const where = problem.target ? ` (in ${problem.target})` : '';
       console.error(
-        `${relative(root, file)}:${problem.line}  ${problem.message}  [${problem.rule}]`,
+        `${relative(root, file)}:${problem.line}  ${problem.message}${where}  [${problem.rule}]`,
       );
     }
   }
@@ -276,10 +382,12 @@ const main = async () => {
   let files;
   if (hookMode) {
     const target = await readHookTarget();
-    files = target && isCheckable(target) ? expand([target]) : [];
+    files = target && isHookTarget(target, REPO_ROOT) ? expand([target]) : [];
   } else {
     files = expand(
-      targets.length ? targets : ['src', 'scripts', 'android/app/src'],
+      targets.length
+        ? targets
+        : ['src', 'scripts', 'android/app/src', 'patches'],
     );
   }
 

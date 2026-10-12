@@ -145,7 +145,6 @@ export default [
     },
     rules: {
       '@typescript-eslint/no-require-imports': 'off',
-      // Only forbid truly dynamic requires; static literal requires are fine here
       'import/no-dynamic-require': 'off',
     },
   },
@@ -165,7 +164,7 @@ export default [
   // eslint explicitly, and an explicitly-passed ignored file is a warning, which
   // fails the pre-commit hook's --max-warnings=0.
   {
-    files: ['**/*.fixture.*'],
+    files: ['**/*.fixture.{js,jsx,ts,tsx}'],
     rules: {
       'no-warning-comments': 'off',
     },

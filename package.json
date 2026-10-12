@@ -91,7 +91,8 @@
     "*.{js,jsx,ts,tsx}": [
       "pnpm exec eslint --max-warnings=0 --fix",
       "pnpm exec jest --bail --passWithNoTests --findRelatedTests"
-    ]
+    ],
+    "patches/*.patch": "node scripts/comment-policy.mjs"
   },
   "pnpm": {
     "patchedDependencies": {

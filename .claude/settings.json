@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node scripts/comment-policy.mjs --hook",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/comment-policy.mjs\" --hook",
             "statusMessage": "Checking comment policy",
             "timeout": 30
           }
