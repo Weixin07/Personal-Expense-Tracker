@@ -4,6 +4,8 @@ import { tmpdir } from 'os';
 import { join, parse } from 'path';
 import { pathToFileURL } from 'url';
 
+import { posixShell } from './test-utils/posixShell';
+
 /**
  * Runs the comment-policy checker over the tree the way CI does. The rules
  * themselves live in scripts/comment-policy.mjs, which the edit-time hook and
@@ -70,19 +72,6 @@ const editHookCommand = (): string => {
     throw new Error('no PostToolUse hook matches Edit');
   }
   return entry.hooks[0].command;
-};
-
-const posixShell = (): string => {
-  if (process.platform !== 'win32') {
-    return 'sh';
-  }
-  if (process.env.CLAUDE_CODE_GIT_BASH_PATH) {
-    return process.env.CLAUDE_CODE_GIT_BASH_PATH;
-  }
-  const gitCore = execFileSync('git', ['--exec-path'], {
-    encoding: 'utf8',
-  }).trim();
-  return join(gitCore, '..', '..', '..', 'bin', 'bash.exe');
 };
 
 const findings = (output: string) =>

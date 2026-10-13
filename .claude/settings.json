@@ -27,10 +27,53 @@
       "PowerShell(node scripts/comment-policy.mjs)",
       "PowerShell(Select-Object *)",
       "PowerShell(Select-String *)",
-      "PowerShell(Measure-Object *)"
+      "PowerShell(Measure-Object *)",
+      "Bash(pnpm comment-policy *)",
+      "PowerShell(pnpm comment-policy *)",
+      "Bash(pnpm exec jest *)",
+      "PowerShell(pnpm exec jest *)",
+      "Bash(curl -s -m 5 --retry 2 --retry-delay 5 --retry-all-errors localhost:8081/status)",
+      "PowerShell(curl -s -m 5 --retry 2 --retry-delay 5 --retry-all-errors localhost:8081/status)",
+      "Bash(git status*)",
+      "PowerShell(git status*)",
+      "Bash(git diff *)",
+      "PowerShell(git diff *)",
+      "Bash(git log *)",
+      "PowerShell(git log *)",
+      "Bash(git show *)",
+      "PowerShell(git show *)",
+      "Bash(git merge-base *)",
+      "PowerShell(git merge-base *)",
+      "Bash(pnpm format:check)",
+      "PowerShell(pnpm format:check)",
+      "Bash(pnpm exec prettier *)",
+      "PowerShell(pnpm exec prettier *)",
+      "Bash(pnpm patch *)",
+      "PowerShell(pnpm patch *)",
+      "Bash(pnpm patch-commit *)",
+      "PowerShell(pnpm patch-commit *)",
+      "Bash(pnpm install --frozen-lockfile)",
+      "PowerShell(pnpm install --frozen-lockfile)",
+      "Bash(pnpm start --port 8082 *)",
+      "PowerShell(pnpm start --port 8082 *)",
+      "Bash(adb *)",
+      "PowerShell(adb *)"
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/fix-task-guard.mjs\"",
+            "statusMessage": "Checking fix-task guard",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
